@@ -40,4 +40,4 @@
 - 2018 LLVM Dev: Porting Function merging pass to thinlto: https://www.youtube.com/watch?v=GxQmcvYpKYU
 - 2018 CPP Now: Performance analysis and optimization of C++ standard libraries: https://www.youtube.com/watch?v=OTCp_AkAyRQ
 - 2017 LLVM Dev: Introsort based sorting function for libc++: https://www.youtube.com/watch?v=Lcz0ZHewkHs
-- 2016 LLVM Dev: https://www.youtube.com/watch?v=GB3OpqSwuUw
+- 2016 LLVM Dev: GVN Hoist pass in LLVM: https://www.youtube.com/watch?v=GB3OpqSwuUw
