@@ -14,7 +14,7 @@
 - 2017 http://llvm.org/devmtg/2017-02-04/#menezes (http://llvm.org/devmtg/2017-02-04/Efficient-clustering-of-case-statements-for-indirect-branch-prediction.pdf)
 
 ### GCC Cauldron (Approximate audience: 150-200)
-- 2015 Loop optimizer and vectorization BOF (https://goo.gl/GQNN9h)
+- 2015 Loop optimizer and vectorization BOF (http://gcc.gnu.org/wiki/cauldron2015?action=AttachFile&do=view&target=Aditya+Kumar,+Sebastian+Pop_+Loop+optimizer+and+vectorization+BOF.pdf)
 
 ### CPP Now (Approximate audience: 100-150)
 - 2017 http://sched.co/A8J7 (https://github.com/hiraditya/std-benchmark/blob/master/docs/slides/slide-cppnow.pdf)
