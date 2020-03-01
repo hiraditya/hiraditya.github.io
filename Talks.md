@@ -6,6 +6,7 @@
 - 2018 http://llvm.org/devmtg/2018-10/talk-abstracts.html#talk2 (https://llvm.org/devmtg/2018-10/slides/Kumar-FunctionMergingPortThinLTO.pdf)
 - 2017 http://llvm.org/devmtg/2017-10/#lightning3
 - 2016 http://llvm.org/devmtg/2016-11/#talk11 (http://llvm.org/devmtg/2016-11/Slides/Kumar-Pop-GVNHoist.pdf)
+- 2016 https://llvmdevelopersmeetingbay2016.sched.com/event/8Yzk/performance-improvements-in-libcxx
 - 2014 http://llvm.org/devmtg/2014-10/#talk17 (http://llvm.org/devmtg/2014-10/Slides/Larin-GlobalInstructionScheduling.pdf)
 
 ### LLVM Performance workshop at CGO (Approximate audience: 20-50)
