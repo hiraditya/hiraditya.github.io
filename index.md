@@ -75,6 +75,15 @@ Projects:
 
 • Design Using C++, Programming Languages Design, Analysis of Algorithms, Artificial Intelligence, Compiler Design, Computer Architecture, Database Systems, Multi-rate Signal Processing using wavelets, Statistical Computations and Analysis.
 
+# IDEs using Demacrofier
+## Visual studio replacing macros:
+https://devblogs.microsoft.com/cppblog/convert-macros-to-constexpr/
+
+## Repara project’s Cevelop IDE:
+http://repara-project.eu/ https://iris.unito.it/retrieve/handle/2318/1523738/52857/15_RePara_ISPA.pdf
+https://www.cevelop.com/
+
+
 LANGUAGES
 
 • English (Fluent), Hindi (Mother Tongue)
