@@ -2,8 +2,9 @@
 layout: homepage
 ---
 
-### To Contact me please message me on [linkedin](linkedin.com/in/hiraditya).
-### [My Talks](Talks)
+### [Talks](Talks) [linkedin](https://linkedin.com/in/hiraditya) [github](https://github.com/hiraditya).
+
+[post](compiler/toolchain-description)
 
 # Professional Experience
 
