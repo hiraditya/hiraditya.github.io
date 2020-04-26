@@ -2,7 +2,8 @@
 layout: homepage
 ---
 
-## To Contact me please message me on [linkedin](linkedin.com/in/hiraditya).
+### To Contact me please message me on [linkedin](linkedin.com/in/hiraditya).
+### [My Talks](Talks.md)
 
 # Professional Experience
 
