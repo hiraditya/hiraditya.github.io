@@ -2,9 +2,7 @@
 layout: homepage
 ---
 
-### [Talks](Talks) [linkedin](https://linkedin.com/in/hiraditya) [github](https://github.com/hiraditya).
-
-[post]({% post_url 2020-04-25-toolchain-description %})
+### [Talks](Talks) [linkedin](https://linkedin.com/in/hiraditya) [github](https://github.com/hiraditya) [posts](Posts)
 
 # Professional Experience
 
