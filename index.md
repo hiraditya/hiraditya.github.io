@@ -4,7 +4,7 @@ layout: homepage
 
 ### [Talks](Talks) [linkedin](https://linkedin.com/in/hiraditya) [github](https://github.com/hiraditya).
 
-[post](compiler/toolchain-description)
+[post]({% post_url 2020-04-25-toolchain-description %})
 
 # Professional Experience
 
