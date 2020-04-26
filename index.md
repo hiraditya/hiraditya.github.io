@@ -1,89 +1,123 @@
-# ADITYA KUMAR
+---
+layout: default
+---
 
-## To Contact me please message me on linkedin (linkedin.com/in/hiraditya).
+Text can be **bold**, _italic_, ~~strikethrough~~ or `keyword`.
 
-# WORK AUTHORIZATION
-H1B Visa.
+[Link to another page](./another-page.html).
 
-# PROFESSIONAL EXPERIENCE
+There should be whitespace between paragraphs.
 
-## Sr. Compiler engineer at Samsung Austin R&D Center. (Since Feb. 2015)
+There should be whitespace between paragraphs. We recommend including a README, or a file with information about your project.
 
-* Working on performance and code-size optimizations on gcc
-  - Loop optimizations, polyhedral framework (graphite), vectorization, feedback directed optimizations, android performance improvements, refactoring gcc backend.
-* Working on clang static analyzer in my spare time.
-  - Writing checkers, running clang static analyzer on linux kernel, gcc.
+# Header 1
+
+This is a normal paragraph following a header. GitHub is a code hosting platform for version control and collaboration. It lets you and others work together on projects from anywhere.
+
+## Header 2
+
+> This is a blockquote following a header.
+>
+> When something is important enough, you do it even if the odds are not in your favor.
+
+### Header 3
+
+```js
+// Javascript code with syntax highlighting.
+var fun = function lang(l) {
+  dateformat.i18n = require('./lang/' + l)
+  return true;
+}
+```
+
+```ruby
+# Ruby code with syntax highlighting
+GitHubPages::Dependencies.gems.each do |gem, version|
+  s.add_dependency(gem, "= #{version}")
+end
+```
+
+#### Header 4
+
+*   This is an unordered list following a header.
+*   This is an unordered list following a header.
+*   This is an unordered list following a header.
+
+##### Header 5
+
+1.  This is an ordered list following a header.
+2.  This is an ordered list following a header.
+3.  This is an ordered list following a header.
+
+###### Header 6
+
+| head1        | head two          | three |
+|:-------------|:------------------|:------|
+| ok           | good swedish fish | nice  |
+| out of stock | good and plenty   | nice  |
+| ok           | good `oreos`      | hmm   |
+| ok           | good `zoute` drop | yumm  |
+
+### There's a horizontal rule below this.
+
+* * *
+
+### Here is an unordered list:
+
+*   Item foo
+*   Item bar
+*   Item baz
+*   Item zip
+
+### And an ordered list:
+
+1.  Item one
+1.  Item two
+1.  Item three
+1.  Item four
+
+### And a nested list:
+
+- level 1 item
+  - level 2 item
+  - level 2 item
+    - level 3 item
+    - level 3 item
+- level 1 item
+  - level 2 item
+  - level 2 item
+  - level 2 item
+- level 1 item
+  - level 2 item
+  - level 2 item
+- level 1 item
+
+### Small image
+
+![Octocat](https://github.githubassets.com/images/icons/emoji/octocat.png)
+
+### Large image
+
+![Branching](https://guides.github.com/activities/hello-world/branching.png)
 
 
-## Sr. Compiler engineer at Qualcomm. (Sept. 2012 to Feb. 2015)
+### Definition lists can be used with HTML syntax.
 
-* Worked on LLVM compiler infrastructure specifically, on the Hexagon Backend.
-  - Develop optimization algorithms to improve performance and code-size for Hexagon DSP. Global scheduling, Loops transformations, peephole optimizations, liveness analysis.
-* Worked on clang static analyzer to improve checks to help find out potential bugs in C/C++ programs.
+<dl>
+<dt>Name</dt>
+<dd>Godzilla</dd>
+<dt>Born</dt>
+<dd>1952</dd>
+<dt>Birthplace</dt>
+<dd>Japan</dd>
+<dt>Color</dt>
+<dd>Green</dd>
+</dl>
 
+```
+Long, single-line code blocks should not wrap. They should horizontally scroll if they are too long. This line should be long enough to demonstrate this.
+```
 
-# Publications:
-
-* A. Kumar, A. Sutton, and B. Stroustrup, "Rejuvenating C++ Programs through Demacrofication", in Software Maintenance, 2012. ICSM 2012. IEEE Conference on. IEEE, 2012
-
-* A. Kumar, A. Sutton, and B. Stroustrup, "The Demacrofier", in Software Maintenance, 2012. ICSM 2012. IEEE Conference on. IEEE, 2012
-
-* A. Kumar, Sebastian Pop, "SCoP Detection: A Fast Algorithm for Industrial Compilers", in IMPACT 2016, 6th International Workshop on Polyhedral Compilation Techniques.
-
-# EDUCATION
-
-M.S. in Computer Science, Texas A&M University College Station, Texas
-Grad: Dec-2012, GPA: 3.61
-Thesis: Static analysis and possible replacements of preprocessor macros in a C++ program.
-
-B.Tech. in Electronics & Communications Engineering, National Institute of Technology Hamirpur, India
-Grad: May-2007, GPA: 9.23/10
-
-# TECHNICAL SKILLS
-
-• Programming languages: C++11, C, Java, Perl, Python
-• Compilers: LLVM Compiler infrastructure, GCC.
-• Libraries: C++ (STL, Boost Graph, Boost wave, Boost lambda, Boost program_options)
-• Web: HTML, CSS
-• Others: CMake, svn, git, Doxygen, flex, bison, MATLAB
-
-# ACADEMIC PROJECTS
-
-* A C++ library to facilitate random access of data in a file in an efficient way using memory-mapped file I/O facilities in Linux.
-* Designed and implemented a lexical analyzer, parser, semantic analyzer, code generator and optimizer (control flow, dataflow, and register allocation) for 'DECAF', a subset of C++ programming language (flex, bison++ and C++).
-* Designed and implemented an interpreter for Tiny SQL- a subset of SQL (C++).
-* Implemented a branch mis-prediction recovery mechanism for a speculative branch predictor from the paper titled 'A Branch Predictor with New Recovery Mechanism' by Young-Il Cho, Department of Computer Science at University of Suwon.
-* An intelligent active vision system using neuro-evolutionary techniques (Java).
-* Implemented portions of operating system (virtual memory management, memory manager, low level threading system, file system) using the bochs emulation environment.
-
-# PROFESSIONAL EXPERIENCE
-
-Department of Computer Science, Texas A&M University (since Oct-2011)
-Job Title: Student Technician
-* Static analysis and possible replacements of preprocessor macros in a C++ program.
-Paper titled "Rejuvenating Macros as C++11 Declarations", submitted in International Conference on Software Maintenance (2012)
-* Extending my thesis work in Google Summer of Code -2012.
-
-Bharat Electronics Limited, Hyderabad, INDIA (Sept-2007 to July-2010)
-Job Title: Project Engineer
-Projects:
-* Finger Printing System (FPS) - Design and development of FPS application software in C++, testing of the system (group of 20).
-* Electronic Support Measure (ESM) System - Design improvement and testing of a pulse descriptor formatter using VHDL (group of 75).
-* Implementation of RS232 based customized Signal Generator Controller (for Agilent's Signal Generator) using Visual C++ and 'visa' library.
-
-# COURSES
-
-• Design Using C++, Programming Languages Design, Analysis of Algorithms, Artificial Intelligence, Compiler Design, Computer Architecture, Database Systems, Multi-rate Signal Processing using wavelets, Statistical Computations and Analysis.
-
-# IDEs using Demacrofier
-## Visual studio replacing macros:
-https://devblogs.microsoft.com/cppblog/convert-macros-to-constexpr/
-
-## Repara project’s Cevelop IDE:
-http://repara-project.eu/ https://iris.unito.it/retrieve/handle/2318/1523738/52857/15_RePara_ISPA.pdf
-https://www.cevelop.com/
-
-
-LANGUAGES
-
-• English (Fluent), Hindi (Mother Tongue)
+```
+The final element.
+```
