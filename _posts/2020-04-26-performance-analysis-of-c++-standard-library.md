@@ -1,5 +1,8 @@
 ---
-layout: post
+layout: single 
+toc: true
+toc_label: "Table of Contents"
+toc_icon: "cog"
 title:  "Opportunities of performance improvements in the C++ Standard Library"
 date:   2020-04-25 19:11:59 -0700
 categories: Performance

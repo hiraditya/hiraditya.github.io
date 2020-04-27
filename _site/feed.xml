@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.0.0">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2020-04-26T22:21:29-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">Aditya K</title><subtitle>Compiler Engineer, Facebook</subtitle><author><name>Aditya K</name></author><entry><title type="html">Introduction to compiler toolchain!</title><link href="http://localhost:4000/compiler/toolchain-description/" rel="alternate" type="text/html" title="Introduction to compiler toolchain!" /><published>2020-04-25T19:11:59-07:00</published><updated>2020-04-25T19:11:59-07:00</updated><id>http://localhost:4000/compiler/toolchain-description</id><content type="html" xml:base="http://localhost:4000/compiler/toolchain-description/">&lt;h1 id=&quot;what-is-a-compiler-toolchain&quot;&gt;What is a compiler toolchain?&lt;/h1&gt;
+&lt;p&gt;Have you ever wondered what dependencies are required to compile a simple hello-world program? Even a small hello-world program needs a set of header files, and libraries that are used by the compiler. The header file e.g., iostream is required to find the declaration of functions which are not available in the hello-world program e.g, std::cout. The libraries are required to find definitions of functions e.g., std::operator« during the linkage process. As a result of the compilation process an executable is created runs on the machine.&lt;/p&gt;
+
+&lt;h2 id=&quot;the-compilation-process&quot;&gt;The compilation process&lt;/h2&gt;
+&lt;p&gt;When a compiler like g++ is used to compile a C++ program, the compilation process actually involves multiple steps depending on what output is desired. To see the steps involved in the compilation process -v needs to be passed to the compiler. We can use a small hello world program like the following to understand the compilation process:&lt;/p&gt;
+
+&lt;div class=&quot;language-c highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;cp&quot;&gt;#include&amp;lt;iostream&amp;gt;
+&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;int&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;main&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+   &lt;span class=&quot;n&quot;&gt;std&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;cout&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;Hello world&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+   &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Let’s inspect the output of the invocation of g++ compiler by enabling the verbose output. Although the verbose invocation outputs a lot of information, the relevant lines are the compiler invocation, the assembler invocation and the linker invocation. Didn’t I say just before that g++ hello.cpp was a compiler invocation? That is partially true because g++ is not a compiler, it is a compiler-driver. This may sound strange to many but that is true. The compiler in this case is cc1plus and the invocation is below.&lt;/p&gt;
+
+&lt;div class=&quot;language-sh highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nv&quot;&gt;$ &lt;/span&gt;g++ hello.cpp &lt;span class=&quot;nt&quot;&gt;-v&lt;/span&gt;
+/usr/lib/gcc/x86_64-linux-gnu/7/cc1plus &lt;span class=&quot;nt&quot;&gt;-quiet&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-v&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-imultiarch&lt;/span&gt; x86_64-linux-gnu &lt;span class=&quot;nt&quot;&gt;-D_GNU_SOURCE&lt;/span&gt; hello.cpp &lt;span class=&quot;nt&quot;&gt;-quiet&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-dumpbase&lt;/span&gt; hello.cpp &lt;span class=&quot;nt&quot;&gt;-mtune&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;generic &lt;span class=&quot;nt&quot;&gt;-march&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;x86-64 &lt;span class=&quot;nt&quot;&gt;-auxbase&lt;/span&gt; hello &lt;span class=&quot;nt&quot;&gt;-version&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-fstack-protector-strong&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-Wformat&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-Wformat-security&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; /tmp/ccWH0EQc.s
+...
+GGC heuristics: &lt;span class=&quot;nt&quot;&gt;--param&lt;/span&gt; ggc-min-expand&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;100 &lt;span class=&quot;nt&quot;&gt;--param&lt;/span&gt; ggc-min-heapsize&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;131072
+ ignoring duplicate directory &lt;span class=&quot;s2&quot;&gt;&quot;/usr/include/x86_64-linux-gnu/c++/7&quot;&lt;/span&gt;
+ ignoring nonexistent directory &lt;span class=&quot;s2&quot;&gt;&quot;/usr/local/include/x86_64-linux-gnu&quot;&lt;/span&gt;
+ ignoring nonexistent directory &lt;span class=&quot;s2&quot;&gt;&quot;/usr/lib/gcc/x86_64-linux-gnu/7/../../../../x86_64-linux-gnu/include&quot;&lt;/span&gt;
+ include &lt;span class=&quot;s2&quot;&gt;&quot;…&quot;&lt;/span&gt; search starts here:
+ include &amp;lt;…&amp;gt; search starts here:
+ /usr/include/c++/7
+ /usr/include/x86_64-linux-gnu/c++/7
+...
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;As we can see from the command that the compiler compiles hello.cpp and outputs assembly code in the file &lt;code class=&quot;highlighter-rouge&quot;&gt;/tmp/ccWH0EQc.s&lt;/code&gt;. During the compilation &lt;strong&gt;cc1plus&lt;/strong&gt; needs to find the header file iostream which is present in &lt;code class=&quot;highlighter-rouge&quot;&gt;/usr/includec++/7&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;Next up is the assembler invocation. It reads the output of the compiler i.e., &lt;code class=&quot;highlighter-rouge&quot;&gt;/tmp/ccWH0EQc.s&lt;/code&gt; and outputs an ‘object-file’ &lt;code class=&quot;highlighter-rouge&quot;&gt;/tmp/ccTpqU8Z.o&lt;/code&gt;. The assembler does not have any dependencies.&lt;/p&gt;
+
+&lt;div class=&quot;language-sh highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;/usr/bin/x86_64-linux-gnu-as &lt;span class=&quot;nt&quot;&gt;-v&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--64&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; /tmp/ccTpqU8Z.o /tmp/ccWH0EQc.s
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And lastly we have the linker invocation. The linker collect2 reads the output of assembler /tmp/ccTpqU8Z.o, an object file, and outputs the executable. The linker has a lot of dependencies. The most interesting ones are the runtime support files viz. &lt;code class=&quot;highlighter-rouge&quot;&gt;crt1.o, crti.o, crtendS.o crtn.o&lt;/code&gt; and the standard libraries &lt;code class=&quot;highlighter-rouge&quot;&gt;libc, libgcc, libgcc_s, libm&lt;/code&gt; etc. See if you can spot how these dependencies are passed to the linker. Now linker needs to know where these files are, actually the compiler-driver g++ needs to know where these files are such that it can invoke the linker with appropriate libraries (see the flags starting with -l) and appropriate paths (see the flags starting with &lt;strong&gt;-L&lt;/strong&gt;).&lt;/p&gt;
+
+&lt;div class=&quot;language-sh highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;/usr/lib/gcc/x86_64-linux-gnu/7/collect2 &lt;span class=&quot;nt&quot;&gt;-plugin&lt;/span&gt; /usr/lib/gcc/x86_64-linux-gnu/7/liblto_plugin.so &lt;span class=&quot;nt&quot;&gt;-plugin-opt&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;/usr/lib/gcc/x86_64-linux-gnu/7/lto-wrapper &lt;span class=&quot;nt&quot;&gt;-plugin-opt&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-fresolution&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;/tmp/cc2j00rN.res &lt;span class=&quot;nt&quot;&gt;-plugin-opt&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-pass-through&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-lgcc_s&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-plugin-opt&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-pass-through&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-lgcc&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-plugin-opt&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-pass-through&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-lc&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-plugin-opt&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-pass-through&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-lgcc_s&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-plugin-opt&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-pass-through&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;-lgcc&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--sysroot&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;/ &lt;span class=&quot;nt&quot;&gt;--build-id&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--eh-frame-hdr&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-m&lt;/span&gt; elf_x86_64 &lt;span class=&quot;nt&quot;&gt;--hash-style&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;gnu &lt;span class=&quot;nt&quot;&gt;--as-needed&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-dynamic-linker&lt;/span&gt; /lib64/ld-linux-x86-64.so.2 &lt;span class=&quot;nt&quot;&gt;-pie&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-z&lt;/span&gt; now &lt;span class=&quot;nt&quot;&gt;-z&lt;/span&gt; relro /usr/lib/gcc/x86_64-linux-gnu/7/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/7/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/7/crtbeginS.o &lt;span class=&quot;nt&quot;&gt;-L&lt;/span&gt;/usr/lib/gcc/x86_64-linux-gnu/7 &lt;span class=&quot;nt&quot;&gt;-L&lt;/span&gt;/usr/lib/gcc/x86_64-linux-gnu/7/../../../x86_64-linux-gnu &lt;span class=&quot;nt&quot;&gt;-L&lt;/span&gt;/usr/lib/gcc/x86_64-linux-gnu/7/../../../../lib &lt;span class=&quot;nt&quot;&gt;-L&lt;/span&gt;/lib/x86_64-linux-gnu &lt;span class=&quot;nt&quot;&gt;-L&lt;/span&gt;/lib/../lib &lt;span class=&quot;nt&quot;&gt;-L&lt;/span&gt;/usr/lib/x86_64-linux-gnu &lt;span class=&quot;nt&quot;&gt;-L&lt;/span&gt;/usr/lib/../lib &lt;span class=&quot;nt&quot;&gt;-L&lt;/span&gt;/usr/lib/gcc/x86_64-linux-gnu/7/../../.. /tmp/ccTpqU8Z.o &lt;span class=&quot;nt&quot;&gt;-lstdc&lt;/span&gt;++ &lt;span class=&quot;nt&quot;&gt;-lm&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-lgcc_s&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-lgcc&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-lc&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-lgcc_s&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-lgcc&lt;/span&gt; /usr/lib/gcc/x86_64-linux-gnu/7/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/7/../../../x86_64-linux-gnu/crtn.o
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;sysroot&quot;&gt;Sysroot&lt;/h2&gt;
+&lt;p&gt;Any compiler needs to know where the standard headers, standard libraries and the c-runtime are present. All of these are packaged together for each target e.g., arm64, x86 in a directory called ‘sysroot‘. When we compile a program we need to pass the path to sysroot for a compiler to know where to look for standard headers during compilation, and where to look for common libraries (libc, libstdc++ etc.) during linkage.&lt;/p&gt;
+
+&lt;p&gt;Normally when we compile a program for the same machine the compiler uses the standard headers available in ‘/usr/include‘ and libraries from ‘/usr/lib‘. These paths are hardcoded in the compiler itself so we never have to think about it. However, when building a custom compiler or when cross-compiling programs we have to tell the compiler where the sysroot is by passing a flag e.g. gcc –sysroot=”/path/to/arm64/sysroot/usr” hello.cpp. Most often pre-packaged cross compilers come with a script/binary that has ‘sysroot’ path embedded into it. e.g., aarch64-linux-gnu-gcc (https://packages.ubuntu.com/xenial/devel/gcc-aarch64-linux-gnu).&lt;/p&gt;
+
+&lt;h2 id=&quot;the-compiler-toolchain&quot;&gt;The compiler toolchain&lt;/h2&gt;
+&lt;p&gt;Apart from sysroot, a compiler toolchain contains various other binaries to help in the compilation process. In some cases the compiler itself comes as a part of the toolchain. Following is a list of items packaged with the toolchain.&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;binutils (assembler, linker etc)&lt;/li&gt;
+  &lt;li&gt;Various compilers (gcc, g++ etc.)&lt;/li&gt;
+  &lt;li&gt;C-Library (glibc, uClibc etc.)&lt;/li&gt;
+  &lt;li&gt;Runtime support libraries (crtbegin.o, crtend.o etc)&lt;/li&gt;
+  &lt;li&gt;debugger (gdb)&lt;/li&gt;
+  &lt;li&gt;C/C++ standard header files (iostream, stdio.h etc)&lt;/li&gt;
+  &lt;li&gt;standard libraries (libstdc++, libm, libgcc, libunwind etc.)&lt;/li&gt;
+  &lt;li&gt;Compiler specific header files (stdint.h, stdc-predef.h)&lt;/li&gt;
+  &lt;li&gt;Runtime support libraries for sanitizers (libasan, libubsan etc.)&lt;/li&gt;
+  &lt;li&gt;Not all of them may be present in all the toolchain depending on the toolchain provider. Here is the link to standard toolchains provided by popular vendors.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&quot;further-reading&quot;&gt;Further Reading:&lt;/h1&gt;
+&lt;p&gt;&lt;a href=&quot;https://elinux.org/Toolchains&quot;&gt;elinux&lt;/a&gt;&lt;/p&gt;</content><author><name>Aditya Kumar</name></author><category term="compiler" /><category term="toolchains" /><summary type="html">What is a compiler toolchain? Have you ever wondered what dependencies are required to compile a simple hello-world program? Even a small hello-world program needs a set of header files, and libraries that are used by the compiler. The header file e.g., iostream is required to find the declaration of functions which are not available in the hello-world program e.g, std::cout. The libraries are required to find definitions of functions e.g., std::operator« during the linkage process. As a result of the compilation process an executable is created runs on the machine.</summary></entry><entry><title type="html">Opportunities of performance improvements in the C++ Standard Library</title><link href="http://localhost:4000/performance/performance-analysis-of-c++-standard-library/" rel="alternate" type="text/html" title="Opportunities of performance improvements in the C++ Standard Library" /><published>2020-04-25T19:11:59-07:00</published><updated>2020-04-25T19:11:59-07:00</updated><id>http://localhost:4000/performance/performance-analysis-of-c++-standard-library</id><content type="html" xml:base="http://localhost:4000/performance/performance-analysis-of-c++-standard-library/">&lt;h2 id=&quot;introduction-to-the-c-standard-library&quot;&gt;Introduction to the C++ Standard Library&lt;/h2&gt;
+
+&lt;p&gt;The C++ standard library is a collection of classes and functions. These are written in C++ and are part of the C++ standard itself. All popular compiler toolchains come with a C++ standard library. The popular ones are &lt;em&gt;libstdc++ (GNU)&lt;/em&gt;, &lt;em&gt;libc++(LLVM)&lt;/em&gt; also popularly known as &lt;em&gt;libcxx&lt;/em&gt;, &lt;em&gt;msvc-stl&lt;/em&gt;(appears to be derived from &lt;em&gt;dinkumware C++ library&lt;/em&gt; and &lt;em&gt;libc++&lt;/em&gt; and was upstreamed in 2019). Needless to say, the standard library plays a very important role in the runtime performance of many systems.&lt;/p&gt;
+
+&lt;p&gt;Over a period of time I have collected a list of performance opportunities. Some of them I found online from the mailing list and bugzilla. Others by reading source code, and previous experience with the performance analysis of &lt;em&gt;libstdc++&lt;/em&gt; and &lt;em&gt;libc++&lt;/em&gt;. Disclaimer: For some of the items below I do not have experimental numbers, and I’m mostly relying on what was reported in the references.&lt;/p&gt;
+
+&lt;h3 id=&quot;performance-opportunities-in-the-c-standard-library&quot;&gt;Performance opportunities in the C++ standard library&lt;/h3&gt;
+
+&lt;p&gt;The algorithmic requirements on STL and their compliance by all the popular libraries makes it easy to believe that the performance couldn’t be improved further. The requirements are based on computational complexity theory &lt;a href=&quot;https://en.wikipedia.org/wiki/Big_O_notation&quot;&gt;big O and friends&lt;/a&gt;. Because the constant factor isn’t taken into account (for good reasons), the realized performance depends on the actual implementation and the workload. The &lt;code class=&quot;highlighter-rouge&quot;&gt;iostream&lt;/code&gt; library is just slow, like almost all the interfaces are slow (probably except for the ones I optimized ;) ). The source code looks very much like a typical Java program (too many indirections and virtual methods).&lt;/p&gt;
+
+&lt;p&gt;There are four subsections to classify performance opportunities.&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Standard Library Containers
+    &lt;ul&gt;
+      &lt;li&gt;like STL Containers, &lt;code class=&quot;highlighter-rouge&quot;&gt;iostream&lt;/code&gt; library&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;Standard Library Algorithms
+    &lt;ul&gt;
+      &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;sort&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;find&lt;/code&gt;&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;Source code annotations to improve performance
+    &lt;ul&gt;
+      &lt;li&gt;to help compiler make better optimization decisions&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;standard-library-containers&quot;&gt;Standard Library Containers&lt;/h3&gt;
+&lt;h4 id=&quot;stl&quot;&gt;STL:&lt;/h4&gt;
+&lt;p&gt;&lt;strong&gt;std::vector&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Allocator in &lt;code class=&quot;highlighter-rouge&quot;&gt;std::vector&lt;/code&gt; has perf issues (See: &lt;a href=&quot;https://bugs.llvm.org/show_bug.cgi?id=35637&quot;&gt;Really bad codegen for libc++ vector&lt;/a&gt;). Use realloc whenever appropriate. Some improvements were proposed in (See: [Improving std::vector&lt;char&gt; and std::deque&lt;char&gt; perfomance][10].&lt;/char&gt;&lt;/char&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;strong&gt;std::string&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;string::find.*of&lt;/code&gt;, and &lt;code class=&quot;highlighter-rouge&quot;&gt;string::rfind&lt;/code&gt; are still suboptimal (See &lt;a href=&quot;https://gcc.gnu.org/bugzilla/show_bug.cgi?id=93584&quot;&gt;string&lt;/a&gt;)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;strong&gt;std::map&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;This is in general slow because of pointer chasing. There might be other issues with the implementation of rb-tree. Needs more investigation.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;strong&gt;std::iostream&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Istream is very slow (&lt;a href=&quot;https://github.com/hiraditya/std-benchmark/blob/master/docs/slides/slide-cppnow.pdf&quot;&gt;istream&lt;/a&gt;)&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;std::ostream&lt;/code&gt; is very slow (&lt;a href=&quot;https://bugs.llvm.org/show_bug.cgi?id=40763&quot;&gt;ostream&lt;/a&gt;)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;standard-library-algorithms&quot;&gt;Standard library algorithms&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;std::sort&lt;/code&gt;: of clang/gcc may be slow depending on the workload (&lt;a href=&quot;https://gcc.gnu.org/bugzilla/show_bug.cgi?id=82739&quot;&gt;sort&lt;/a&gt;).&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;std::find&lt;/code&gt; of &lt;em&gt;libcxx&lt;/em&gt; is very slow compared to &lt;em&gt;libstdc++&lt;/em&gt; because llvm does not unroll the loop automatically (&lt;a href=&quot;https://bugs.llvm.org/show_bug.cgi?id=19708&quot;&gt;find&lt;/a&gt;).&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;source-code-annotations-to-improve-performance&quot;&gt;Source code annotations to improve performance&lt;/h3&gt;
+&lt;h4 id=&quot;annotating-non-returning-functions&quot;&gt;Annotating non-returning functions:&lt;/h4&gt;
+&lt;p&gt;This will help the compiler reorganize basic blocks in the function.&lt;/p&gt;
+
+&lt;p&gt;Annotating pointers with restrict:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Adding restrict will help alias analysis and many other PRE type optimizations.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Annotating branches with &lt;code class=&quot;highlighter-rouge&quot;&gt;builtin_likely&lt;/code&gt;:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;This will help basic block reordering and hence help locality. In some cases it can save a branch.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;compiler-optimizations-that-can-help-improve-the-performance-of-c-standard-library&quot;&gt;Compiler optimizations that can help improve the performance of C++ standard library:&lt;/h3&gt;
+&lt;h4 id=&quot;whole-program-devirtualization&quot;&gt;Whole program devirtualization&lt;/h4&gt;
+&lt;p&gt;Devirtualization will help the iostream library because it has too many virtual methods.&lt;/p&gt;
+
+&lt;h4 id=&quot;inlining-important-functions&quot;&gt;Inlining important functions:&lt;/h4&gt;
+&lt;p&gt;Constructors and destructors of STL containers like &lt;code class=&quot;highlighter-rouge&quot;&gt;string&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;vector&lt;/code&gt; etc.&lt;/p&gt;
+
+&lt;h4 id=&quot;vectorization&quot;&gt;Vectorization&lt;/h4&gt;
+&lt;p&gt;Vectorize &lt;code class=&quot;highlighter-rouge&quot;&gt;memcpy&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;memset&lt;/code&gt; etc style loops. Also related to Loop Idiom Recognition&lt;/p&gt;
+
+&lt;h4 id=&quot;loop-idiom-recognition&quot;&gt;Loop idiom recognition&lt;/h4&gt;
+&lt;p&gt;Detect &lt;code class=&quot;highlighter-rouge&quot;&gt;memcpy&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;memset&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;memchr&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;memcmp&lt;/code&gt; style loops&lt;/p&gt;
+
+&lt;h4 id=&quot;jump-threading&quot;&gt;Jump Threading&lt;/h4&gt;
+&lt;p&gt;Even better, jump threading with auto-FDO. (See: &lt;a href=&quot;https://bugs.llvm.org/show_bug.cgi?id=43276&quot;&gt;Jump Threading Bug&lt;/a&gt;)&lt;/p&gt;
+
+&lt;h4 id=&quot;profile-guided-optimization-of-c-standard-library-auto-fdo&quot;&gt;Profile guided optimization of C++ standard library (Auto-FDO)&lt;/h4&gt;
+&lt;p&gt;Helps bring micro-optimization and code-layout tuned according to our workloads&lt;/p&gt;
+
+&lt;h4 id=&quot;loop-unrolling&quot;&gt;Loop unrolling&lt;/h4&gt;
+
+&lt;p&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;std::find&lt;/code&gt; will benefit from:
+    - Loop unrolling (See &lt;a href=&quot;https://bugs.llvm.org/show_bug.cgi?id=19708&quot;&gt;Loop unroll opportunities&lt;/a&gt;)
+    - Needs loop rotation to make loop-unroll more effective (See: &lt;a href=&quot;https://bugs.llvm.org/show_bug.cgi?id=27360&quot;&gt;Loop rotation bug&lt;/a&gt;)&lt;/p&gt;
+
+&lt;h3 id=&quot;miscellaneous&quot;&gt;Miscellaneous:&lt;/h3&gt;
+&lt;p&gt;CoroFrame does not pay attention to the lifetime markers (See &lt;a href=&quot;https://bugs.llvm.org/show_bug.cgi?id=41877&quot;&gt;CoroFrame&lt;/a&gt;)&lt;/p&gt;</content><author><name>Aditya Kumar</name></author><category term="C++ Standard Library" /><category term="Performance" /><summary type="html">Introduction to the C++ Standard Library</summary></entry></feed>

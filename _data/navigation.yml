@@ -1,0 +1,14 @@
+# main links
+main:
+  - title: "Posts"
+    url: /
+  - title: "About Me"
+    url: /Resume
+  - title: "Talks"
+    url: /Talks
+  #- title: "Posts"
+  #url: //
+  # - title: "Sample Collections"
+  #   url: /collection-archive/
+  #- title: "Sitemap"
+  #  url: /sitemap/

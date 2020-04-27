@@ -1,5 +1,8 @@
 ---
-layout: post
+layout: single 
+toc: true
+toc_label: "Table of Contents"
+toc_icon: "cog"
 title:  "Introduction to compiler toolchain!"
 date:   2020-04-25 19:11:59 -0700
 categories: compiler

@@ -1,0 +1,334 @@
+<!doctype html>
+<!--
+  Minimal Mistakes Jekyll Theme 4.19.1 by Michael Rose
+  Copyright 2013-2019 Michael Rose - mademistakes.com | @mmistakes
+  Free for personal and commercial use under the MIT license
+  https://github.com/mmistakes/minimal-mistakes/blob/master/LICENSE
+-->
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8">
+
+<!-- begin _includes/seo.html --><title>About Me -</title>
+<meta name="description" content="Compiler Engineer, Facebook ">
+
+
+  <meta name="author" content="Aditya K">
+
+
+<meta property="og:type" content="website">
+<meta property="og:locale" content="en_US">
+<meta property="og:site_name" content="">
+<meta property="og:title" content="">
+<meta property="og:url" content="http://localhost:4000/Talks/">
+
+
+  <meta property="og:description" content="Compiler Engineer, Facebook ">
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+
+<link rel="canonical" href="http://localhost:4000/Talks/">
+
+
+
+
+<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    
+      "@type": "Person",
+      "name": "Aditya K",
+      "url": "http://localhost:4000/"
+    
+  }
+</script>
+
+
+
+
+
+
+<!-- end _includes/seo.html -->
+
+
+<link href="/feed.xml" type="application/atom+xml" rel="alternate" title=" Feed">
+
+<!-- https://t.co/dKP3o1e -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script>
+  document.documentElement.className = document.documentElement.className.replace(/\bno-js\b/g, '') + ' js ';
+</script>
+
+<!-- For all browsers -->
+<link rel="stylesheet" href="/assets/css/main.css">
+
+<!--[if IE]>
+  <style>
+    /* old IE unsupported flexbox fixes */
+    .greedy-nav .site-title {
+      padding-right: 3em;
+    }
+    .greedy-nav button {
+      position: absolute;
+      top: 0;
+      right: 0;
+      height: 100%;
+    }
+  </style>
+<![endif]-->
+
+
+
+    <!-- start custom head snippets -->
+
+<!-- insert favicons. use https://realfavicongenerator.net/ -->
+
+<!-- end custom head snippets -->
+
+  </head>
+
+  <body class="layout--single">
+    <nav class="skip-links">
+  <h2 class="screen-reader-text">Skip links</h2>
+  <ul>
+    <li><a href="#site-nav" class="screen-reader-shortcut">Skip to primary navigation</a></li>
+    <li><a href="#main" class="screen-reader-shortcut">Skip to content</a></li>
+    <li><a href="#footer" class="screen-reader-shortcut">Skip to footer</a></li>
+  </ul>
+</nav>
+
+    <!--[if lt IE 9]>
+<div class="notice--danger align-center" style="margin: 0;">You are using an <strong>outdated</strong> browser. Please <a href="https://browsehappy.com/">upgrade your browser</a> to improve your experience.</div>
+<![endif]-->
+
+    
+
+<div class="masthead">
+  <div class="masthead__inner-wrap">
+    <div class="masthead__menu">
+      <nav id="site-nav" class="greedy-nav">
+        
+        <a class="site-title" href="/">
+          
+          
+        </a>
+        <ul class="visible-links"><li class="masthead__menu-item">
+              <a href="/">Posts</a>
+            </li><li class="masthead__menu-item">
+              <a href="/Resume">About Me</a>
+            </li><li class="masthead__menu-item">
+              <a href="/Talks">Talks</a>
+            </li></ul>
+        
+        <button class="greedy-nav__toggle hidden" type="button">
+          <span class="visually-hidden">Toggle menu</span>
+          <div class="navicon"></div>
+        </button>
+        <ul class="hidden-links hidden"></ul>
+      </nav>
+    </div>
+  </div>
+</div>
+
+
+    <div class="initial-content">
+      
+
+
+
+<div id="main" role="main">
+  
+
+
+  <article class="page" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    
+    
+    
+
+    <div class="page__inner-wrap">
+      
+        <header>
+          
+          
+        </header>
+      
+
+      <section class="page__content" itemprop="text">
+        
+          <aside class="sidebar__right ">
+            <nav class="toc">
+              <header><h4 class="nav__title"><i class="fas fa-cog"></i> Table of Contents</h4></header>
+              <ul class="toc__menu">
+  <li><a href="#presentations">Presentations</a>
+    <ul>
+      <li><a href="#llvm-developers-meeting-presentations-approximate-audience-300-500">LLVM Developers’ Meeting Presentations (Approximate audience: 300-500)</a></li>
+      <li><a href="#llvm-performance-workshop-at-cgo-approximate-audience-20-50">LLVM Performance workshop at CGO (Approximate audience: 20-50)</a></li>
+      <li><a href="#gcc-cauldron-approximate-audience-150-200">GCC Cauldron (Approximate audience: 150-200)</a></li>
+      <li><a href="#cpp-now-approximate-audience-100-150">CPP Now (Approximate audience: 100-150)</a></li>
+      <li><a href="#oopsla-splash-i-invited-talk-approximate-audience-40-50">OOPSLA SPLASH-I Invited Talk (Approximate audience: 40-50)</a></li>
+      <li><a href="#design-automation-conference-approximate-audience-30-40">Design Automation Conference (Approximate audience: 30-40)</a></li>
+    </ul>
+  </li>
+  <li><a href="#slides">Slides:</a></li>
+  <li><a href="#video-links-to-presentations">Video Links To Presentations:</a></li>
+</ul>
+
+            </nav>
+          </aside>
+        
+        <h2 id="presentations">Presentations</h2>
+
+<h3 id="llvm-developers-meeting-presentations-approximate-audience-300-500">LLVM Developers’ Meeting Presentations (Approximate audience: 300-500)</h3>
+<ul>
+  <li>2019 http://llvm.org/devmtg/2019-10/talk-abstracts.html#tech8 (https://llvm.org/devmtg/2019-10/slides/Kumar-HotColdSplitting.pdf)</li>
+  <li>2019 http://llvm.org/devmtg/2019-10/talk-abstracts.html#lit4 (http://llvm.org/devmtg/2019-10/slides/Kumar-WallFoundCompilationErrors.pdf)</li>
+  <li>2018 http://llvm.org/devmtg/2018-10/talk-abstracts.html#talk2 (https://llvm.org/devmtg/2018-10/slides/Kumar-FunctionMergingPortThinLTO.pdf)</li>
+  <li>2017 http://llvm.org/devmtg/2017-10/#lightning3</li>
+  <li>2016 http://llvm.org/devmtg/2016-11/#talk11 (http://llvm.org/devmtg/2016-11/Slides/Kumar-Pop-GVNHoist.pdf)</li>
+  <li>2016 https://llvmdevelopersmeetingbay2016.sched.com/event/8Yzk/performance-improvements-in-libcxx</li>
+  <li>2014 http://llvm.org/devmtg/2014-10/#talk17 (http://llvm.org/devmtg/2014-10/Slides/Larin-GlobalInstructionScheduling.pdf)</li>
+</ul>
+
+<h3 id="llvm-performance-workshop-at-cgo-approximate-audience-20-50">LLVM Performance workshop at CGO (Approximate audience: 20-50)</h3>
+<ul>
+  <li>2020 http://llvm.org/devmtg/2020-02-23/#ak</li>
+  <li>2017 http://llvm.org/devmtg/2017-02-04/#kumar (http://llvm.org/devmtg/2017-02-04/Performance-analysis-of-libcxx.pdf)</li>
+  <li>2017 http://llvm.org/devmtg/2017-02-04/#menezes (http://llvm.org/devmtg/2017-02-04/Efficient-clustering-of-case-statements-for-indirect-branch-prediction.pdf)</li>
+</ul>
+
+<h3 id="gcc-cauldron-approximate-audience-150-200">GCC Cauldron (Approximate audience: 150-200)</h3>
+<ul>
+  <li>2015 Loop optimizer and vectorization BOF (http://gcc.gnu.org/wiki/cauldron2015?action=AttachFile&amp;do=view&amp;target=Aditya+Kumar,+Sebastian+Pop_+Loop+optimizer+and+vectorization+BOF.pdf)</li>
+</ul>
+
+<h3 id="cpp-now-approximate-audience-100-150">CPP Now (Approximate audience: 100-150)</h3>
+<ul>
+  <li>2017 http://sched.co/A8J7 (https://github.com/hiraditya/std-benchmark/blob/master/docs/slides/slide-cppnow.pdf)</li>
+</ul>
+
+<h3 id="oopsla-splash-i-invited-talk-approximate-audience-40-50">OOPSLA SPLASH-I Invited Talk (Approximate audience: 40-50)</h3>
+<ul>
+  <li>2017 https://2017.splashcon.org/track/splash-2017-SPLASH-I#program</li>
+</ul>
+
+<h3 id="design-automation-conference-approximate-audience-30-40">Design Automation Conference (Approximate audience: 30-40)</h3>
+<ul>
+  <li>2017 http://www2.dac.com/events/eventdetails.aspx?id=223-134 (https://github.com/hiraditya/std-benchmark/blob/master/docs/slides/slide-DAC-2017.pdf)</li>
+</ul>
+
+<h2 id="slides">Slides:</h2>
+<ul>
+  <li>2019 LLVM Dev: https://llvm.org/devmtg/2019-10/slides/Kumar-HotColdSplitting.pdf</li>
+  <li>2019 LLVM Dev: http://llvm.org/devmtg/2019-10/slides/Kumar-WallFoundCompilationErrors.pdf</li>
+  <li>2018 LLVM Dev: https://llvm.org/devmtg/2018-10/slides/Kumar-FunctionMergingPortThinLTO.pdf</li>
+  <li>2017 LLVM Performance Workshop at CGO: http://llvm.org/devmtg/2017-02-04/Performance-analysis-of-libcxx.pdf</li>
+  <li>2017 LLVM Performance Workshop at CGO: http://llvm.org/devmtg/2017-02-04/Efficient-clustering-of-case-statements-for-indirect-branch-prediction.pdf</li>
+  <li>2016 LLVM Dev: http://llvm.org/devmtg/2016-11/Slides/Kumar-Pop-GVNHoist.pdf</li>
+  <li>2014 LLVM Dev: http://llvm.org/devmtg/2014-10/Slides/Larin-GlobalInstructionScheduling.pdf</li>
+</ul>
+
+<h2 id="video-links-to-presentations">Video Links To Presentations:</h2>
+<ul>
+  <li>2019 LLVM Dev: Hot Cold Splitting in LLVM: https://www.youtube.com/watch?v=Q8rqGg6vHAE</li>
+  <li>2019 LLVM Dev: Wall found compilation errors: https://www.youtube.com/watch?v=Fc4Br0eNUa4</li>
+  <li>2018 LLVM Dev: Porting Function merging pass to thinlto: https://www.youtube.com/watch?v=GxQmcvYpKYU</li>
+  <li>2018 CPP Now: Performance analysis and optimization of C++ standard libraries: https://www.youtube.com/watch?v=OTCp_AkAyRQ</li>
+  <li>2017 LLVM Dev: Introsort based sorting function for libc++: https://www.youtube.com/watch?v=Lcz0ZHewkHs</li>
+  <li>2016 LLVM Dev: GVN Hoist pass in LLVM: https://www.youtube.com/watch?v=GB3OpqSwuUw</li>
+</ul>
+
+<p><a href="./">back</a></p>
+
+        
+      </section>
+
+      <footer class="page__meta">
+        
+        
+
+
+        
+      </footer>
+
+      
+
+      
+    </div>
+
+    
+  </article>
+
+  
+  
+</div>
+
+    </div>
+
+    
+
+    <div id="footer" class="page__footer">
+      <footer>
+        <!-- start custom footer snippets -->
+
+<!-- end custom footer snippets -->
+        <div class="page__footer-follow">
+  <ul class="social-icons">
+    
+      <li><strong>Follow:</strong></li>
+    
+
+    
+      
+        
+          <li><a href="https://twitter.com/_hiraditya_" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-twitter-square" aria-hidden="true"></i> Twitter</a></li>
+        
+      
+        
+      
+        
+          <li><a href="https://github.com/hiraditya" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-github" aria-hidden="true"></i> GitHub</a></li>
+        
+      
+        
+      
+    
+
+    <li><a href="/feed.xml"><i class="fas fa-fw fa-rss-square" aria-hidden="true"></i> Feed</a></li>
+  </ul>
+</div>
+
+<div class="page__footer-copyright">&copy; 2020 Aditya K. Powered by <a href="https://jekyllrb.com" rel="nofollow">Jekyll</a> &amp; <a href="https://mademistakes.com/work/minimal-mistakes-jekyll-theme/" rel="nofollow">Minimal Mistakes</a>.</div>
+
+      </footer>
+    </div>
+
+    
+  <script src="/assets/js/main.min.js"></script>
+  <script src="https://kit.fontawesome.com/4eee35f757.js"></script>
+
+
+
+
+
+
+
+
+
+
+  </body>
+</html>
