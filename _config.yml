@@ -1,20 +1,2 @@
 permalink: /notes/:year/:month/:day/:title
 markdown: kramdown
-
-theme: jekyll-theme-cayman
-
-plugins:
-  - jekyll-feed
-  - jekyll-seo-tag
-  
-  
-title: Kante's website
-
-url: mkantem.github.io
-
-social:
-  name: Ben Balter
-  links:
-    - https://twitter.com/mkantem
-    - https://www.facebook.com/mkantemZ
-    - https://www.linkedin.com/in/mkantem
