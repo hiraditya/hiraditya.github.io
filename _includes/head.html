@@ -1,0 +1,22 @@
+<head>
+	{% include analytics.html %}	
+        {% feed_meta %}
+	<meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="description" content="{{ page.description }}">
+	<meta name="author" content="Aditya Kumar">
+	<link rel="shortcut icon" href="/img/ico/favicon.png">
+        <link rel="canonical" href="{{ site.url }}{{ page.url | replace:'index.html',''}}">
+	<title>{{ page.title }} | SoftPerf </title>
+	<!-- styles -->
+	<link href="/css/bootstrap.css" rel="stylesheet">
+	<link href="/css/jumbotron-narrow.css" rel="stylesheet">
+	<link href="/css/style.css" rel="stylesheet">
+	
+	<!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+	<!--[if lt IE 9]>
+  <script src="../../assets/js/html5shiv.js"></script>
+  <script src="../../assets/js/respond.min.js"></script>
+	<![endif]-->
+	<!-- google analytics - i will not share this data with google -->
+</head>

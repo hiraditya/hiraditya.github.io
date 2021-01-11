@@ -1,5 +1,5 @@
 ---
-layout: single 
+layout: post 
 toc: true
 toc_label: "Table of Contents"
 toc_icon: "cog"
