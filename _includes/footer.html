@@ -1,24 +1,16 @@
-<footer id="footer" class="site-footer">
-  {% include footer-custom.html %}
+<div class="footer">
+	<div class="row">
+	<div class="col-sm-8">
+	<p><small>&copy; kanté 2019 <a title="Avis clients pour les sites Web" href="https://www.webwiki.fr/mkantem.github.io"><img src="https://www.webwiki.fr/images/webwikibutton.gif" alt="Webwiki Marque de confiance" /></a></small></p>
+	
+		  <a href="http://sponsoredtweets.com/r/3MJU?utm_source=Referral&utm_medium=small-button&utm_campaign=The%2520Sponsorship%2520Marketplace">
+ <img src="https://sponsoredtweets.com/ad-units/2/small-button.jpg" alt="Get Sponsored by Big Brands" class="center" style="border: 0 none !important;" border="0"/>
+			 </a> 
 
-  {%- if site.footer_links -%}
-    <div class="social-icons">
-      {%- for footer_link in site.footer_links -%}
-        {%- if footer_link.url contains "://" -%}
-          {%- assign url = footer_link.url -%}
-        {%- else -%}
-          {%- assign url = footer_link.url | relative_url -%}
-        {%- endif -%}
-        <a class="social-icon" href="{{ url }}"><i class="{{ footer_link.icon | default: 'fas fa-link' }} fa-2x" title="{{ footer_link.title }}"></i></a>
-      {%- endfor -%}
-    </div>
-  {%- endif -%}
-
-  <div class="copyright">
-    {% if site.copyright %}
-      {{ site.copyright | markdownify }}
-    {% else %}
-      <p>&copy; {{ site.time | date: '%Y' }} {{ site.name | default: site.title }}. {{ site.data.text[site.locale].powered_by | default: "Powered by" }} <a href="https://jekyllrb.com" rel="nofollow">Jekyll</a> &amp; <a href="https://github.com/mmistakes/so-simple-theme" rel="nofollow">So Simple</a>.</p>
-    {% endif %}
-  </div>
-</footer>
+		</div>
+	<div class="col-sm-4">
+	<p class="pull-right"><small><a href="/about" title="About this site">About this site</a></small></p>
+	</div>
+	 <p class="pull-right"><small><a href="subscribe.html" title="Subscribe via email">You can subcribe via email</a></small></p>	
+	</div>
+</div> <!-- /footer -->

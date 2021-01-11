@@ -1,0 +1,66 @@
+---
+layout: default
+title: App
+notes: passive
+contact: passive
+description: Comment deleting 
+---
+
+<body>
+  
+  
+<script>
+  window.fbAsyncInit = function() {
+    FB.init({
+      appId      : '{567476727258473}',
+      cookie     : true,
+      xfbml      : true,
+      version    : '{v7.0}'
+    });
+      
+    FB.AppEvents.logPageView();   
+      
+  };
+
+  (function(d, s, id){
+     var js, fjs = d.getElementsByTagName(s)[0];
+     if (d.getElementById(id)) {return;}
+     js = d.createElement(s); js.id = id;
+     js.src = "https://connect.facebook.net/en_US/sdk.js";
+     fjs.parentNode.insertBefore(js, fjs);
+   }(document, 'script', 'facebook-jssdk'));
+  {
+    status: 'connected',
+    authResponse: {
+        accessToken: '...',
+        expiresIn:'...',
+        signedRequest:'...',
+        userID:'...'
+    }
+}
+ 
+<fb:login-button 
+  scope="public_profile,email"
+  onlogin="checkLoginState();">
+</fb:login-button>
+  
+function checkLoginState() {
+  FB.getLoginStatus(function(response) {
+    statusChangeCallback(response);
+  });
+}
+ 
+</script> 
+  
+<div id="fb-root"></div>
+<script async defer crossorigin="anonymous" src="https://connect.facebook.net/fr_FR/sdk.js#xfbml=1&version=v7.0&appId=567476727258473&autoLogAppEvents=1" nonce="bAe9ZKdp"></script>
+<div class="fb-login-button" 
+     data-size="small" data-button-type="login_with" data-layout="default" data-auto-logout-link="false" data-use-continue-as="true" data-width="">
+  </div>
+   FB.getLoginStatus(function(response) {
+    statusChangeCallback(response);
+});
+  
+
+</body>
+
