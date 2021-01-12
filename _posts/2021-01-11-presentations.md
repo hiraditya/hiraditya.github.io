@@ -9,7 +9,7 @@ toc_icon: "cog"
 ## Presentations
 
 ### LLVM Developers' Meeting Presentations (Approximate audience: 300-500)
-- 2019 http://llvm.org/devmtg/2019-10/talk-abstracts.html#tech8 (https://llvm.org/devmtg/2019-10/slides/Kumar-HotColdSplitting.pdf)
+- 2019 [Hot cold splitting](http://llvm.org/devmtg/2019-10/talk-abstracts.html#tech8) [PDF](https://llvm.org/devmtg/2019-10/slides/Kumar-HotColdSplitting.pdf)
 - 2019 http://llvm.org/devmtg/2019-10/talk-abstracts.html#lit4 (http://llvm.org/devmtg/2019-10/slides/Kumar-WallFoundCompilationErrors.pdf)
 - 2018 http://llvm.org/devmtg/2018-10/talk-abstracts.html#talk2 (https://llvm.org/devmtg/2018-10/slides/Kumar-FunctionMergingPortThinLTO.pdf)
 - 2017 http://llvm.org/devmtg/2017-10/#lightning3
