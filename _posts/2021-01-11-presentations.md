@@ -34,6 +34,9 @@ toc_icon: "cog"
 ### Design Automation Conference (Approximate audience: 30-40)
 - 2017 [Performance optimization of systems](http://www2.dac.com/events/eventdetails.aspx?id=223-134) - [PDF](https://github.com/hiraditya/std-benchmark/blob/master/docs/slides/slide-DAC-2017.pdf)
 
+### ACM Distinguished Speaker Series
+- 2021 [Performance Analysis And Systems Optimization](https://twitter.com/TheOfficialACM/status/1346537805321670656?s=20), [Meetup Link](https://www.meetup.com/ACM-DC/events/274411831/)
+
 ## Slides:
 - 2019 LLVM Dev: - [PDF](https://llvm.org/devmtg/2019-10/slides/Kumar-HotColdSplitting.pdf)
 - 2019 LLVM Dev: - [PDF](http://llvm.org/devmtg/2019-10/slides/Kumar-WallFoundCompilationErrors.pdf)
