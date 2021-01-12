@@ -20,7 +20,7 @@ toc_icon: "cog"
 ### LLVM Performance workshop at CGO (Approximate audience: 20-50)
 - 2020 [Cheap function entry instrumentation to collect runtime metrics](http://llvm.org/devmtg/2020-02-23/#ak)
 - 2017 [Performance analysis and optimization of C++ standard libraries](http://llvm.org/devmtg/2017-02-04/#kumar) - [PDF](http://llvm.org/devmtg/2017-02-04/Performance-analysis-of-libcxx.pdf)
-- 2017 http://llvm.org/devmtg/2017-02-04/#menezes - [PDF](http://llvm.org/devmtg/2017-02-04/Efficient-clustering-of-case-statements-for-indirect-branch-prediction.pdf)
+- 2017 [Optimizing the code generation of case statements](http://llvm.org/devmtg/2017-02-04/#menezes) - [PDF](http://llvm.org/devmtg/2017-02-04/Efficient-clustering-of-case-statements-for-indirect-branch-prediction.pdf)
 
 ### GCC Cauldron (Approximate audience: 150-200)
 - 2015 Loop optimizer and vectorization BOF - [PDF](http://gcc.gnu.org/wiki/cauldron2015?action=AttachFile&do=view&target=Aditya+Kumar,+Sebastian+Pop_+Loop+optimizer+and+vectorization+BOF.pdf)
@@ -29,10 +29,10 @@ toc_icon: "cog"
 - 2017 [Performance analysis and optimization of C++ standard libraries](http://sched.co/A8J7) - [PDF](https://github.com/hiraditya/std-benchmark/blob/master/docs/slides/slide-cppnow.pdf)
 
 ### OOPSLA SPLASH-I Invited Talk (Approximate audience: 40-50)
-- 2017 https://2017.splashcon.org/track/splash-2017-SPLASH-I#program
+- 2017 [Performance analysis and optimization of C++ standard libraries](https://2017.splashcon.org/track/splash-2017-SPLASH-I#program)
 
 ### Design Automation Conference (Approximate audience: 30-40)
-- 2017 http://www2.dac.com/events/eventdetails.aspx?id=223-134 - [PDF](https://github.com/hiraditya/std-benchmark/blob/master/docs/slides/slide-DAC-2017.pdf)
+- 2017 [Performance optimization of systems](http://www2.dac.com/events/eventdetails.aspx?id=223-134) - [PDF](https://github.com/hiraditya/std-benchmark/blob/master/docs/slides/slide-DAC-2017.pdf)
 
 ## Slides:
 - 2019 LLVM Dev: - [PDF](https://llvm.org/devmtg/2019-10/slides/Kumar-HotColdSplitting.pdf)
