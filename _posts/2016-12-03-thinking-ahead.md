@@ -13,16 +13,13 @@ your valuable time writing about something which does not matter at all? Is your
 time that useless? Are 'you' so useless!
 
 If you are thinking what should you write, here are a few which could get you started.
-
-\begin{enumerate}
-\item Write what do you want to do
-\item Write what you wish should be done
-\item Write what you want others to do it for you
-\item Write about why your life is great or mediocre or miserable
-\item Write what you want to become tomorrow, next month, next year, in life
-\item Write what would make this world a better place
-\item Write about memories which you never want to forget
-\end{enumerate}
+- Write what do you want to do
+- Write what you wish should be done
+- Write what you want others to do it for you
+- Write about why your life is great or mediocre or miserable
+- Write what you want to become tomorrow, next month, next year, in life
+- Write what would make this world a better place
+- Write about memories which you never want to forget
 
 # Revisiting your plans
 If you made plans in the past, hopefully you wrote about it or maybe just kept
