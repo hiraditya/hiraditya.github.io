@@ -28,6 +28,9 @@ toc_icon: "cog"
 ### CPP Now (Approximate audience: 100-150)
 - 2017 [Performance analysis and optimization of C++ standard libraries](http://sched.co/A8J7) - [PDF](https://github.com/hiraditya/std-benchmark/blob/master/docs/slides/slide-cppnow.pdf)
 
+### CPP Con (Approximate audience: 1400)
+- 2021 [Code Size Compiler Optimizations and Techniques for Embedded Systems](https://cppcon2021.sched.com/event/nvCU)
+
 ### OOPSLA SPLASH-I Invited Talk (Approximate audience: 40-50)
 - 2017 [Performance analysis and optimization of C++ standard libraries](https://2017.splashcon.org/track/splash-2017-SPLASH-I#program)
 
@@ -36,6 +39,9 @@ toc_icon: "cog"
 
 ### ACM Distinguished Speaker Series
 - 2021 [Performance Analysis And Systems Optimization](https://twitter.com/TheOfficialACM/status/1346537805321670656?s=20), [Meetup Link](https://www.meetup.com/ACM-DC/events/274411831/)
+
+### EdX course
+[RISC-V Toolchain and Compiler Optimization Techniques](https://www.edx.org/course/risc-v-toolchain-and-compiler-optimization-techniques) in partnership with the [Linux Foundation](https://www.edx.org/school/linuxfoundationx)
 
 ## Slides:
 - 2019 LLVM Dev: - [PDF](https://llvm.org/devmtg/2019-10/slides/Kumar-HotColdSplitting.pdf)
