@@ -7,8 +7,12 @@ toc_icon: "cog"
 
 
 ## Presentations
+### RISC-V Summit (Approximate audience: Over 500)
+- [2020] Code Size Compiler Optimizations and Techniques for Embedded Systems
 
 ### LLVM Developers' Meeting Presentations (Approximate audience: 300-500)
+- 2020 [Code Size Compiler Optimizations and Techniques] - [PDF](https://llvm.org/devmtg/2020-09/slides/Kumar-LLVMDevCodeSizePdf.pdf)
+- 2020 [A fast algorithm for global code motion of congruent instructions] - [PDF](https://llvm.org/devmtg/2020-09/slides/A_fast_algorithm_for_global_code_motion_of_congruent_instructions.pdf)
 - 2019 [Hot cold splitting](http://llvm.org/devmtg/2019-10/talk-abstracts.html#tech8) - [PDF](https://llvm.org/devmtg/2019-10/slides/Kumar-HotColdSplitting.pdf)
 - 2019 [Wall found compilation errors](http://llvm.org/devmtg/2019-10/talk-abstracts.html#lit4) - [PDF](http://llvm.org/devmtg/2019-10/slides/Kumar-WallFoundCompilationErrors.pdf)
 - 2018 [Similar Function merging in ThinLTO](http://llvm.org/devmtg/2018-10/talk-abstracts.html#talk2) - [PDF](https://llvm.org/devmtg/2018-10/slides/Kumar-FunctionMergingPortThinLTO.pdf)
@@ -53,6 +57,8 @@ toc_icon: "cog"
 - 2014 LLVM Dev: - [PDF](http://llvm.org/devmtg/2014-10/Slides/Larin-GlobalInstructionScheduling.pdf)
 
 ## Video Links To Presentations:
+- 2020 [Code Size Compiler Optimizations and Techniques](https://www.youtube.com/watch?v=puZ2B408VsM)
+- 2020 [A fast algorithm for global code motion of congruent instructions](https://www.youtube.com/watch?v=Ar17O-bb90E)
 - 2019 [LLVM Dev: Hot Cold Splitting in LLVM](https://www.youtube.com/watch?v=Q8rqGg6vHAE)
 - 2019 [LLVM Dev: Wall found compilation errors](https://www.youtube.com/watch?v=Fc4Br0eNUa4)
 - 2018 [LLVM Dev: Porting Function merging pass to thinlto](https://www.youtube.com/watch?v=GxQmcvYpKYU)
