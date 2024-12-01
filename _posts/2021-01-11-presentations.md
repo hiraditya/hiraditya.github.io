@@ -24,7 +24,7 @@ toc_icon: "cog"
 ### LLVM Performance workshop at CGO (Approximate audience: 20-50)
 - 2020 [Cheap function entry instrumentation to collect runtime metrics](http://llvm.org/devmtg/2020-02-23/#ak)
 - 2017 [Performance analysis and optimization of C++ standard libraries](http://llvm.org/devmtg/2017-02-04/#kumar) - [PDF](http://llvm.org/devmtg/2017-02-04/Performance-analysis-of-libcxx.pdf)
-- 2017 [Optimizing the code generation of case statements](http://llvm.org/devmtg/2017-02-04/#menezes) - [PDF](http://llvm.org/devmtg/2017-02-04/Efficient-clustering-of-case-statements-for-indirect-branch-prediction.pdf)
+- 2017 [Optimizing the code generation of switch-case statements](http://llvm.org/devmtg/2017-02-04/#menezes) - [PDF](http://llvm.org/devmtg/2017-02-04/Efficient-clustering-of-case-statements-for-indirect-branch-prediction.pdf)
 
 ### GCC Cauldron (Approximate audience: 150-200)
 - 2015 Loop optimizer and vectorization BOF - [PDF](http://gcc.gnu.org/wiki/cauldron2015?action=AttachFile&do=view&target=Aditya+Kumar,+Sebastian+Pop_+Loop+optimizer+and+vectorization+BOF.pdf)
