@@ -1,6 +1,6 @@
 ---
 title: "The Hidden Complexity of the Simplest C Program"
-date: 2026-06-11 08:00:00 -0700
+date: 2026-06-10 08:00:00 -0700
 categories: [Compilers, Systems]
 tags: [c, toolchain, linux, assembly, elf]
 ---
