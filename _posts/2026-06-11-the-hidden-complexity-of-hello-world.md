@@ -171,4 +171,4 @@ With everything you've learned here about loaders, stack initialization, and ABI
 
 ## Acknowledgements
 
-I would like to dedicate this post to [Elliott Hughes](https://www.linkedin.com/in/elliott-hughes-96294773/) and [Reid Tatge](https://www.linkedin.com/in/reidtatge/), as I learned most of these deep systems-level intricacies from them.
+I would like to dedicate this post to [Elliott Hughes](https://www.linkedin.com/in/elliott-hughes-96294773/) and [Reid Tatge](https://www.linkedin.com/in/reidtatge/), as I learned most of these deep systems-level intricacies from/because-of them.
