@@ -165,6 +165,10 @@ For those who want to dive directly into the source code to see how these abstra
 
 The next time you compile an empty `main` function or print a simple greeting, take a moment to appreciate the monumental software stack—the compiler, the linker, the CRT, the dynamic loader, and the kernel—all working in perfect harmony under the hood.
 
+## Food for Thought
+
+With everything you've learned here about loaders, stack initialization, and ABI constraints—how would you now go about running a simple "Hello, World!" in a heterogeneous system, where a host machine is solely responsible for launching the program on a completely different target architecture?
+
 ## Acknowledgements
 
 I would like to dedicate this post to [Elliott Hughes](https://www.linkedin.com/in/elliott-hughes-96294773/) and [Reid Tatge](https://www.linkedin.com/in/reidtatge/), as I learned most of these deep systems-level intricacies from them.
