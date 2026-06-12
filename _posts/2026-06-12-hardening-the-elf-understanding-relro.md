@@ -103,6 +103,13 @@ To combat the overhead of exhaustive symbol resolution during a "Cold Start" (wh
 
 Through these innovations, mobile systems can enforce strict RELRO protections without sacrificing the instantaneous feel of a warm start.
 
+### The Security Cost of Caching
+
+However, as is often the case in systems engineering, these optimizations introduce entirely new classes of security vulnerabilities:
+
+1. **Android's ASLR Weakness:** Because every Android app is `fork()`ed from the exact same Zygote template, they all inherit an identical memory layout. This drastically weakens **Address Space Layout Randomization (ASLR)**. If an attacker manages to leak the memory address of `libc` in one sandboxed app (like a web browser tab), they instantly know the exact ASLR offsets for *every other app on the device* until it reboots, vastly simplifying cross-process exploitation.
+2. **iOS Closure Tampering:** Because `dyld3` closure caches serialize complex linking data to the filesystem, they have become high-value targets. Historically, if an attacker could bypass integrity checks and replace a valid closure with a maliciously crafted one, they could hijack the execution flow of highly privileged "entitled" processes without ever needing a runtime memory corruption bug.
+
 ## Life After RELRO: Where Do Attackers Pivot?
 
 If Full RELRO perfectly secures the GOT, what does a modern attacker do when faced with a memory corruption bug?
