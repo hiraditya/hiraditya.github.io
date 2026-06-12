@@ -52,6 +52,10 @@ A "GOT Overwrite" itself does not have a specific Common Vulnerabilities and Exp
 
 However, countless CVEs have been exploited *using* this exact technique. For example, historical vulnerabilities in network daemons or even glibc itself (like the famous CVE-2015-0235 "GHOST" vulnerability) often culminated in attackers utilizing a GOT overwrite as the final payload delivery mechanism to hijack control flow.
 
+This threat is not just historical. A deep search of recent exploits confirms that modern memory corruption bugs still frequently fall back to GOT manipulation if Full RELRO isn't strictly enforced. Notable modern examples include:
+- **CVE-2026-23479 (Redis):** A complex Use-After-Free that was successfully escalated into an out-of-bounds write. Exploit developers specifically targeted the GOT to repoint the `strcasecmp()` function to `system()`, turning a standard Redis command into a remote root shell.
+- **CVE-2026-24872 (SkyFire_548 Engine):** An unchecked pointer arithmetic bug that granted an out-of-bounds write primitive, which was subsequently weaponized to corrupt GOT entries and hijack the execution flow of the engine.
+
 This technique is incredibly reliable because, without mitigations, the GOT is situated at a predictable offset in memory and is always writable, making it a prime target for exploitation.
 
 ## Enter RELRO (Relocation Read-Only)
