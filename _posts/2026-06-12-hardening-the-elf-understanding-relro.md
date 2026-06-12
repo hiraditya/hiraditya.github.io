@@ -131,16 +131,10 @@ $ readelf -d my_program | grep BIND_NOW
 
 ---
 
-## Acknowledgements
-
-I would like to dedicate this post to **Elliott Hughes** and **Reid Tatge**, as I learned most of what I know about these deep system intricacies from them. You can find their work and connect with them on LinkedIn:
-- [Elliott Hughes](https://www.linkedin.com/in/elliott-hughes-96294773/)
-- [Reid Tatge](https://www.linkedin.com/in/reidtatge/)
-
 ## References
 
 1. **Pre-Main Time Classification & Optimizations:** Kumar, Aditya. *App Startup compiler optimizations and techniques for embedded systems.* 
 2. **Fedora and Full RELRO:** "Hardening ELF binaries using Relocation Read-Only (RELRO)." *Red Hat Developer Blog*. ([Link](https://www.redhat.com/en/blog/hardening-elf-binaries-using-relocation-read-only-relro))
 3. **Life After RELRO:** Community discussion on post-RELRO exploitation targets. *Hacker News*. ([Link](https://news.ycombinator.com/item?id=29186252))
-4. **Android Zygote ASLR Weakness:** For an in-depth look at how Zygote's `fork()` model compromises Address Space Layout Randomization, see architectural analyses by security teams like Google Project Zero and CopperheadOS.
-5. **iOS dyld3 Cache Tampering:** Apple's evolution of the dynamic linker and closure caches has been well-documented in WWDC sessions (e.g., "App Startup Time: Past, Present, and Future") and subsequent security research targeting local privilege escalation via macOS/iOS cache manipulation.
+4. **Android Zygote ASLR Weakness:** For an in-depth look at how Zygote's `fork()` model compromises Address Space Layout Randomization, see architectural analyses by security teams like Google Project Zero. ([Link](https://googleprojectzero.blogspot.com/2016/12/bitunmap-attacking-android-ashmem.html))
+5. **iOS dyld3 Cache Tampering:** Apple's evolution of the dynamic linker and closure caches has been well-documented in WWDC sessions such as "App Startup Time: Past, Present, and Future" and subsequent security research. ([Link](https://developer.apple.com/videos/play/wwdc2017/413/))
