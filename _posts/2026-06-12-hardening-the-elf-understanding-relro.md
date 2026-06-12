@@ -24,7 +24,35 @@ However, write permissions are a double-edged sword. If an attacker discovers an
 2. Instead of pointing to the real `printf` in `libc`, the attacker overwrites the GOT entry with the memory address of the `system()` function, or a pointer to their own malicious shellcode.
 3. The next time the program attempts to log a message using `printf(user_input)`, it actually jumps directly to `system(user_input)`, granting the attacker a root shell.
 
-This technique is incredibly reliable because the GOT is situated at a predictable offset in memory, making it a prime target for exploitation.
+### A First-Principles Example: The Format String Bug
+One of the most classic ways to achieve a GOT overwrite is via a **Format String Vulnerability**. 
+
+Imagine a poorly written C program that logs user input like this:
+```c
+char user_input[100];
+gets(user_input);
+// VULNERABLE: No format specifier (like "%s") is used!
+printf(user_input); 
+exit(0);
+```
+
+Because the user controls the format string, they can input format specifiers like `%x` to leak memory addresses off the stack. More dangerously, they can use the **`%n`** specifier. 
+
+In C, `%n` does not print anything. Instead, it **writes** the number of bytes printed so far into the memory address provided by the corresponding argument. 
+
+By carefully crafting a payload, an attacker can:
+1. Pass the exact memory address of `exit@got` (the GOT entry for the `exit` function).
+2. Pad the output with spaces or characters until exactly `X` bytes have been printed (where `X` is the memory address of `system()` or their shellcode).
+3. Use `%n` to write that `X` value directly into the `exit@got` address.
+
+When the program subsequently calls `exit(0);`, the CPU looks up the GOT entry, finds the attacker's newly written address, and executes it. The program doesn't exit; it spawns a malicious shell!
+
+### Is there a CVE for GOT Overwrites?
+A "GOT Overwrite" itself does not have a specific Common Vulnerabilities and Exposures (CVE) ID because it is a **binary exploitation technique**, not a specific software bug. 
+
+However, countless CVEs have been exploited *using* this exact technique. For example, historical vulnerabilities in network daemons or even glibc itself (like the famous CVE-2015-0235 "GHOST" vulnerability) often culminated in attackers utilizing a GOT overwrite as the final payload delivery mechanism to hijack control flow.
+
+This technique is incredibly reliable because, without mitigations, the GOT is situated at a predictable offset in memory and is always writable, making it a prime target for exploitation.
 
 ## Enter RELRO (Relocation Read-Only)
 
