@@ -84,7 +84,12 @@ If an attacker attempts a GOT overwrite against a Full RELRO binary, the CPU wil
 
 Despite the immense security benefits of Full RELRO, it was not adopted as the default compiler behavior immediately.
 
-The tradeoff is **startup performance**. Lazy binding was invented because large graphical applications or massive monolithic binaries might link against hundreds of shared libraries containing thousands of functions, most of which are never called during a standard execution. Resolving all of them upfront causes a noticeable delay in program startup time.
+The tradeoff is **startup performance**. To understand this overhead, we can classify the "pre-main" execution time of an application into a few distinct segments:
+1. **Load Time:** The time taken by the OS to map the binary and its dependencies from disk into memory.
+2. **Time to Resolve Symbols:** The time the dynamic linker spends resolving references to shared libraries and populating the GOT.
+3. **Time to Launch Global Constructors:** The execution of `.init_array` functions and C++ static initializers before `main` starts.
+
+Lazy binding was invented specifically to optimize the **"Time to Resolve Symbols"** segment. Large graphical applications or massive monolithic binaries might link against hundreds of shared libraries containing thousands of functions, most of which are never called during a standard execution. Resolving all of them upfront causes a noticeable delay in program startup time. Full RELRO intentionally sacrifices this optimization, front-loading the entire symbol resolution cost to guarantee security.
 
 However, as CPUs have gotten drastically faster and security threats have become vastly more sophisticated, the industry consensus has shifted. The millisecond startup penalty of Full RELRO is now widely considered a mandatory price to pay for robust memory safety. In fact, major Linux distributions like Fedora have already moved to enable Full RELRO globally by default for all packages.
 
