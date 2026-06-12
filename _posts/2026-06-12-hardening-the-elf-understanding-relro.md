@@ -93,6 +93,16 @@ Lazy binding was invented specifically to optimize the **"Time to Resolve Symbol
 
 However, as CPUs have gotten drastically faster and security threats have become vastly more sophisticated, the industry consensus has shifted. The millisecond startup penalty of Full RELRO is now widely considered a mandatory price to pay for robust memory safety. In fact, major Linux distributions like Fedora have already moved to enable Full RELRO globally by default for all packages.
 
+### Combating Overhead on Mobile: Caches and Warm Starts
+
+While desktop and server environments have largely absorbed this startup cost, launch time overhead remains incredibly critical on mobile platforms like iOS and Android, where users expect instantaneous application response.
+
+To combat the overhead of exhaustive symbol resolution during a "Cold Start" (where the application process is launched from scratch), mobile operating systems have engineered sophisticated caching mechanisms to enable blazing-fast "Warm Starts" and "Hot Starts":
+- **iOS (`dyld3` Closure Caches):** Apple's `dyld3` dynamic linker completely reimagined symbol resolution. During an app's first launch (or at install time), it exhaustively resolves all symbols and pre-calculates the necessary memory addresses. It then serializes this information into a "closure cache" on disk. On subsequent launches, `dyld3` simply reads the pre-calculated closure, completely bypassing the expensive symbol search overhead while still maintaining the security benefits of Full RELRO.
+- **Android (Zygote and Profiles):** Android utilizes a special daemon called "Zygote," which pre-loads and pre-links common framework libraries. When a new app is launched, it simply forks from the Zygote process, inheriting the already-resolved symbols for shared core libraries. Android also leverages Baseline Profiles to pre-compile critical code paths, avoiding both JIT compilation and symbol resolution overhead during the delicate startup window.
+
+Through these innovations, mobile systems can enforce strict RELRO protections without sacrificing the instantaneous feel of a warm start.
+
 ## Life After RELRO: Where Do Attackers Pivot?
 
 If Full RELRO perfectly secures the GOT, what does a modern attacker do when faced with a memory corruption bug?
