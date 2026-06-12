@@ -9,7 +9,7 @@ In our [previous post](https://hiraditya.github.io/posts/the-hidden-complexity-o
 
 We noted that under "lazy binding", the dynamic linker looks up the true memory address of `puts` on the fly and dynamically overwrites the GOT entry with that exact address.
 
-But there is a glaring, terrifying issue with this mechanism: **if the dynamic linker can overwrite the GOT at runtime, so can an attacker.** 
+But there is a glaring issue with this mechanism: **if the dynamic linker can overwrite the GOT at runtime, so can an attacker.** 
 
 Let's explore the classic GOT Overwrite attack, and how modern OS vendors use a mitigation called **RELRO (Relocation Read-Only)** to harden ELF binaries.
 
@@ -47,7 +47,7 @@ By carefully crafting a payload, an attacker can:
 
 When the program subsequently calls `exit(0);`, the CPU looks up the GOT entry, finds the attacker's newly written address, and executes it. The program doesn't exit; it spawns a malicious shell!
 
-### Is there a CVE for GOT Overwrites?
+### The Relationship to CVEs
 A "GOT Overwrite" itself does not have a specific Common Vulnerabilities and Exposures (CVE) ID because it is a **binary exploitation technique**, not a specific software bug. 
 
 However, countless CVEs have been exploited *using* this exact technique. For example, historical vulnerabilities in network daemons or even glibc itself (like the famous CVE-2015-0235 "GHOST" vulnerability) often culminated in attackers utilizing a GOT overwrite as the final payload delivery mechanism to hijack control flow.
@@ -78,7 +78,7 @@ If an attacker attempts a GOT overwrite against a Full RELRO binary, the CPU wil
 
 ## The Tradeoff: Security vs. Performance
 
-If Full RELRO is so secure, why wasn't it the default from the beginning?
+Despite the immense security benefits of Full RELRO, it was not adopted as the default compiler behavior immediately.
 
 The tradeoff is **startup performance**. Lazy binding was invented because large graphical applications or massive monolithic binaries might link against hundreds of shared libraries containing thousands of functions, most of which are never called during a standard execution. Resolving all of them upfront causes a noticeable delay in program startup time.
 

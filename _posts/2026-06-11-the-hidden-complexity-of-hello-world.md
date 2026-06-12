@@ -21,7 +21,7 @@ Contrary to popular belief, `main` is not the first thing executed when you run 
 
 When the linker stitches your program together, it includes startup code provided by the C standard library (e.g., `crt1.o` in glibc). This object file defines a symbol named `_start`. 
 
-But exactly *how* does the linker mark this as the entry point?
+The linker employs a specific mechanism to designate this as the entry point.
 
 Under the hood, the linker uses a default linker script (which contains a directive like `ENTRY(_start)`). During the final linking phase, it resolves the virtual memory address of the `_start` symbol and explicitly writes this address into the `e_entry` field of the resulting ELF file's header (the `Elf64_Ehdr` structure). You can inspect this yourself by running `readelf -h a.out | grep "Entry point address"`.
 
@@ -127,11 +127,11 @@ Instead:
 
 When your PIE program is loaded, the dynamic linker must fix up the GOT so that indirect jumps to shared library functions point to the correct randomized addresses. This adds significant overhead to the loader's execution before `_start` even begins, making our simple `return 0;` program dependent on a highly sophisticated dynamic linking mechanism.
 
-## 7. What if we actually do something? `puts("Hello, World!")`
+## 7. Executing a System Call with `puts("Hello, World!")`
 
 If we graduate from `return 0;` to actually printing something, we usually add `printf("Hello, World!\n");`. Interestingly, modern compilers (like GCC and Clang) will optimize a simple constant `printf` ending in a newline directly into a call to `puts("Hello, World!")`. 
 
-But how does that `puts` call actually execute? Since `puts` lives in the shared C library (`libc.so`), the compiler doesn't know its memory address at compile time. 
+The execution of that `puts` call requires dynamic resolution. Since `puts` lives in the shared C library (`libc.so`), the compiler doesn't know its memory address at compile time. 
 
 Here is the exact sequence of events when `puts` is called in a dynamically linked PIE binary:
 
@@ -165,9 +165,9 @@ For those who want to dive directly into the source code to see how these abstra
 
 The next time you compile an empty `main` function or print a simple greeting, take a moment to appreciate the monumental software stack—the compiler, the linker, the CRT, the dynamic loader, and the kernel—all working in perfect harmony under the hood.
 
-## Food for Thought
+## Architectural Challenges in Heterogeneous Systems
 
-With everything you've learned here about loaders, stack initialization, and ABI constraints—how would you now go about running a simple "Hello, World!" in a heterogeneous system, where a host machine is solely responsible for launching the program on a completely different target architecture?
+Applying these concepts of loaders, stack initialization, and ABI constraints to a heterogeneous system—where a host machine is solely responsible for launching the program on a completely different target architecture—introduces an entirely new dimension of complexity to the "Hello, World!" execution flow.
 
 ## Acknowledgements
 
