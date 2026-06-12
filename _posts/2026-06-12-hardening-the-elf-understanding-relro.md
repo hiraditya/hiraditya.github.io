@@ -86,7 +86,15 @@ Despite the immense security benefits of Full RELRO, it was not adopted as the d
 
 The tradeoff is **startup performance**. Lazy binding was invented because large graphical applications or massive monolithic binaries might link against hundreds of shared libraries containing thousands of functions, most of which are never called during a standard execution. Resolving all of them upfront causes a noticeable delay in program startup time.
 
-However, as CPUs have gotten drastically faster and security threats have become vastly more sophisticated, the industry consensus has shifted. The millisecond startup penalty of Full RELRO is now widely considered a mandatory price to pay for robust memory safety.
+However, as CPUs have gotten drastically faster and security threats have become vastly more sophisticated, the industry consensus has shifted. The millisecond startup penalty of Full RELRO is now widely considered a mandatory price to pay for robust memory safety. In fact, major Linux distributions like Fedora have already moved to enable Full RELRO globally by default for all packages.
+
+## Life After RELRO: Where Do Attackers Pivot?
+
+If Full RELRO perfectly secures the GOT, what does a modern attacker do when faced with a memory corruption bug?
+
+When the GOT is marked read-only, exploit developers are forced to look for other writable function pointers. As highlighted in a [Hacker News discussion](https://news.ycombinator.com/item?id=29186252) on ELF hardening, the typical response is to target other data pointers not secured by RELRO. 
+
+If the application itself stores function pointers in its writable `.data` or `.bss` segments (such as callback arrays or vtables), those become the primary targets. If the binary lacks such pointers, attackers will often try to leak the base address of `libc` and target internal library hooks—historically, the `__malloc_hook` and `__free_hook` were favorite pivot points because they are frequently called and resided in writable memory, though modern glibc versions have since removed them to close this exact loophole.
 
 ## Checking Your Binaries
 
@@ -100,5 +108,3 @@ $ readelf -d my_program | grep BIND_NOW
 ```
 
 ---
-
-*Many thanks to Elliott Hughes for highlighting this critical security perspective following our deep-dive into the C toolchain!*
