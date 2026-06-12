@@ -52,6 +52,11 @@ A "GOT Overwrite" itself does not have a specific Common Vulnerabilities and Exp
 
 However, countless CVEs have been exploited *using* this exact technique. For example, historical vulnerabilities in network daemons or even glibc itself (like the famous CVE-2015-0235 "GHOST" vulnerability) often culminated in attackers utilizing a GOT overwrite as the final payload delivery mechanism to hijack control flow.
 
+This threat is not just historical. Even recent vulnerabilities frequently see exploit developers falling back to GOT manipulation if Full RELRO isn't strictly enforced. Notable modern examples where memory corruption can lead to GOT-based hijacking include:
+- **CVE-2026-23479**: Redis Use-After-Free
+- **CVE-2025-69650**: GNU Binutils `readelf` Double Free
+- **CVE-2024-4577**: PHP CGI Argument Injection variants
+
 This technique is incredibly reliable because, without mitigations, the GOT is situated at a predictable offset in memory and is always writable, making it a prime target for exploitation.
 
 ## Enter RELRO (Relocation Read-Only)
