@@ -14,7 +14,7 @@ int main() {
 }
 ```
 
-However, executing this program involves a highly intricate dance coordinated between the compiler, the linker, the C runtime (CRT), and the operating system's loader. Let's peel back the abstraction layers to understand exactly what happens before and after `main` executes.
+However, executing this program involves a complex sequence of steps coordinated between the compiler, the linker, the C runtime (CRT), and the operating system's loader. Let's peel back the abstraction layers to understand exactly what happens before and after `main` executes.
 
 ```mermaid
 graph TD
@@ -127,7 +127,7 @@ That glibc function initializes the C library environment, sets up thread-local 
 ### Static vs. Dynamic Linking
 
 Before the loader even enters the picture, it's important to distinguish how the program was compiled:
-- **Statically Linked:** The compiler stitches `crt1.o` and the entirety of the C library (`libc.a`) directly into your single binary. The resulting executable is massive but highly portable—it doesn't rely on the dynamic loader at all. The OS jumps straight to `_start`, and execution begins entirely in user-space.
+- **Statically Linked:** The compiler stitches `crt1.o` and the entirety of the C library (`libc.a`) directly into your single binary. The resulting executable is large but highly portable—it doesn't rely on the dynamic loader at all. The OS jumps straight to `_start`, and execution begins entirely in user-space.
 - **Dynamically Linked (Default):** The compiler inserts placeholder references to `libc.so`. The binary is tiny, but it cannot run on its own. The OS must map a dynamic loader into memory alongside your program to resolve those placeholders before `_start` is executed.
 
 ## 3. How the Loader Steps In
@@ -180,15 +180,15 @@ Instead:
 - The compiler uses **RIP-relative addressing** (addressing data relative to the current instruction pointer).
 - To call external functions (like those in `libc`), it uses the **PLT (Procedure Linkage Table)** and **GOT (Global Offset Table)**. 
 
-When your PIE program is loaded, the dynamic linker must fix up the GOT so that indirect jumps to shared library functions point to the correct randomized addresses. This adds significant overhead to the loader's execution before `_start` even begins, making our simple `return 0;` program dependent on a highly sophisticated dynamic linking mechanism.
+When your PIE program is loaded, the dynamic linker must fix up the GOT so that indirect jumps to shared library functions point to the correct randomized addresses. This adds significant overhead to the loader's execution before `_start` even begins, making our simple `return 0;` program dependent on a complex dynamic linking mechanism.
 
 ## 7. Cross-Platform Considerations
 
-While this post focuses heavily on Linux and x86-64, the fundamental concepts remain similar across operating systems and architectures, though the specific implementations differ drastically:
+While this post focuses heavily on Linux and x86-64, the fundamental concepts remain similar across operating systems and architectures, though the specific implementations differ significantly:
 
 - **Windows:** Instead of ELF, Windows uses the **PE (Portable Executable)** format. The entry point is typically `mainCRTStartup` or `WinMainCRTStartup` (provided by the MSVC CRT). The loader is the Windows NT kernel loader, which resolves DLL imports via the Import Address Table (IAT)—the Windows equivalent of the GOT/PLT.
 - **macOS:** Apple platforms use the **Mach-O** binary format and the `dyld` dynamic linker. The entry point structure is similar, but `dyld` operates significantly differently than Linux's `ld.so`, especially with recent optimizations like `dyld3` closure caches.
-- **ARM64 (AArch64):** On modern ARM architectures, the kernel does not rely as heavily on the stack to pass the initial state. Instead of popping `argc` directly off the stack like x86-64, the ARM64 ABI dictates that initial state and auxiliary vectors are passed differently, primarily leveraging the massive pool of general-purpose registers before dropping into `_start`.
+- **ARM64 (AArch64):** On modern ARM architectures, the kernel does not rely as heavily on the stack to pass the initial state. Instead of popping `argc` directly off the stack like x86-64, the ARM64 ABI dictates that initial state and auxiliary vectors are passed differently, primarily leveraging a large pool of general-purpose registers before dropping into `_start`.
 
 ## 8. Beyond C: The Pre-Main of Objective-C and Rust
 
@@ -197,7 +197,7 @@ The concepts we've explored apply to C, but modern languages build their own run
 ### Objective-C: The Runtime Initialization
 In Objective-C (commonly used on Apple platforms), the `main` function is not the true beginning of the application's logic. Before `main` is ever reached, the dynamic linker (`dyld`) maps the executable and its libraries into memory and begins invoking initialization routines.
 
-Crucially, `dyld` initializes the Objective-C runtime. During this phase, the runtime automatically discovers every class and category in the binary and executes their `+load` methods[^5]. It wires up the class hierarchy, registers method selectors, and allocates necessary runtime data structures. Only after this massive amount of implicit setup finishes does control pass to the standard C `main` function, which typically just delegates execution to `UIApplicationMain` or `NSApplicationMain` to start the UI event loop.
+Crucially, `dyld` initializes the Objective-C runtime. During this phase, the runtime automatically discovers every class and category in the binary and executes their `+load` methods[^5]. It wires up the class hierarchy, registers method selectors, and allocates necessary runtime data structures. Only after this extensive amount of implicit setup finishes does control pass to the standard C `main` function, which typically just delegates execution to `UIApplicationMain` or `NSApplicationMain` to start the UI event loop.
 
 ### Rust: Bridging `fn main()` to `int main()`
 In C, the contract with the OS is clear: `main` returns an `int`. But in Rust, the standard entry point is `fn main()`, which returns the unit type `()` (essentially nothing) or a `Result`. So how does the OS get its integer exit code?
@@ -256,11 +256,11 @@ Armed with the knowledge of how loaders, stack initialization, and ABI constrain
 
 ## Conclusion
 
-The next time you compile an empty `main` function or print a simple greeting, take a moment to appreciate the monumental software stack—the compiler, the linker, the CRT, the dynamic loader, and the kernel—all working in perfect harmony under the hood.
+The next time you compile an empty `main` function or print a simple greeting, take a moment to appreciate the extensive software stack—the compiler, the linker, the CRT, the dynamic loader, and the kernel—all working in close coordination under the hood.
 
 ## Acknowledgements
 
-I would like to dedicate this post to [Elliott Hughes](https://www.linkedin.com/in/elliott-hughes-96294773/) and [Reid Tatge](https://www.linkedin.com/in/reidtatge/), as I learned most of these deep systems-level intricacies from/because-of them.
+I would like to dedicate this post to [Elliott Hughes](https://www.linkedin.com/in/elliott-hughes-96294773/) and [Reid Tatge](https://www.linkedin.com/in/reidtatge/), as I learned most of these systems-level intricacies from/because-of them.
 
 ---
 
