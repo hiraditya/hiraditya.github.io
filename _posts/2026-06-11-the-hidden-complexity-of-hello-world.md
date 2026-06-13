@@ -167,7 +167,30 @@ The next time you compile an empty `main` function or print a simple greeting, t
 
 ## Architectural Challenges in Heterogeneous Systems
 
-Applying these concepts of loaders, stack initialization, and ABI constraints to a heterogeneous system—where a host machine is solely responsible for launching the program on a completely different target architecture—introduces an entirely new dimension of complexity to the "Hello, World!" execution flow.
+Applying these concepts of loaders, stack initialization, and ABI constraints to a heterogeneous system introduces an entirely new dimension of complexity. In a setup where a host machine is solely responsible for launching a program on a completely different target architecture (like a DSP or AI accelerator), the definition of a "Hello, World!" program fundamentally changes. 
+
+What kind of "Hello, World!" is interesting here? It's no longer just about invoking a system call. It becomes a full validation of the host-to-device communication pipeline, memory mapping, and execution control.
+
+### The Host-to-Coprocessor Execution Flow
+
+Consider a typical heterogeneous setup where the host processor acts as the orchestrator, and an accelerator (the co-processor) performs the work. To simply say "Hello, World!", the execution flow looks like this:
+
+1. **The Host ELF Loader:** Instead of the OS kernel loading the binary into its own memory, a specialized ELF loader runs on the host. This loader parses the target binary, maps the executable sections over a bus (like PCIe) directly into the device's local memory, and signals the co-processor's instruction pointer to begin execution.
+2. **Device Execution:** The co-processor boots, initializes its own minimal stack, and writes the string `"Hello, World!"` to a specific, pre-arranged address in its local memory.
+3. **Communication and DMA:** The co-processor triggers an interrupt or writes to a mailbox register to communicate that address back to the host. The host then initiates a Direct Memory Access (DMA) transfer to read the string from the device memory into host memory, finally printing it to `stdout` using its own C library.
+
+### Semihosting: A Formal Protocol
+
+This orchestration of I/O between a target device and a host is often formalized via **Semihosting**. Popularized in embedded ARM environments, [semihosting](https://developer.arm.com/documentation/dui0375/g/What-is-Semihosting-/What-is-semihosting-) defines a protocol where standard C library functions (like `printf`) executed on the target device are trapped. Instead of the device trying to execute a nonexistent syscall, the host or attached debugger intercepts the trap, performs the I/O operation on the host machine on behalf of the device, and passes the result back.
+
+### The Quirks of Heterogeneous Environments
+
+Writing a simple string across this hardware boundary exposes the bizarre quirks of heterogeneous architectures:
+- **Heterogeneous Memory:** The host and the device rarely share a unified address space. The host ELF loader must manage distinct physical memory regions (e.g., host DRAM vs. device scratchpad SRAM) and ensure cache coherency when moving the string via DMA.
+- **Unconventional Data Types:** On many specialized DSPs, the fundamental addressable memory unit is not an 8-bit byte, but a 16-bit or even 32-bit word. In these environments, `sizeof(char) == 1`, but that `1` actually equals 32 bits! Writing `"Hello, World!"` requires packing characters into 32-bit words, completely breaking standard host-side string assumptions.
+- **Mixed Precision and Endianness:** The host might be a 64-bit Little-Endian x86 processor, while the co-processor might be a 32-bit Big-Endian accelerator. The host ELF loader and the DMA controller must actively perform endian-swapping and pointer translation just to read the string correctly.
+
+In a heterogeneous system, "Hello, World!" is no longer a trivial beginner's exercise—it is the ultimate system integration test.
 
 ## Acknowledgements
 
