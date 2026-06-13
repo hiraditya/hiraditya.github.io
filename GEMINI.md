@@ -21,4 +21,4 @@ At the end of every article write "*Disclaimer: This article was generated using
 ## 6. Repo
 - This is a git repo.
 - Commit often.
-- Format with `mdformat`.
+- Remove trailing whitespace, dont use mdformat as it messes up the structure.
