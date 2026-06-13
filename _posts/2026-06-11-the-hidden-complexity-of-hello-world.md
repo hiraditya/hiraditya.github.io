@@ -18,12 +18,12 @@ However, executing this program involves a highly intricate dance coordinated be
 
 ```mermaid
 graph TD
-    Kernel[OS Kernel / execve] -->|Loads ELF & Sets Stack| Start[_start]
-    Start -->|Passes argc/argv| LibcStart[__libc_start_main]
-    LibcStart -->|Initializes TLS/Constructors| Main[main]
-    Main -->|returns 0| LibcStart
-    LibcStart -->|Passes 0| Exit[exit]
-    Exit -->|Calls Destructors & sys_exit| Kernel2[Kernel terminates process]
+    Kernel["OS Kernel / execve"] -->|"Loads ELF & Sets Stack"| Start["_start"]
+    Start -->|"Passes argc/argv"| LibcStart["__libc_start_main"]
+    LibcStart -->|"Initializes TLS/Constructors"| Main["main"]
+    Main -->|"returns 0"| LibcStart
+    LibcStart -->|"Passes 0"| Exit["exit"]
+    Exit -->|"Calls Destructors & sys_exit"| Kernel2["Kernel terminates process"]
 ```
 
 ## 1. The True Entry Point: `_start`
@@ -205,14 +205,14 @@ Here is the exact sequence of events when `puts` is called in a dynamically link
 
 ```mermaid
 graph LR
-    subgraph "Before Lazy Binding"
-        PLT1[PLT Entry for puts] --> GOT1[GOT Entry: Points back to PLT]
-        GOT1 -.-> Linker[Dynamic Linker Resolver]
+    subgraph Before_Lazy_Binding ["Before Lazy Binding"]
+        PLT1["PLT Entry for puts"] --> GOT1["GOT Entry: Points back to PLT"]
+        GOT1 -.-> Linker["Dynamic Linker Resolver"]
     end
 
-    subgraph "After Lazy Binding"
-        PLT2[PLT Entry for puts] --> GOT2[GOT Entry: Points directly to libc]
-        GOT2 --> LIBC[libc.so: puts()]
+    subgraph After_Lazy_Binding ["After Lazy Binding"]
+        PLT2["PLT Entry for puts"] --> GOT2["GOT Entry: Points directly to libc"]
+        GOT2 --> LIBC["libc.so: puts()"]
     end
 ```
 

@@ -50,14 +50,14 @@ When the program subsequently calls `exit(0);`, the CPU looks up the GOT entry, 
 
 ```mermaid
 graph TD
-    subgraph "Normal Flow (After Lazy Binding)"
-        PLT[PLT Entry] --> GOT[GOT Entry]
-        GOT --> LIBC[libc.so Function]
+    subgraph Normal_Flow ["Normal Flow (After Lazy Binding)"]
+        PLT["PLT Entry"] --> GOT["GOT Entry"]
+        GOT --> LIBC["libc.so Function"]
     end
 
-    subgraph "GOT Overwrite Attack"
-        PLT_ATT[PLT Entry] --> GOT_ATT[GOT Entry]
-        GOT_ATT -.->|Overwritten via %n| SHELLCODE[Attacker Shellcode / system()]
+    subgraph GOT_Overwrite_Attack ["GOT Overwrite Attack"]
+        PLT_ATT["PLT Entry"] --> GOT_ATT["GOT Entry"]
+        GOT_ATT -.->|"Overwritten via %n"| SHELLCODE["Attacker Shellcode / system()"]
         style GOT_ATT fill:#ffcccc,stroke:#ff0000,stroke-width:2px
     end
 ```
