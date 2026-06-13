@@ -21,7 +21,9 @@ Consider a typical heterogeneous setup where the host processor acts as the orch
 
 ## Semihosting: A Formal Protocol
 
-This orchestration of I/O between a target device and a host is often formalized via **Semihosting**. Popularized in embedded ARM environments, [semihosting](https://developer.arm.com/documentation/dui0375/g/What-is-Semihosting-/What-is-semihosting-) defines a protocol where standard C library functions (like `printf`) executed on the target device are trapped. Instead of the device trying to execute a nonexistent syscall, the host or attached debugger intercepts the trap, performs the I/O operation on the host machine on behalf of the device, and passes the result back.
+This orchestration of I/O between a target device and a host is often formalized via **Semihosting**. Popularized in embedded ARM environments, semihosting defines a protocol where standard C library functions (like `printf` or `fopen`) executed on the target device are trapped. 
+
+Instead of the device trying to execute a nonexistent syscall, the host or an attached hardware debugger intercepts the trap. At the assembly level, this is typically implemented by having the target execute a specific software interrupt or breakpoint instruction (e.g., `BKPT 0xAB` or `SVC 0x123456` on ARM). The debugger catches this exception, reads a command number and a parameter block from the target's memory or registers, performs the requested I/O operation on the host machine on behalf of the device, and passes the result back before resuming execution.
 
 Here is a pseudo-C representation of what this orchestration looks like in practice:
 
@@ -86,7 +88,22 @@ Writing a simple string across this hardware boundary exposes the bizarre quirks
   More critically, this is a massive problem for modern compiler infrastructure. Historically, industrial compilers like LLVM have had the assumption of an 8-bit byte (`sizeof(char) == 1` and `alignment == 1`) deeply hardcoded in countless places across the codebase. Bringing up a modern toolchain for these DSPs often requires painfully ripping out and refactoring these deeply entrenched assumptions. (For deeper insights into these compiler struggles, see the LLVM community discussions on [supporting non-8-bit bytes](https://discourse.llvm.org/t/rfc-on-non-8-bit-bytes-and-the-target-for-it/53455?page=3) and [refactoring alignment assumptions](https://discourse.llvm.org/t/alignment-member-functions-should-be-virtual/48448)).
 - **Mixed Precision and Endianness:** The host might be a 64-bit Little-Endian x86 processor, while the co-processor might be a 32-bit Big-Endian accelerator. The host ELF loader and the DMA controller must actively perform endian-swapping and pointer translation just to read the string correctly.
 
-In a heterogeneous system, "Hello, World!" is no longer a trivial beginner's exercise—it is the ultimate system integration test.
+In a heterogeneous system, "Hello, World!" is no longer a trivial beginner's exercise—it is the ultimate system integration test. But as a compiler engineer of the current times, you might wonder: *why should I even care about a simple `printf` in this setting?* After all, accelerators are mostly used for massive matmuls and softmax computations, while the host takes care of all standard I/O.
+
+The answer lies in **debugging**. If you have worked on ML compilers, you know that debugging is often a lost cause—assuming it isn't entirely an afterthought. Developers are frequently forced to rely on extremely slow software simulators like Spike or gem5 just to inspect state. When dealing with numerical instability in massive neural networks, countless bugs fall into the "unknown-unknowns" category. A working semihosting implementation provides a lifeline, allowing the device to stream live debug logs directly to the host without halting the entire fabric or waiting for a simulator trace.
+
+Furthermore, modern accelerators are not merely grids of giant matmuls; they are entire heterogeneous compute systems in their own right. Recent designs actively embed tiny scalar CPUs alongside tensor cores to handle control flow and scheduling. For instance, the Intel Gaudi architecture integrates control processors alongside its main accelerator fabric. Similarly, Apple's M-series chips feature a high-performance Neural Engine running alongside the CPU and GPU, necessitating a unified programming model to orchestrate tasks across diverse processing units. Nvidia's GPU System Processor (GSP) famously embeds [RISC-V cores directly onto the GPU die](https://riscv.org/blog/how-nvidia-shipped-one-billion-risc-v-cores-in-2024/) to manage hardware initialization and task scheduling.
+
+When your "accelerator" actually contains half a dozen different CPU architectures coordinating a massive tensor fabric, being able to reliably execute a "Hello, World!" from a sub-core becomes a critical foundational capability.
+
+## References
+
+1. **Linux Kernel Mailbox Framework:** Official documentation on how modern OS kernels manage IPC mailboxes. ([Link](https://www.kernel.org/doc/html/latest/driver-api/mailbox.html))
+2. **LLVM Non-8-bit Bytes RFC:** Community discussion detailing the engineering struggles of adapting modern compilers to non-standard byte sizes. ([Link](https://discourse.llvm.org/t/rfc-on-non-8-bit-bytes-and-the-target-for-it/53455?page=3))
+3. **LLVM Alignment Virtualization:** Discussions around refactoring alignment assumptions in LLVM. ([Link](https://discourse.llvm.org/t/alignment-member-functions-should-be-virtual/48448))
+4. **ARM Semihosting Reference:** Using semihosting to access resources on the host computer. ([Link](https://developer.arm.com/documentation/101470/2025-1/Controlling-Target-Execution/Using-semihosting-to-access-resources-on-the-host-computer?lang=en))
+5. **Segger Semihosting Guide:** Detailed breakdown of semihosting traps, exception handling, and parameter blocks. ([Link](https://kb.segger.com/Semihosting))
+6. **Nvidia's RISC-V GSP:** How Nvidia shipped over a billion RISC-V cores embedded within their GPUs. ([Link](https://riscv.org/blog/how-nvidia-shipped-one-billion-risc-v-cores-in-2024/))
 
 ---
 
