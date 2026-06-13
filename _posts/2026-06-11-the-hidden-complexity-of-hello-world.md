@@ -243,7 +243,7 @@ The next time you compile an empty `main` function or print a simple greeting, t
 
 ## Architectural Challenges in Heterogeneous Systems
 
-**A Teaser for the Architect:** Armed with the knowledge of how loaders, stack initialization, and ABI constraints operate on a single machine, how would you design the execution flow for a "Hello, World!" program in a heterogeneous system—where a host processor is responsible for bootstrapping and launching the binary on an entirely different target architecture?
+Armed with the knowledge of how loaders, stack initialization, and ABI constraints operate on a single machine, how would you design the execution flow for a "Hello, World!" program in a heterogeneous system—where a host processor is responsible for bootstrapping and launching the binary on an entirely different target architecture?
 
 ## Acknowledgements
 
