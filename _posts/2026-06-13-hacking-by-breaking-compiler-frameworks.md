@@ -64,15 +64,47 @@ To truly reverse engineer the system, we must look beyond just function names an
 
 When dynamic analysis isn't possible (or you want to understand the *why* rather than just the *what*), static analysis is required. Traditionally, this meant loading the binary into a disassembler like Hopper[^3] or Ghidra and spending weeks staring at x86 or ARM assembly.
 
-Today, LLMs act as massive force multipliers. You can extract a single suspicious function using a disassembler and feed the raw assembly directly into an LLM. By asking the model to decompile the assembly into an equivalent high-level C or C++ representation, you can rapidly reconstruct the original logic. The LLM can infer loop structures, variable types, and even likely variable names based on the instruction sequence and ABI constraints, transforming an opaque blob into readable source code in seconds.
+Today, LLMs act as massive force multipliers. You can extract a single suspicious function using a disassembler and feed the raw assembly directly into an LLM. Consider a small but opaque snippet of ARM64 assembly emitted by a closed-source runtime:
 
-## Strategy 5: Exploiting Hidden Diagnostic Flags
+```assembly
+cbz x0, .LBB0_2
+ldp x8, x9, [x0]
+add x8, x8, x9
+str x8, [x0, #16]
+.LBB0_2:
+ret
+```
+
+By asking the model to decompile the assembly into an equivalent high-level C or C++ representation, you rapidly reconstruct the original logic. The LLM can infer structures, variable types, and pointer offsets based on the instruction sequence and ABI constraints. For the snippet above, an LLM would instantly provide the equivalent C++ code:
+
+```cpp
+struct TensorMetadata {
+    uint64_t dim0;
+    uint64_t dim1;
+    uint64_t total_elements;
+};
+
+void compute_elements(TensorMetadata* meta) {
+    if (meta != nullptr) {
+        meta->total_elements = meta->dim0 + meta->dim1;
+    }
+}
+```
+
+This transforms an opaque blob into readable source code in seconds.
+
+## Strategy 5: Exploiting Hidden Flags and In-Memory IR
 
 Compiler engineers need ways to debug their own tools. Consequently, even closed-source or opaque production binaries often ship with dormant diagnostic flags that are incredibly verbose.
 
 For example, LLVM-based infrastructures universally support flags like `-print-after-all`, which dumps the entire Intermediate Representation (IR) of the program after every single optimization pass. Even if the framework is heavily customized, passing these generic LLVM flags through the environment or command line often still works.
 
-In the ML domain, tools like XLA possess extensive undocumented flags that emit internal scheduling or instruction details. Recently, researchers have successfully leveraged these hidden XLA flags to dump and explore the entire suite of undocumented TPU instructions (as demonstrated by Patrick Toulmé's work on tracing JAX computations[^4]). Discovering and enabling these flags is often the easiest way to turn a black box into a completely transparent pipeline.
+In the ML domain, tools like XLA possess extensive undocumented flags that emit internal scheduling or instruction details. Researchers have successfully leveraged these hidden XLA flags to dump and explore the entire suite of undocumented TPU instructions (as demonstrated by Patrick Toulmé's work on tracing JAX computations[^4]).
+
+**Hunting for Bitcode in Memory:**
+What if the vendors proactively strip out all text-dumping diagnostic functions before shipping the binary? Because many modern ML frameworks are built on LLVM or MLIR, the compiler must still construct and manipulate the binary Intermediate Representation (e.g., LLVM Bitcode `.bc`) in memory. 
+
+By attaching a debugger, you can scan the memory space of the compiler process for the "magic numbers" that denote the start of an LLVM bitcode payload or MLIR module. Once located, you can dump that raw memory block to disk. You can then use standard, open-source tools like `llvm-dis` (the LLVM disassembler) to convert the dumped bitcode back into human-readable LLVM IR text. Finally, feeding that IR into an LLM provides a crystal-clear, high-level view of the exact optimizations the black box performed.
 
 ## Conclusion
 
