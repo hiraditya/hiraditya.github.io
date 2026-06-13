@@ -47,6 +47,20 @@ By carefully crafting a payload, an attacker can:
 
 When the program subsequently calls `exit(0);`, the CPU looks up the GOT entry, finds the attacker's newly written address, and executes it. The program doesn't exit; it spawns a malicious shell!
 
+```mermaid
+graph TD
+    subgraph "Normal Flow (After Lazy Binding)"
+        PLT[PLT Entry] --> GOT[GOT Entry]
+        GOT --> LIBC[libc.so Function]
+    end
+
+    subgraph "GOT Overwrite Attack"
+        PLT_ATT[PLT Entry] --> GOT_ATT[GOT Entry]
+        GOT_ATT -.->|Overwritten via %n| SHELLCODE[Attacker Shellcode / system()]
+        style GOT_ATT fill:#ffcccc,stroke:#ff0000,stroke-width:2px
+    end
+```
+
 ### The Relationship to CVEs
 A "GOT Overwrite" itself does not have a specific Common Vulnerabilities and Exposures (CVE) ID because it is a **binary exploitation technique**, not a specific software bug. 
 
@@ -68,6 +82,8 @@ There are two levels of RELRO implementation:
 Partial RELRO forces the loader to resolve certain ELF internal data sections (like `.dynamic` and the standard `.got`) at load time, and then immediately marks them as read-only. 
 
 However, Partial RELRO **preserves lazy binding**. Because lazy binding requires updating `.got.plt` during program execution, the `.got.plt` section is left entirely writable. While Partial RELRO protects some internal structures, the classic GOT overwrite attack vector remains wide open.
+
+For this reason, **Partial RELRO is widely considered insufficient for network-facing daemons.** Many developers mistakenly believe that compiling with Partial RELRO provides adequate protection simply because the feature is enabled, but leaving `.got.plt` writable means the binary is still highly susceptible to control-flow hijacking.
 
 ### 2. Full RELRO
 To completely close the vulnerability, modern systems (such as Fedora, Ubuntu, and RedHat) enforce **Full RELRO** on security-critical binaries and network daemons. 
@@ -118,6 +134,8 @@ When the GOT is marked read-only, exploit developers are forced to look for othe
 
 If the application itself stores function pointers in its writable `.data` or `.bss` segments (such as callback arrays or vtables), those become the primary targets. If the binary lacks such pointers, attackers will often try to leak the base address of `libc` and target internal library hooks—historically, the `__malloc_hook` and `__free_hook` were favorite pivot points because they are frequently called and resided in writable memory, though modern glibc versions have since removed them to close this exact loophole.
 
+Today, attackers have evolved to exploit **tcache poisoning** in modern glibc or perform **`_IO_FILE` vtable hijacking**, manipulating the file stream structures in memory to execute arbitrary code when standard I/O functions like `printf` or `puts` are called.
+
 ## Checking Your Binaries
 
 You can easily check if your binaries are hardened with RELRO using the popular `checksec` tool, or by inspecting the ELF headers directly with `readelf`.
@@ -125,6 +143,9 @@ You can easily check if your binaries are hardened with RELRO using the popular 
 A binary with Full RELRO will exhibit a `GNU_RELRO` program header, and the `BIND_NOW` dynamic flag:
 
 ```bash
+$ readelf -l my_program | grep GNU_RELRO
+  GNU_RELRO      0x0000000000002df0 0x0000000000003df0 0x0000000000003df0
+
 $ readelf -d my_program | grep BIND_NOW
  0x0000000000000018 (BIND_NOW)           
 ```
