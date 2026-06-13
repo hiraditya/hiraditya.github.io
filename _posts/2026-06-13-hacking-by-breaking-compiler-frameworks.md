@@ -38,11 +38,19 @@ Opaque frameworks are typically distributed as large shared libraries (e.g., `.s
 
 When a shared library calls an external symbol, it usually does so via the Global Offset Table (GOT) and Procedure Linkage Table (PLT). By utilizing techniques like `LD_PRELOAD` on Linux or `DYLD_INSERT_LIBRARIES` on macOS, we can inject a custom shared library into the process space before the opaque compiler loads.
 
-We can then override specific external function calls (like `malloc`, `cudaLaunchKernel`, or internal exported symbols) with our own wrappers. These wrappers can print arguments, inspect memory buffers, or alter the execution flow before passing control back to the original function. This provides an incredibly high-level, dynamic view of what the black box is attempting to do.
+Instead of intercepting generic functions like `malloc`, we can target the specialized ML infrastructure. For example, if an opaque framework relies on Nvidia's cuBLAS or cuDNN under the hood, we can write an `LD_PRELOAD` wrapper for `cublasGemmEx` (the generalized matrix multiplication routine) or `cudnnConvolutionForward`. 
 
-## Strategy 3: Dynamic Debugging and State Extraction
+When the proprietary ML framework attempts to execute a layer, our wrapper catches the call. Before forwarding the execution to the real proprietary library, we can dump the `m`, `n`, `k` dimensions, the algorithmic choices, the data types (e.g., FP16 vs. BF16), and the memory pointers to `stdout`. This instantly reveals exactly how the "black box" compiler lowered a high-level model into hardware-specific tensor operations, entirely bypassing its intentional opacity.
 
-If intercepting library calls isn't granular enough, attaching a dynamic debugger (like `gdb` or `lldb`) provides ultimate control. By pausing the execution of the proprietary compiler at a specific instruction or function entry point, we can dump the live state.
+## Strategy 3: Dynamic Debugging and Vendor Tooling
+
+If intercepting library calls isn't granular enough, attaching a dynamic debugger provides ultimate control. While standard debuggers (`gdb` or `lldb`) are useful for the host compiler, understanding opaque frameworks often requires leveraging the proprietary debugging tools provided by hardware vendors. 
+
+These tools are typically designed to debug user code, but they are equally effective at inspecting the internal behavior of the vendor's own closed-source frameworks:
+
+- **NVIDIA (`cuda-gdb` and Nsight):** You can use `cuda-gdb` to set breakpoints directly inside stripped device kernels launched by opaque libraries like cuBLAS. Using Nsight Compute, you can inspect the PTX/SASS assembly emitted by the ML compiler, examining hardware performance counters, register spilling, and shared memory bank conflicts to deduce the precise optimization strategy the compiler chose.
+- **Apple (Metal Debugger and `lldb`):** When reversing Apple's CoreML or Metal Performance Shaders (MPS), you can attach the Xcode Metal Debugger to capture GPU frame data. This allows you to inspect the intermediate encoded command buffers and the opaque compute pipelines Apple's runtime generates. Additionally, custom `lldb` python scripts can be written to traverse and format the undocumented Objective-C object hierarchies of these frameworks in memory.
+- **Microsoft (WinDbg and TTD):** For closed-source compilers like MSVC or frameworks like DirectML, Microsoft's `WinDbg` is unparalleled. Utilizing its Time Travel Debugging (TTD) feature, you can record the entire execution trace of the proprietary compiler. If an internal optimization pass crashes, you can literally "rewind" the execution instruction-by-instruction to find the exact moment an opaque data structure became corrupted.
 
 ### The Pedantic Details: ABI and Calling Conventions
 
