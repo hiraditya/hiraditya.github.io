@@ -64,34 +64,38 @@ To truly reverse engineer the system, we must look beyond just function names an
 
 When dynamic analysis isn't possible (or you want to understand the *why* rather than just the *what*), static analysis is required. Traditionally, this meant loading the binary into a disassembler like Hopper[^3] or Ghidra and spending weeks staring at x86 or ARM assembly.
 
-Today, LLMs act as massive force multipliers. You can extract a single suspicious function using a disassembler and feed the raw assembly directly into an LLM. Consider a small but opaque snippet of ARM64 assembly emitted by a closed-source runtime:
+Today, LLMs act as massive force multipliers. You can extract a single suspicious function using a disassembler and feed the raw assembly directly into an LLM. Consider a snippet of GPU or accelerator instruction code (like NVIDIA PTX) extracted from an opaque ML library. Modern accelerators have remarkably high-level ISAs designed specifically for deep learning, featuring native instructions for dot products, matrix multiplications (e.g., WMMA), and layer norms. Because these instructions are so semantically dense, reconstructing them with an LLM is often even easier than typical CPU assembly.
 
 ```assembly
-cbz x0, .LBB0_2
-ldp x8, x9, [x0]
-add x8, x8, x9
-str x8, [x0, #16]
-.LBB0_2:
-ret
+// PTX snippet for a 16x16x16 matrix multiply-accumulate
+wmma.load.a.sync.aligned.m16n16k16.f16.col  %r1, [%rd1];
+wmma.load.b.sync.aligned.m16n16k16.f16.row  %r2, [%rd2];
+wmma.load.c.sync.aligned.m16n16k16.f32.row  %r3, [%rd3];
+wmma.mma.sync.aligned.m16n16k16.al.f32.f16.f16.f32 %r4, %r1, %r2, %r3;
+wmma.store.d.sync.aligned.m16n16k16.f32.row [%rd4], %r4;
 ```
 
-By asking the model to decompile the assembly into an equivalent high-level C or C++ representation, you rapidly reconstruct the original logic. The LLM can infer structures, variable types, and pointer offsets based on the instruction sequence and ABI constraints. For the snippet above, an LLM would instantly provide the equivalent C++ code:
+By asking the model to decompile the assembly into an equivalent high-level C++ representation, the LLM immediately recognizes the Warp-Level Matrix Multiply-Accumulate (WMMA) pattern and its data types. It instantly provides the equivalent high-level CUDA C++ code:
 
 ```cpp
-struct TensorMetadata {
-    uint64_t dim0;
-    uint64_t dim1;
-    uint64_t total_elements;
-};
+// Reconstructed CUDA WMMA kernel logic
+using namespace nvcuda;
 
-void compute_elements(TensorMetadata* meta) {
-    if (meta != nullptr) {
-        meta->total_elements = meta->dim0 + meta->dim1;
-    }
+void compute_gemm_block(half* A, half* B, float* C, float* D) {
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::col_major> frag_a;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> frag_b;
+    wmma::fragment<wmma::accumulator, 16, 16, 16, float> frag_c;
+    
+    wmma::load_matrix_sync(frag_a, A, 16);
+    wmma::load_matrix_sync(frag_b, B, 16);
+    wmma::load_matrix_sync(frag_c, C, 16);
+    
+    wmma::mma_sync(frag_c, frag_a, frag_b, frag_c);
+    wmma::store_matrix_sync(D, frag_c, 16, wmma::mem_row_major);
 }
 ```
 
-This transforms an opaque blob into readable source code in seconds.
+Because accelerator ISAs operate directly on high-level mathematical concepts, feeding them to an LLM transforms an opaque kernel blob into highly readable, semantically rich source code in seconds.
 
 ## Strategy 5: Exploiting Hidden Flags and In-Memory IR
 
