@@ -131,7 +131,7 @@ This level of fine-grained, host-driven execution control is still a bleeding-ed
 
 These frameworks were fundamentally designed around static computational graphs and ahead-of-time compilers (like XLA) that expect uniform, uninterrupted execution across massive batches of data. Injecting dynamic, asynchronous host-device interrupts completely shatters these compiler assumptions. 
 
-However, the industry is rapidly recognizing this bottleneck. Emerging research into **Early Exit (EE) Architectures**—such as the [EE-LLM project](https://github.com/hahnyuan/EE-LLM) for large-scale distributed inference—is forcing the ecosystem to adapt to dynamic compute graphs and "compute-budget" aware scheduling. Simultaneously, compiler engineers are increasingly leveraging lower-level Intermediate Representations (like MLIR) or custom kernel languages (like JAX's Pallas) to claw back the granular hardware control that rigid, monolithic frameworks abstracted away.
+However, the industry is rapidly recognizing this bottleneck. Emerging research into **Early Exit (EE) Architectures**—such as the [EE-LLM project](https://github.com/hahnyuan/EE-LLM) for large-scale distributed inference—is forcing the ecosystem to adapt to dynamic compute graphs and "compute-budget" aware scheduling. Simultaneously, compiler engineers are increasingly leveraging lower-level Intermediate Representations (like MLIR) or custom kernel languages (like JAX's Pallas, Modular's Mojo, Triton by OpenAI, Helion by Meta, etc.) to claw back the granular hardware control that rigid, monolithic frameworks abstracted away.
 
 ## References
 
@@ -142,6 +142,10 @@ However, the industry is rapidly recognizing this bottleneck. Emerging research 
 5. **Segger Semihosting Guide:** Detailed breakdown of semihosting traps, exception handling, and parameter blocks. ([Link](https://kb.segger.com/Semihosting))
 6. **Nvidia's RISC-V GSP:** How Nvidia shipped over a billion RISC-V cores embedded within their GPUs. ([Link](https://riscv.org/blog/how-nvidia-shipped-one-billion-risc-v-cores-in-2024/))
 7. **Debugger-Driven Execution Redirection:** Official GDB documentation on modifying the program counter to manually alter execution flow. ([Link](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Altering.html))
+8. **JAX Pallas:** A JAX extension for writing custom, hardware-specific kernels for GPUs and TPUs. ([Link](https://jax.readthedocs.io/en/latest/pallas/index.html))
+9. **Modular's Mojo:** A programming language designed for AI developers that combines the usability of Python with low-level systems and hardware control. ([Link](https://www.modular.com/mojo))
+10. **OpenAI Triton:** An open-source Python-like language and compiler for writing highly efficient custom Deep-Learning primitives. ([Link](https://github.com/triton-lang/triton))
+11. **Meta's Helion:** A Python-embedded domain-specific language (DSL) for authoring portable, high-performance ML kernels with built-in autotuning. ([Link](https://pytorch.org/blog/introducing-helion/))
 
 ---
 
