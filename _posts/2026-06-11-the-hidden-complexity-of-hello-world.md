@@ -65,7 +65,7 @@ When `_start` wakes up, the stack pointer (`%rsp`) points directly to `argc`. Th
 
 If we were to write our own raw, freestanding `_start` routine (bypassing `__libc_start_main` entirely) to manually call `main` and then trap to the OS to exit, it would look exactly like this:
 
-```asm
+```nasm
 .global _start
 .text
 
@@ -147,7 +147,7 @@ Once `__libc_start_main` has initialized threading, global constructors, and sec
 
 Your `main` function executes its single instruction: `return 0;`. In assembly, this simply moves `0` into the `%eax` register and issues a `ret` instruction.
 
-```asm
+```nasm
 main:
     xor eax, eax  ; Set return value to 0
     ret           ; Return to __libc_start_main
@@ -218,7 +218,7 @@ graph LR
 
 5. **The System Call**: Deep inside `libc`, `puts` handles appending a newline to your string and eventually invokes the `write` system call (syscall number `1` on x86-64), targeting File Descriptor `1` (`stdout`). 
 
-```asm
+```nasm
     ; A raw representation of the underlying write syscall
     mov rdi, 1                  ; File descriptor 1 (stdout)
     lea rsi, [rip + string_ptr] ; Pointer to "Hello, World!\n"
