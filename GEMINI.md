@@ -3,6 +3,7 @@
 ## 1. Blog Writing Style & Structure (`_posts/`)
 - **Deep Technical Rigor:** When writing or expanding on systems engineering topics (like ELF, ABIs, memory management, or hardware interactions), always prioritize deep, technically accurate explanations over surface-level overviews. Discuss the *why* and the *how* (e.g., compiler assumptions, memory layouts).
 - **Engaging Tone:** Maintain a professional yet engaging tone suitable for a senior engineering audience.
+- **Measured Language:** Avoid highly superlative or dramatic words (e.g., "massive", "monumental", "perfect harmony", "highly intricate"). Tone down the language to keep it grounded, measured, and technically precise.
 
 ## 2. Citations and References
 - When linking to external documentation or references, prefer using Markdown footnotes (e.g., `[^1]`) in the body text.
