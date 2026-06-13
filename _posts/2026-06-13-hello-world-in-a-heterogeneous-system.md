@@ -90,11 +90,30 @@ Writing a simple string across this hardware boundary exposes the bizarre quirks
 
 In a heterogeneous system, "Hello, World!" is no longer a trivial beginner's exercise—it is the ultimate system integration test. But as a compiler engineer of the current times, you might wonder: *why should I even care about a simple `printf` in this setting?* After all, accelerators are mostly used for massive matmuls and softmax computations, while the host takes care of all standard I/O.
 
-The answer lies in **debugging**. If you have worked on ML compilers, you know that debugging is often a lost cause—assuming it isn't entirely an afterthought. Developers are frequently forced to rely on extremely slow software simulators like Spike or gem5 just to inspect state. When dealing with numerical instability in massive neural networks, countless bugs fall into the "unknown-unknowns" category. A working semihosting implementation provides a lifeline, allowing the device to stream live debug logs directly to the host without halting the entire fabric or waiting for a simulator trace.
+1. The answer lies in **debugging**. If you have worked on ML compilers, you know that debugging is often a lost cause — it isn't even an afterthought. Developers are frequently forced to rely on extremely slow software simulators just to inspect state. When dealing with numerical instability in massive neural networks, countless bugs fall into the "unknown-unknowns" category. A working semihosting implementation provides a lifeline, allowing the device to stream live debug logs directly to the host without halting the entire fabric or waiting for a simulator trace.
 
-Furthermore, modern accelerators are not merely grids of giant matmuls; they are entire heterogeneous compute systems in their own right. Recent designs actively embed tiny scalar CPUs alongside tensor cores to handle control flow and scheduling. For instance, the Intel Gaudi architecture integrates control processors alongside its main accelerator fabric. Similarly, Apple's M-series chips feature a high-performance Neural Engine running alongside the CPU and GPU, necessitating a unified programming model to orchestrate tasks across diverse processing units. Nvidia's GPU System Processor (GSP) famously embeds [RISC-V cores directly onto the GPU die](https://riscv.org/blog/how-nvidia-shipped-one-billion-risc-v-cores-in-2024/) to manage hardware initialization and task scheduling.
+2. Furthermore, modern accelerators are not merely grids of giant matmuls; they are entire heterogeneous compute systems in their own right. Recent designs actively embed tiny scalar CPUs alongside tensor cores to handle control flow and scheduling.
+
+- Intel's Gaudi architecture integrates control processors alongside its main accelerator fabric.
+- Apple's M-series chips feature a high-performance Neural Engine running alongside the CPU and GPU, necessitating a unified programming model to orchestrate tasks across diverse processing units.
+- Nvidia's GPU System Processor (GSP) famously embeds [RISC-V cores directly onto the GPU die](https://riscv.org/blog/how-nvidia-shipped-one-billion-risc-v-cores-in-2024/) to manage hardware initialization and task scheduling.
+
+3. Enabling host-device IO is crucial in unlocking interactive communication as we are still discovering the full range of capabilities of AI compute. As a hypothetical example, there are many inference scenarios where further generation of token are unneccessary (e.g., user is asking for something that is against a policy). Currently these are (likely) handled at a certain post processing stage. But these could totally be handled if the host CPU can 'query' an intermediate result and issue an interrupt to stop further generation of token. In TopK based token selection strategies, this would save massive cost.
 
 When your "accelerator" actually contains half a dozen different CPU architectures coordinating a massive tensor fabric, being able to reliably execute a "Hello, World!" from a sub-core becomes a critical foundational capability.
+
+### The Host-Device Trap Protocol for Debugging
+
+To fully grasp the power of semihosting in this context, it helps to understand the exact sequence of events that occurs when a target device traps into the host to execute a debug command (like `printf`):
+
+1. **Target Execution Trap:** When the device needs to log a message, it sets up its registers and executes a specific software interrupt (like `BKPT` on ARM or `EBREAK` on RISC-V). The target CPU pauses its pipeline.
+2. **Host Notification:** This trap triggers a hardware interrupt (often via the mailbox) that alerts the host processor or an attached hardware debugger that the device requires attention.
+3. **Context Interrogation:** The host debugger takes control, reading the device's register state over the bus. It looks for a specific "Command Number" in a designated register (for example, `0x04` might represent `SYS_WRITE` in the ARM Semihosting ABI).
+4. **Parameter Block Resolution:** Another register contains a pointer to a **Parameter Block** in the device's memory. The host issues DMA reads to fetch this block, extracting the actual arguments (e.g., the file descriptor, the pointer to the debug string, and the string length).
+5. **Host Execution:** The host executes the operation—printing the string to its own `stdout` or writing it to a log file—utilizing the host's robust OS and filesystem.
+6. **Target Resumption:** Finally, the host writes the return code (e.g., the number of bytes successfully written) back into the device's return register, manually increments the device's Program Counter past the trap instruction, and signals the device to resume computation.
+
+Through this protocol, the fragile, bare-metal environment of the accelerator seamlessly inherits the full debugging richness of the host operating system.
 
 ## References
 
