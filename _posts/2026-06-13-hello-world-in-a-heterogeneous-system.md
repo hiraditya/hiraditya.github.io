@@ -125,6 +125,14 @@ When the host signals the device to resume, the device immediately begins execut
 
 This technique relies on the principles of **Debugger-Driven Execution Redirection**. While widely known in vulnerability research and fuzzing to force execution down specific paths, it serves as an incredibly powerful, low-latency error recovery and control-flow mechanism in modern heterogeneous systems.
 
+## Note on Current ML Frameworks
+
+This level of fine-grained, host-driven execution control is still a bleeding-edge area of systems engineering in the post-AI world. As of right now, the paradigms discussed above (like dynamic PC over-writing and asynchronous token aborting) are practically non-existent in high-level, mainstream ML frameworks like PyTorch or JAX. 
+
+These frameworks were fundamentally designed around static computational graphs and ahead-of-time compilers (like XLA) that expect uniform, uninterrupted execution across massive batches of data. Injecting dynamic, asynchronous host-device interrupts completely shatters these compiler assumptions. 
+
+However, the industry is rapidly recognizing this bottleneck. Emerging research into **Early Exit (EE) Architectures**—such as the [EE-LLM project](https://github.com/hahnyuan/EE-LLM) for large-scale distributed inference—is forcing the ecosystem to adapt to dynamic compute graphs and "compute-budget" aware scheduling. Simultaneously, compiler engineers are increasingly leveraging lower-level Intermediate Representations (like MLIR) or custom kernel languages (like JAX's Pallas) to claw back the granular hardware control that rigid, monolithic frameworks abstracted away.
+
 ## References
 
 1. **Linux Kernel Mailbox Framework:** Official documentation on how modern OS kernels manage IPC mailboxes. ([Link](https://www.kernel.org/doc/html/latest/driver-api/mailbox.html))
