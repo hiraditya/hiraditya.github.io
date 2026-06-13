@@ -211,6 +211,9 @@ The `lang_start` routine is responsible for:
 
 Once the environment is secure, `lang_start` invokes your actual Rust `fn main()`. When your `main` finishes, the runtime catches any panics, determines the correct termination code (e.g., `0` for success or non-zero if a `Result::Err` was returned), and passes that integer back to the generated C `main`. The C `main` then returns this integer to `__libc_start_main`, completely satisfying the operating system's standard C ABI expectations while allowing the developer to write safe, idiomatic Rust.
 
+> [!NOTE]
+> Do you think Rust's approach of having another layer of `fn main` provides any advantages?
+
 ## 9. Executing a System Call with `puts("Hello, World!")`
 
 If we graduate from `return 0;` to actually printing something, we usually add `printf("Hello, World!\n");`. Interestingly, modern compilers (like GCC and Clang) will optimize a simple constant `printf` ending in a newline directly into a call to `puts("Hello, World!")`. 
