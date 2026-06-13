@@ -13,15 +13,64 @@ What kind of "Hello, World!" is interesting here? It's no longer just about invo
 
 ## The Host-to-Coprocessor Execution Flow
 
-Consider a typical heterogeneous setup where the host processor acts as the orchestrator, and an accelerator (the co-processor) performs the work. To simply say "Hello, World!", the execution flow looks like this:
+Consider a typical heterogeneous setup where the host processor acts as the orchestrator, and an accelerator (the co-processor) performs the work. To simply do a "Hello, World!", the execution flow *could* look something like this:
 
 1. **The Host ELF Loader:** Instead of the OS kernel loading the binary into its own memory, a specialized ELF loader runs on the host. This loader parses the target binary, maps the executable sections over a bus (like PCIe) directly into the device's local memory, and signals the co-processor's instruction pointer to begin execution.
 2. **Device Execution:** The co-processor boots, initializes its own minimal stack, and writes the string `"Hello, World!"` to a specific, pre-arranged address in its local memory.
-3. **Communication and DMA:** The co-processor triggers an interrupt or writes to a mailbox register to communicate that address back to the host. The host then initiates a Direct Memory Access (DMA) transfer to read the string from the device memory into host memory, finally printing it to `stdout` using its own C library.
+3. **Communication and DMA:** The co-processor triggers an interrupt or writes to a *mailbox register*[ref] to communicate that address back to the host. The host then initiates a Direct Memory Access (DMA) transfer to read the string from the device memory into host memory, finally printing it to `stdout` using its own C library.
 
 ## Semihosting: A Formal Protocol
 
 This orchestration of I/O between a target device and a host is often formalized via **Semihosting**. Popularized in embedded ARM environments, [semihosting](https://developer.arm.com/documentation/dui0375/g/What-is-Semihosting-/What-is-semihosting-) defines a protocol where standard C library functions (like `printf`) executed on the target device are trapped. Instead of the device trying to execute a nonexistent syscall, the host or attached debugger intercepts the trap, performs the I/O operation on the host machine on behalf of the device, and passes the result back.
+
+Here is a pseudo-C representation of what this orchestration looks like in practice:
+
+```c
+// ==========================================
+// --- EXECUTES ON HOST (The Orchestrator) ---
+// ==========================================
+int main() {
+    // 1. Map the ELF binary into the device's local memory
+    Device* dev = load_elf_to_device("device_hello.elf");
+    
+    // 2. Signal the device to begin execution
+    start_device_execution(dev);
+    
+    // 3. Block and wait for the device to signal us back
+    wait_for_mailbox_interrupt(dev);
+    
+    // 4. Read the memory address provided by the device
+    uint32_t string_address = read_mailbox(dev);
+    
+    // 5. DMA the string from device SRAM into host DRAM
+    char host_buffer[50];
+    dma_read(dev, string_address, host_buffer, sizeof(host_buffer));
+    
+    // 6. Print the string using the host's standard libc!
+    printf("%s", host_buffer);
+    return 0;
+}
+
+// ==========================================
+// --- EXECUTES ON DEVICE (The Coprocessor) ---
+// ==========================================
+void _start() {
+    // 1. Set up the local device stack (no OS kernel here!)
+    init_device_stack();
+    
+    // 2. The string resides in the device's local SRAM
+    const char* msg = "Hello, World!\n";
+    
+    // 3. Write the physical address of the string to the mailbox
+    write_mailbox( (uint32_t)msg );
+    
+    // 4. Trigger an interrupt over PCIe to wake up the host
+    trigger_host_interrupt();
+    
+    // 5. Halt device execution
+    halt();
+}
+```
 
 ## The Quirks of Heterogeneous Environments
 
