@@ -72,6 +72,8 @@ void _start() {
 }
 ```
 
+*(Note on Mailboxes: In heterogeneous computing, a **hardware mailbox** is a dedicated set of memory-mapped registers used for Inter-Processor Communication (IPC). When one processor needs to send a short message—such as a memory address, status code, or command flag—to another, it writes directly to the mailbox register. This write often automatically triggers a hardware interrupt on the receiving processor, waking it up to read the message. For a deeper dive into how modern OS kernels manage this architecture, see the [Linux Kernel Mailbox Framework](https://www.kernel.org/doc/html/latest/driver-api/mailbox.html).)*
+
 ## The Quirks of Heterogeneous Environments
 
 Writing a simple string across this hardware boundary exposes the bizarre quirks of heterogeneous architectures:
