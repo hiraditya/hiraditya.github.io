@@ -272,5 +272,7 @@ For those who want to dive directly into the source code to see how these abstra
 - **glibc `csu/libc-start.c`**: The C source for `__libc_start_main`, illustrating how the CRT sets up thread-local storage, constructors, and invokes your `main` function. ([Source Code](https://sourceware.org/git/?p=glibc.git;a=blob;f=csu/libc-start.c))
 - **System V Application Binary Interface (x86-64)**: The definitive specification detailing exactly how the stack, registers, and memory must be formatted by the kernel before `_start` executes. ([GitLab](https://gitlab.com/x86-psABIs/x86-64-ABI))
 - **Linux Syscall Reference**: A quick reference for mapping x86-64 system call numbers (like `1` for `sys_write` and `60` for `sys_exit`). ([Table](https://blog.rchapman.org/posts/Linux_System_Call_Table_for_x86_64/))
+- **Apple Objective-C Runtime:** The open-source implementations of Apple's Objective-C runtime, showcasing how `dyld` triggers `+load` methods during early process initialization. ([Source Code](https://github.com/apple-oss-distributions/objc4))
+- **Rust `std::rt` Module:** The Rust standard library source code detailing how `lang_start` bridges the C-ABI `main` to the Rust `fn main()` and configures panic handlers. ([Source Code](https://github.com/rust-lang/rust/blob/master/library/std/src/rt.rs))
 
 *Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
