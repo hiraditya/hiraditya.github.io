@@ -190,7 +190,28 @@ While this post focuses heavily on Linux and x86-64, the fundamental concepts re
 - **macOS:** Apple platforms use the **Mach-O** binary format and the `dyld` dynamic linker. The entry point structure is similar, but `dyld` operates significantly differently than Linux's `ld.so`, especially with recent optimizations like `dyld3` closure caches.
 - **ARM64 (AArch64):** On modern ARM architectures, the kernel does not rely as heavily on the stack to pass the initial state. Instead of popping `argc` directly off the stack like x86-64, the ARM64 ABI dictates that initial state and auxiliary vectors are passed differently, primarily leveraging the massive pool of general-purpose registers before dropping into `_start`.
 
-## 8. Executing a System Call with `puts("Hello, World!")`
+## 8. Beyond C: The Pre-Main of Objective-C and Rust
+
+The concepts we've explored apply to C, but modern languages build their own runtime environments on top of this foundation before passing control to the developer's code.
+
+### Objective-C: The Runtime Initialization
+In Objective-C (commonly used on Apple platforms), the `main` function is not the true beginning of the application's logic. Before `main` is ever reached, the dynamic linker (`dyld`) maps the executable and its libraries into memory and begins invoking initialization routines.
+
+Crucially, `dyld` initializes the Objective-C runtime. During this phase, the runtime automatically discovers every class and category in the binary and executes their `+load` methods. It wires up the class hierarchy, registers method selectors, and allocates necessary runtime data structures. Only after this massive amount of implicit setup finishes does control pass to the standard C `main` function, which typically just delegates execution to `UIApplicationMain` or `NSApplicationMain` to start the UI event loop.
+
+### Rust: Bridging `fn main()` to `int main()`
+In C, the contract with the OS is clear: `main` returns an `int`. But in Rust, the standard entry point is `fn main()`, which returns the unit type `()` (essentially nothing) or a `Result`. So how does the OS get its integer exit code?
+
+When you compile a Rust binary, the Rust compiler (`rustc`) automatically generates a hidden C-ABI compliant `main(int argc, char **argv)` function. This generated `main` acts as a trampoline. It immediately calls an internal Rust runtime function—specifically `std::rt::lang_start`.
+
+The `lang_start` routine is responsible for:
+1. Setting up stack overflow guards.
+2. Initializing the thread-local storage for the main thread.
+3. Setting up the global panic handler.
+
+Once the environment is secure, `lang_start` invokes your actual Rust `fn main()`. When your `main` finishes, the runtime catches any panics, determines the correct termination code (e.g., `0` for success or non-zero if a `Result::Err` was returned), and passes that integer back to the generated C `main`. The C `main` then returns this integer to `__libc_start_main`, completely satisfying the operating system's standard C ABI expectations while allowing the developer to write safe, idiomatic Rust.
+
+## 9. Executing a System Call with `puts("Hello, World!")`
 
 If we graduate from `return 0;` to actually printing something, we usually add `printf("Hello, World!\n");`. Interestingly, modern compilers (like GCC and Clang) will optimize a simple constant `printf` ending in a newline directly into a call to `puts("Hello, World!")`. 
 
