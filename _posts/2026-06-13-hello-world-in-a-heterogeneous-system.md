@@ -115,6 +115,16 @@ To fully grasp the power of semihosting in this context, it helps to understand 
 
 Through this protocol, the fragile, bare-metal environment of the accelerator seamlessly inherits the full debugging richness of the host operating system.
 
+### Advanced Extension: Host-Driven Execution Redirection
+
+What if the host determines that the device should *not* continue normal execution? For example, during LLM inference, the host might detect a policy violation based on intermediate output and decide to abort the generation early to save massive compute costs.
+
+Instead of simply incrementing the Program Counter (PC) to resume the original execution flow, the host can perform a **PC Overwrite** to redirect execution entirely. The host forcibly sets the device's PC to the memory address of a pre-compiled "Error Handling" or "Cleanup" routine residing on the device. 
+
+When the host signals the device to resume, the device immediately begins executing the cleanup routine—flushing SRAM caches, releasing hardware spinlocks, and safely halting the tensor fabric. Once the cleanup routine finishes, it executes a final trap instruction to return control cleanly back to the host.
+
+This technique relies on the principles of **Debugger-Driven Execution Redirection**. While widely known in vulnerability research and fuzzing to force execution down specific paths, it serves as an incredibly powerful, low-latency error recovery and control-flow mechanism in modern heterogeneous systems.
+
 ## References
 
 1. **Linux Kernel Mailbox Framework:** Official documentation on how modern OS kernels manage IPC mailboxes. ([Link](https://www.kernel.org/doc/html/latest/driver-api/mailbox.html))
@@ -123,6 +133,7 @@ Through this protocol, the fragile, bare-metal environment of the accelerator se
 4. **ARM Semihosting Reference:** Using semihosting to access resources on the host computer. ([Link](https://developer.arm.com/documentation/101470/2025-1/Controlling-Target-Execution/Using-semihosting-to-access-resources-on-the-host-computer?lang=en))
 5. **Segger Semihosting Guide:** Detailed breakdown of semihosting traps, exception handling, and parameter blocks. ([Link](https://kb.segger.com/Semihosting))
 6. **Nvidia's RISC-V GSP:** How Nvidia shipped over a billion RISC-V cores embedded within their GPUs. ([Link](https://riscv.org/blog/how-nvidia-shipped-one-billion-risc-v-cores-in-2024/))
+7. **Debugger-Driven Execution Redirection:** Official GDB documentation on modifying the program counter to manually alter execution flow. ([Link](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Altering.html))
 
 ---
 
