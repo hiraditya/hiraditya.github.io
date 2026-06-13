@@ -15,6 +15,16 @@ int main() {
 
 However, executing this program involves a highly intricate dance coordinated between the compiler, the linker, the C runtime (CRT), and the operating system's loader. Let's peel back the abstraction layers to understand exactly what happens before and after `main` executes.
 
+```mermaid
+graph TD
+    Kernel[OS Kernel / execve] -->|Loads ELF & Sets Stack| Start[_start]
+    Start -->|Passes argc/argv| LibcStart[__libc_start_main]
+    LibcStart -->|Initializes TLS/Constructors| Main[main]
+    Main -->|returns 0| LibcStart
+    LibcStart -->|Passes 0| Exit[exit]
+    Exit -->|Calls Destructors & sys_exit| Kernel2[Kernel terminates process]
+```
+
 ## 1. The True Entry Point: `_start`
 
 Contrary to popular belief, `main` is not the first thing executed when you run a C program. 
@@ -33,11 +43,22 @@ The `_start` routine itself is written in pure assembly because it has to deal w
 
 Before `_start` is executed, the OS kernel (via the `execve` system call) has already set up the initial execution environment. 
 
-When the kernel maps your program into memory, it populates the top of the stack with crucial data:
-1. `argc` (the number of arguments)
-2. `argv` (pointers to the argument strings)
-3. `envp` (pointers to environment variables)
-4. The auxiliary vector (information passed from the kernel to the user-space loader)
+When the kernel maps your program into memory, it populates the top of the stack with crucial data. The memory layout looks exactly like this:
+
+```text
++-------------------------+ High Addresses
+| Environment Strings     |
+| Argument Strings        |
++-------------------------+
+| NULL                    |
+| Auxiliary Vector (Elf64)|
+| NULL                    |
+| envp pointers           |
+| NULL                    |
+| argv pointers           |
+| argc                    | <-- %rsp points here
++-------------------------+ Low Addresses
+```
 
 When `_start` wakes up, the stack pointer (`%rsp`) points directly to `argc`. The kernel didn't execute user-space instructions to do this; instead, during `execve`, it manually constructed this stack layout in memory and set the initial CPU `%rsp` register to point at its top before transitioning to user mode.
 
@@ -73,7 +94,40 @@ _start:
     hlt
 ```
 
-In a standard C program, instead of calling `main` and `sys_exit` directly like our raw assembly above, `_start` passes `argc`, `argv`, and the environment pointers to `__libc_start_main`. That glibc function initializes the C library environment, sets up thread-local storage, calls global constructors, and *then* finally calls your `main` function before routing its return value to `exit()`.
+In a standard C program, instead of calling `main` and `sys_exit` directly like our raw assembly above, `_start` passes `argc`, `argv`, and the environment pointers to `__libc_start_main`. 
+
+Here is a pseudo-C representation of what `__libc_start_main` actually does under the hood:
+
+```c
+int __libc_start_main(
+    int (*main) (int, char**, char**), 
+    int argc, 
+    char **argv,
+    void (*init) (void), 
+    void (*fini) (void)
+) {
+    // 1. Setup Thread Local Storage (TLS) and stack security cookies
+    __pthread_initialize_minimal();
+    __cxa_atexit(fini, NULL, NULL); // Register global destructors
+    
+    // 2. Call global constructors (.init_array)
+    init();
+
+    // 3. Jump to the user's main function
+    int result = main(argc, argv, __environ);
+
+    // 4. Pass the return code to exit()
+    exit(result);
+}
+```
+
+That glibc function initializes the C library environment, sets up thread-local storage, calls global constructors, and *then* finally calls your `main` function before routing its return value to `exit()`.
+
+### Static vs. Dynamic Linking
+
+Before the loader even enters the picture, it's important to distinguish how the program was compiled:
+- **Statically Linked:** The compiler stitches `crt1.o` and the entirety of the C library (`libc.a`) directly into your single binary. The resulting executable is massive but highly portable—it doesn't rely on the dynamic loader at all. The OS jumps straight to `_start`, and execution begins entirely in user-space.
+- **Dynamically Linked (Default):** The compiler inserts placeholder references to `libc.so`. The binary is tiny, but it cannot run on its own. The OS must map a dynamic loader into memory alongside your program to resolve those placeholders before `_start` is executed.
 
 ## 3. How the Loader Steps In
 
@@ -127,7 +181,15 @@ Instead:
 
 When your PIE program is loaded, the dynamic linker must fix up the GOT so that indirect jumps to shared library functions point to the correct randomized addresses. This adds significant overhead to the loader's execution before `_start` even begins, making our simple `return 0;` program dependent on a highly sophisticated dynamic linking mechanism.
 
-## 7. Executing a System Call with `puts("Hello, World!")`
+## 7. Cross-Platform Considerations
+
+While this post focuses heavily on Linux and x86-64, the fundamental concepts remain similar across operating systems and architectures, though the specific implementations differ drastically:
+
+- **Windows:** Instead of ELF, Windows uses the **PE (Portable Executable)** format. The entry point is typically `mainCRTStartup` or `WinMainCRTStartup` (provided by the MSVC CRT). The loader is the Windows NT kernel loader, which resolves DLL imports via the Import Address Table (IAT)—the Windows equivalent of the GOT/PLT.
+- **macOS:** Apple platforms use the **Mach-O** binary format and the `dyld` dynamic linker. The entry point structure is similar, but `dyld` operates significantly differently than Linux's `ld.so`, especially with recent optimizations like `dyld3` closure caches.
+- **ARM64 (AArch64):** On modern ARM architectures, the kernel does not rely as heavily on the stack to pass the initial state. Instead of popping `argc` directly off the stack like x86-64, the ARM64 ABI dictates that initial state and auxiliary vectors are passed differently, primarily leveraging the massive pool of general-purpose registers before dropping into `_start`.
+
+## 8. Executing a System Call with `puts("Hello, World!")`
 
 If we graduate from `return 0;` to actually printing something, we usually add `printf("Hello, World!\n");`. Interestingly, modern compilers (like GCC and Clang) will optimize a simple constant `printf` ending in a newline directly into a call to `puts("Hello, World!")`. 
 
@@ -139,6 +201,20 @@ Here is the exact sequence of events when `puts` is called in a dynamically link
 2. **Lazy Binding**: By default, Linux uses "lazy binding" (unless compiled with `-z now`). The very first time `puts` is called, its address isn't in the **GOT (Global Offset Table)** yet. Instead, the GOT entry points right back into the PLT stub.
 3. **The Dynamic Linker Resolver**: The PLT pushes a relocation index onto the stack and jumps to the dynamic linker's resolver function (e.g., `_dl_runtime_resolve`). The dynamic linker looks up the true memory address of `puts` in the loaded `libc.so` memory space and dynamically overwrites the GOT entry with that exact address.
 4. **Execution**: The resolver then transfers control to the actual `puts` function. On all subsequent calls to `puts`, the PLT stub jumps directly to the function via the now-populated GOT entry, bypassing the resolver entirely.
+
+```mermaid
+graph LR
+    subgraph "Before Lazy Binding"
+        PLT1[PLT Entry for puts] --> GOT1[GOT Entry: Points back to PLT]
+        GOT1 -.-> Linker[Dynamic Linker Resolver]
+    end
+
+    subgraph "After Lazy Binding"
+        PLT2[PLT Entry for puts] --> GOT2[GOT Entry: Points directly to libc]
+        GOT2 --> LIBC[libc.so: puts()]
+    end
+```
+
 5. **The System Call**: Deep inside `libc`, `puts` handles appending a newline to your string and eventually invokes the `write` system call (syscall number `1` on x86-64), targeting File Descriptor `1` (`stdout`). 
 
 ```nasm
