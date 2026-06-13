@@ -1,5 +1,5 @@
 ---
-title: "Hacking by Breaking: 5 Strategies to Reverse Engineer Opaque Compilers"
+title: "Hacking by Breaking: 5 Strategies to Reverse Engineer Opaque Compilers [DO NOT PUSH THIS TO GITHUB BEFORE OCTOBER 2026]"
 date: 2026-06-13 12:00:00 -0700
 categories: [Systems, Compilers]
 tags: [compiler, xla, cuda, reverse-engineering, llvm]
@@ -64,7 +64,7 @@ Compiler engineers need ways to debug their own tools. Consequently, even closed
 
 For example, LLVM-based infrastructures universally support flags like `-print-after-all`, which dumps the entire Intermediate Representation (IR) of the program after every single optimization pass. Even if the framework is heavily customized, passing these generic LLVM flags through the environment or command line often still works.
 
-In the ML domain, tools like XLA possess extensive undocumented flags that emit internal scheduling or instruction details. Recently, researchers have successfully leveraged these hidden XLA flags to dump and explore the entire suite of undocumented TPU instructions (as demonstrated by Patrick at Meta). Discovering and enabling these flags is often the easiest way to turn a black box into a completely transparent pipeline.
+In the ML domain, tools like XLA possess extensive undocumented flags that emit internal scheduling or instruction details. Recently, researchers have successfully leveraged these hidden XLA flags to dump and explore the entire suite of undocumented TPU instructions (as demonstrated by Patrick Toulmé's work on tracing JAX computations[^4]). Discovering and enabling these flags is often the easiest way to turn a black box into a completely transparent pipeline.
 
 ## Conclusion
 
@@ -75,6 +75,7 @@ The "black box" of modern proprietary compilers is only as strong as its ability
 [^1]: **C++ ABI for Itanium:** The definitive reference on how virtual tables, RTTI, and exception handling are laid out in memory for C++ (adopted widely across x86-64 UNIX). ([Link](https://itanium-cxx-abi.github.io/cxx-abi/abi.html))
 [^2]: **LLVM Compiler Infrastructure:** The foundational architecture underlying many modern open and proprietary compilers. ([Link](https://llvm.org/))
 [^3]: **Hopper Disassembler:** A popular reverse engineering tool for macOS and Linux that lets you disassemble, decompile, and debug applications. ([Link](https://www.hopperapp.com/))
+[^4]: **From JAX to VLIW: Tracing a Computation:** Patrick Toulmé's detailed exploration of using XLA flags to trace and analyze undocumented TPU instructions. ([Link](https://patricktoulme.substack.com/p/from-jax-to-vliw-tracing-a-computation))
 
 ---
 
