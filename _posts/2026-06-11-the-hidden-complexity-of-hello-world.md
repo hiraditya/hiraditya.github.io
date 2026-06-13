@@ -30,7 +30,7 @@ graph TD
 
 Contrary to popular belief, `main` is not the first thing executed when you run a C program. 
 
-When the linker stitches your program together, it includes startup code provided by the C standard library (e.g., `crt1.o` in glibc). This object file defines a symbol named `_start`. 
+When the linker stitches your program together, it includes startup code provided by the C standard library (e.g., `crt1.o` in glibc). This object file defines a symbol named `_start`[^1]. 
 
 The linker employs a specific mechanism to designate this as the entry point.
 
@@ -79,7 +79,7 @@ _start:
                     ; Move this address into %rsi.
     
     ; 3. Stack Alignment
-    ; The System V ABI requires a 16-byte aligned stack before function calls.
+    ; The System V ABI requires a 16-byte aligned stack before function calls[^3].
     and rsp, -16    ; Mask the lowest 4 bits (equivalent to 0xfffffffffffffff0)
     
     ; 4. Call our C function
@@ -88,14 +88,14 @@ _start:
     
     ; 5. Trap into the kernel to gracefully exit
     mov edi, eax    ; Move main's return value into %edi (1st arg for syscall)
-    mov eax, 60     ; Syscall number 60 is 'sys_exit' on x86-64 Linux
+    mov eax, 60     ; Syscall number 60 is 'sys_exit' on x86-64 Linux[^4]
     syscall         ; Trap into the kernel to tear down the process
     
     ; 6. Failsafe halt (the kernel should never return here)
     hlt
 ```
 
-In a standard C program, instead of calling `main` and `sys_exit` directly like our raw assembly above, `_start` passes `argc`, `argv`, and the environment pointers to `__libc_start_main`. 
+In a standard C program, instead of calling `main` and `sys_exit` directly like our raw assembly above, `_start` passes `argc`, `argv`, and the environment pointers to `__libc_start_main`[^2]. 
 
 Here is a pseudo-C representation of what `__libc_start_main` actually does under the hood:
 
@@ -197,12 +197,12 @@ The concepts we've explored apply to C, but modern languages build their own run
 ### Objective-C: The Runtime Initialization
 In Objective-C (commonly used on Apple platforms), the `main` function is not the true beginning of the application's logic. Before `main` is ever reached, the dynamic linker (`dyld`) maps the executable and its libraries into memory and begins invoking initialization routines.
 
-Crucially, `dyld` initializes the Objective-C runtime. During this phase, the runtime automatically discovers every class and category in the binary and executes their `+load` methods. It wires up the class hierarchy, registers method selectors, and allocates necessary runtime data structures. Only after this massive amount of implicit setup finishes does control pass to the standard C `main` function, which typically just delegates execution to `UIApplicationMain` or `NSApplicationMain` to start the UI event loop.
+Crucially, `dyld` initializes the Objective-C runtime. During this phase, the runtime automatically discovers every class and category in the binary and executes their `+load` methods[^5]. It wires up the class hierarchy, registers method selectors, and allocates necessary runtime data structures. Only after this massive amount of implicit setup finishes does control pass to the standard C `main` function, which typically just delegates execution to `UIApplicationMain` or `NSApplicationMain` to start the UI event loop.
 
 ### Rust: Bridging `fn main()` to `int main()`
 In C, the contract with the OS is clear: `main` returns an `int`. But in Rust, the standard entry point is `fn main()`, which returns the unit type `()` (essentially nothing) or a `Result`. So how does the OS get its integer exit code?
 
-When you compile a Rust binary, the Rust compiler (`rustc`) automatically generates a hidden C-ABI compliant `main(int argc, char **argv)` function. This generated `main` acts as a trampoline. It immediately calls an internal Rust runtime function—specifically `std::rt::lang_start`.
+When you compile a Rust binary, the Rust compiler (`rustc`) automatically generates a hidden C-ABI compliant `main(int argc, char **argv)` function. This generated `main` acts as a trampoline. It immediately calls an internal Rust runtime function—specifically `std::rt::lang_start`[^6].
 
 The `lang_start` routine is responsible for:
 1. Setting up stack overflow guards.
@@ -268,11 +268,11 @@ I would like to dedicate this post to [Elliott Hughes](https://www.linkedin.com/
 
 For those who want to dive directly into the source code to see how these abstractions are implemented in the real world, here are some excellent starting points:
 
-- **glibc `sysdeps/x86_64/start.S`**: The actual assembly implementation of `_start` for x86-64 in the GNU C Library. ([Source Code](https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/x86_64/start.S))
-- **glibc `csu/libc-start.c`**: The C source for `__libc_start_main`, illustrating how the CRT sets up thread-local storage, constructors, and invokes your `main` function. ([Source Code](https://sourceware.org/git/?p=glibc.git;a=blob;f=csu/libc-start.c))
-- **System V Application Binary Interface (x86-64)**: The definitive specification detailing exactly how the stack, registers, and memory must be formatted by the kernel before `_start` executes. ([GitLab](https://gitlab.com/x86-psABIs/x86-64-ABI))
-- **Linux Syscall Reference**: A quick reference for mapping x86-64 system call numbers (like `1` for `sys_write` and `60` for `sys_exit`). ([Table](https://blog.rchapman.org/posts/Linux_System_Call_Table_for_x86_64/))
-- **Apple Objective-C Runtime:** The open-source implementations of Apple's Objective-C runtime, showcasing how `dyld` triggers `+load` methods during early process initialization. ([Source Code](https://github.com/apple-oss-distributions/objc4))
-- **Rust `std::rt` Module:** The Rust standard library source code detailing how `lang_start` bridges the C-ABI `main` to the Rust `fn main()` and configures panic handlers. ([Source Code](https://github.com/rust-lang/rust/blob/master/library/std/src/rt.rs))
+[^1]: **glibc `sysdeps/x86_64/start.S`**: The actual assembly implementation of `_start` for x86-64 in the GNU C Library. ([Source Code](https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/x86_64/start.S))
+[^2]: **glibc `csu/libc-start.c`**: The C source for `__libc_start_main`, illustrating how the CRT sets up thread-local storage, constructors, and invokes your `main` function. ([Source Code](https://sourceware.org/git/?p=glibc.git;a=blob;f=csu/libc-start.c))
+[^3]: **System V Application Binary Interface (x86-64)**: The definitive specification detailing exactly how the stack, registers, and memory must be formatted by the kernel before `_start` executes. ([GitLab](https://gitlab.com/x86-psABIs/x86-64-ABI))
+[^4]: **Linux Syscall Reference**: A quick reference for mapping x86-64 system call numbers (like `1` for `sys_write` and `60` for `sys_exit`). ([Table](https://blog.rchapman.org/posts/Linux_System_Call_Table_for_x86_64/))
+[^5]: **Apple Objective-C Runtime:** The open-source implementations of Apple's Objective-C runtime, showcasing how `dyld` triggers `+load` methods during early process initialization. ([Source Code](https://github.com/apple-oss-distributions/objc4))
+[^6]: **Rust `std::rt` Module:** The Rust standard library source code detailing how `lang_start` bridges the C-ABI `main` to the Rust `fn main()` and configures panic handlers. ([Source Code](https://github.com/rust-lang/rust/blob/master/library/std/src/rt.rs))
 
 *Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
