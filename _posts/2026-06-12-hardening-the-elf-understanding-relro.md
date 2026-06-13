@@ -3,6 +3,7 @@ title: "Hardening the ELF: Understanding RELRO and GOT Overwrites"
 date: 2026-06-12 08:00:00 -0700
 categories: [Security, Systems]
 tags: [elf, relro, exploit-mitigation, linux, toolchain]
+mermaid: true
 ---
 
 In our [previous post](https://hiraditya.github.io/posts/the-hidden-complexity-of-hello-world/), we took a deep dive into the hidden complexities of the simplest C program. We discussed how modern Position Independent Executables (PIE) rely on the **PLT (Procedure Linkage Table)** and **GOT (Global Offset Table)** to dynamically resolve shared library functions like `puts()`.

@@ -3,6 +3,7 @@ title: "The Hidden Complexity of the Simplest C Program"
 date: 2026-06-10 08:00:00 -0700
 categories: [Compilers, Systems]
 tags: [c, toolchain, linux, assembly, elf]
+mermaid: true
 ---
 
 When you write the absolute simplest C program—one that does nothing but exit successfully—you might expect the compiled output to be trivial.
