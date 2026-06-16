@@ -49,23 +49,26 @@ By carefully crafting a payload, an attacker can:
 When the program subsequently calls `exit(0);`, the CPU looks up the GOT entry, finds the attacker's newly written address, and executes it. The program doesn't exit; it spawns a malicious shell!
 
 ```mermaid
+%%{init: {'themeVariables': { 'fontSize': '20px' }}}%%
 graph TD
     subgraph Normal_Flow ["Normal Flow (After Lazy Binding)"]
+        direction LR
         PLT["PLT Entry"] --> GOT["GOT Entry"]
         GOT --> LIBC["libc.so Function"]
     end
 
     subgraph GOT_Overwrite_Attack ["GOT Overwrite Attack"]
+        direction LR
         PLT_ATT["PLT Entry"] --> GOT_ATT["GOT Entry"]
-        GOT_ATT -.->|"Overwritten via %n"| SHELLCODE["Attacker Shellcode / system()"]
-        style GOT_ATT fill:#ffcccc,stroke:#ff0000,stroke-width:2px
+        GOT_ATT -.->|"Overwritten via %n"| SHELLCODE["Attacker Shellcode<br>or system()"]
+        style GOT_ATT fill:#ffcccc,stroke:#ff0000,stroke-width:2px,color:#000
     end
 ```
 
 ### The Relationship to CVEs
-A "GOT Overwrite" itself does not have a specific Common Vulnerabilities and Exposures (CVE) ID because it is a **binary exploitation technique**, not a specific software bug. 
+A "GOT Overwrite" itself does not have a specific Common Vulnerabilities and Exposures (CVE) ID because it is a **binary exploitation technique**, not a specific software bug.
 
-However, countless CVEs have been exploited *using* this exact technique. For example, historical vulnerabilities in network daemons or even glibc itself (like the famous CVE-2015-0235 "GHOST" vulnerability) often culminated in attackers utilizing a GOT overwrite as the final payload delivery mechanism to hijack control flow.
+However, it is crucial to understand that many real-world CVEs (like the famous CVE-2015-0235 "GHOST" vulnerability) were *exploited via* GOT overwrites, rather than being *caused* by them. The underlying cause is always a memory corruption bug (like a buffer overflow), but the GOT overwrite is the final payload delivery mechanism the attacker uses to successfully hijack control flow and achieve remote code execution.
 
 This threat is not just historical. A deep search of recent exploits confirms that modern memory corruption bugs still frequently fall back to GOT manipulation if Full RELRO isn't strictly enforced. Notable modern examples include:
 - **CVE-2026-23479 (Redis):** A complex Use-After-Free that was successfully escalated into an out-of-bounds write. Exploit developers specifically targeted the GOT to repoint the `strcasecmp()` function to `system()`, turning a standard Redis command into a remote root shell.
@@ -77,7 +80,22 @@ This technique is incredibly reliable because, without mitigations, the GOT is s
 
 To mitigate this attack surface, compiler engineers and security researchers developed **RELRO**. The core concept is simple: if data doesn't *need* to be written to after the program starts, the loader should strip away the write permissions and make it Read-Only (`R--`).
 
-There are two levels of RELRO implementation:
+There are two levels of RELRO implementation. The critical difference lies in the memory protections applied to the `.got.plt` section:
+
+```mermaid
+graph LR
+    subgraph Partial_RELRO ["Partial RELRO"]
+        P_GOT[".got<br>(R--)"]
+        P_GOTPLT[".got.plt<br>(RW-)"]
+        style P_GOTPLT fill:#ffcccc,stroke:#ff0000,stroke-width:2px
+    end
+
+    subgraph Full_RELRO ["Full RELRO"]
+        F_GOT[".got<br>(R--)"]
+        F_GOTPLT[".got.plt<br>(R--)"]
+        style F_GOTPLT fill:#ccffcc,stroke:#00aa00,stroke-width:2px
+    end
+```
 
 ### 1. Partial RELRO
 Partial RELRO forces the loader to resolve certain ELF internal data sections (like `.dynamic` and the standard `.got`) at load time, and then immediately marks them as read-only. 
@@ -114,9 +132,9 @@ However, as CPUs have gotten drastically faster and security threats have become
 
 While desktop and server environments have largely absorbed this startup cost, launch time overhead remains incredibly critical on mobile platforms like iOS and Android, where users expect instantaneous application response.
 
-To combat the overhead of exhaustive symbol resolution during a "Cold Start" (where the application process is launched from scratch), mobile operating systems have engineered sophisticated caching mechanisms to enable blazing-fast "Warm Starts" and "Hot Starts":
-- **iOS (`dyld3` Closure Caches):** Apple's `dyld3` dynamic linker completely reimagined symbol resolution. During an app's first launch (or at install time), it exhaustively resolves all symbols and pre-calculates the necessary memory addresses. It then serializes this information into a "closure cache" on disk. On subsequent launches, `dyld3` simply reads the pre-calculated closure, completely bypassing the expensive symbol search overhead while still maintaining the security benefits of Full RELRO.
-- **Android (Zygote and Profiles):** Android utilizes a special daemon called "Zygote," which pre-loads and pre-links common framework libraries. When a new app is launched, it simply forks from the Zygote process, inheriting the already-resolved symbols for shared core libraries. Android also leverages Baseline Profiles to pre-compile critical code paths, avoiding both JIT compilation and symbol resolution overhead during the delicate startup window.
+To combat the overhead of exhaustive symbol resolution during a "Cold Start" (where the application process is launched from scratch), mobile operating systems have engineered sophisticated function pointer caching mechanisms to enable blazing-fast "Warm Starts" and "Hot Starts":
+- **iOS (`dyld3` Closure Caches):** Apple's `dyld3` dynamic linker completely reimagined symbol resolution. During an app's first launch (or at install time), `dyld` exhaustively resolves all symbols and pre-calculates the necessary memory addresses. It then serializes this information into a shared cache file on disk. On subsequent launches, `dyld3` directly maps this pre-calculated "closure cache", allowing the OS to load function pointers instantly without traversing the symbol tables at runtime.
+- **Android (Zygote and `__prelink__`):** Android utilizes a special daemon called "Zygote," which pre-loads and pre-links (`__prelink__`) common framework libraries (like `libc` and `libart`). It populates the GOT for these base libraries once. When a new app is launched, it simply `fork()`s from the Zygote process, inheriting the already-resolved symbols for shared core libraries. This circumvents the standard `ld.so` caches and resolution paths for the heaviest libraries, avoiding symbol resolution overhead during the delicate startup window.
 
 Through these innovations, mobile systems can enforce strict RELRO protections without sacrificing the instantaneous feel of a warm start.
 
@@ -137,17 +155,40 @@ If the application itself stores function pointers in its writable `.data` or `.
 
 Today, attackers have evolved to exploit **tcache poisoning** in modern glibc or perform **`_IO_FILE` vtable hijacking**, manipulating the file stream structures in memory to execute arbitrary code when standard I/O functions like `printf` or `puts` are called.
 
-## Checking Your Binaries
+## Checking Your Binaries: A Practical Example
 
-You can easily check if your binaries are hardened with RELRO using the popular `checksec` tool, or by inspecting the ELF headers directly with `readelf`.
+Let's look at a minimal C example to see how compiler flags directly affect the binary's ELF headers.
 
-A binary with Full RELRO will exhibit a `GNU_RELRO` program header, and the `BIND_NOW` dynamic flag:
+```c
+// example.c
+#include <stdio.h>
+
+// 1. A simple program that relies on dynamic linking for puts()
+int main() {
+    puts("Hello, RELRO!");
+    return 0;
+}
+```
+
+We can compile this with and without Full RELRO, and compare the `readelf` output to reinforce the practical impact.
 
 ```bash
-$ readelf -l my_program | grep GNU_RELRO
-  GNU_RELRO      0x0000000000002df0 0x0000000000003df0 0x0000000000003df0
+# 2. Compile with Partial RELRO (standard default on many older toolchains)
+$ gcc example.c -o example_partial -Wl,-z,relro,-z,lazy
 
-$ readelf -d my_program | grep BIND_NOW
+# 3. Compile with Full RELRO
+$ gcc example.c -o example_full -Wl,-z,relro,-z,now
+```
+
+By inspecting the dynamic section (`-d`) using `readelf`, we can observe the presence of the `BIND_NOW` flag. When `BIND_NOW` is present, the dynamic linker knows it must resolve all symbols at startup and apply Full RELRO memory protections.
+
+```bash
+# Partial RELRO: No BIND_NOW flag. Lazy binding is active.
+$ readelf -d example_partial | grep BIND_NOW
+# (No output)
+
+# Full RELRO: The BIND_NOW flag is explicitly set.
+$ readelf -d example_full | grep BIND_NOW
  0x0000000000000018 (BIND_NOW)           
 ```
 

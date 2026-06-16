@@ -3,6 +3,7 @@ title: "\"Hello, World!\" in a Heterogeneous System"
 date: 2026-06-13 08:00:00 -0700
 categories: [Systems, Hardware]
 tags: [architecture, dsp, elf, semihosting, hardware]
+mermaid: true
 ---
 
 In a [previous post](https://hiraditya.github.io/posts/the-hidden-complexity-of-hello-world/), we explored the monumental software stack required to run a simple "Hello, World!" program on a modern operating system. But what happens when we apply these concepts to a heterogeneous system—where a host machine is solely responsible for launching the program on a completely different target architecture?
@@ -24,6 +25,25 @@ Consider a typical heterogeneous setup where the host processor acts as the orch
 This orchestration of I/O between a target device and a host is often formalized via **Semihosting**. Popularized in embedded ARM environments, semihosting defines a protocol where standard C library functions (like `printf` or `fopen`) executed on the target device are trapped. 
 
 Instead of the device trying to execute a nonexistent syscall, the host or an attached hardware debugger intercepts the trap. At the assembly level, this is typically implemented by having the target execute a specific software interrupt or breakpoint instruction (e.g., `BKPT 0xAB` or `SVC 0x123456` on ARM). The debugger catches this exception, reads a command number and a parameter block from the target's memory or registers, performs the requested I/O operation on the host machine on behalf of the device, and passes the result back before resuming execution.
+
+### The Host-to-Device Semihosting Flow
+
+```mermaid
+sequenceDiagram
+    participant Device as Target Device (DSP/Accelerator)
+    participant Trap as Hardware Trap (BKPT/SVC)
+    participant Host as Host Debugger/OS
+    participant I/O as Host I/O System
+
+    Device->>Trap: Execute "Hello, World!" (printf)
+    Trap->>Device: Trigger Exception/Interrupt
+    Device->>Host: Halt & Signal Trap
+    Host->>Trap: Intercept & Read Params
+    Trap->>Host: Pass String Data
+    Host->>I/O: Print to Console
+    I/O->>Host: Return Status
+    Host->>Device: Resume Execution
+```
 
 Here is a pseudo-C representation of what this orchestration looks like in practice:
 
@@ -135,6 +155,20 @@ What if the host determines that the device should *not* continue normal executi
 Instead of simply incrementing the Program Counter (PC) to resume the original execution flow, the host can perform a **PC Overwrite** to redirect execution entirely. The host forcibly sets the device's PC to the memory address of a pre-compiled "Error Handling" or "Cleanup" routine residing on the device. 
 
 When the host signals the device to resume, the device immediately begins executing the cleanup routine—flushing SRAM caches, releasing hardware spinlocks, and safely halting the tensor fabric. Once the cleanup routine finishes, it executes a final trap instruction to return control cleanly back to the host.
+
+### Example: PC Overwrite for Early Exit
+
+```mermaid
+flowchart TD
+    A[Device Running Inference] --> B{Host Checks Intermediate Token}
+    B -- Valid --> C[Continue Normal Execution]
+    B -- Policy Violation --> D[Host Traps Device]
+    D --> E[Host Overwrites Device PC]
+    E --> F[Device Jumps to Cleanup Routine]
+    F --> G[Flush SRAM & Release Locks]
+    G --> H[Trap Back to Host]
+    H --> I[Safe Abort]
+```
 
 This technique relies on the principles of **Debugger-Driven Execution Redirection**. While widely known in vulnerability research and fuzzing to force execution down specific paths, it serves as an incredibly powerful, low-latency error recovery and control-flow mechanism in modern heterogeneous systems.
 
