@@ -22,7 +22,7 @@ Consider a typical heterogeneous setup where the host processor acts as the orch
 
 ## Semihosting: A Formal Protocol
 
-This orchestration of I/O between a target device and a host is often formalized via **Semihosting**. Popularized in embedded ARM environments, semihosting defines a protocol where standard C library functions (like `printf` or `fopen`) executed on the target device are trapped. 
+This orchestration of I/O between a target device and a host is often formalized via **Semihosting**. Popularized in embedded ARM environments[^4], semihosting defines a protocol where standard C library functions (like `printf` or `fopen`) executed on the target device are trapped.
 
 Instead of the device trying to execute a nonexistent syscall, the host or an attached hardware debugger intercepts the trap. At the assembly level, this is typically implemented by having the target execute a specific software interrupt or breakpoint instruction (e.g., `BKPT 0xAB` or `SVC 0x123456` on ARM). The debugger catches this exception, reads a command number and a parameter block from the target's memory or registers, performs the requested I/O operation on the host machine on behalf of the device, and passes the result back before resuming execution.
 
@@ -74,7 +74,7 @@ int main() {
 }
 ```
 
-> **Note on Mailboxes:** In heterogeneous computing, a *hardware mailbox* is a dedicated set of memory-mapped registers used for Inter-Processor Communication (IPC). When one processor needs to send a short message—such as a memory address, status code, or command flag—to another, it writes directly to the mailbox register. This write often automatically triggers a hardware interrupt on the receiving processor, waking it up to read the message. For a deeper dive into how modern OS kernels manage this architecture, see the [Linux Kernel Mailbox Framework](https://www.kernel.org/doc/html/latest/driver-api/mailbox.html).
+> **Note on Mailboxes:** In heterogeneous computing, a *hardware mailbox* is a dedicated set of memory-mapped registers used for Inter-Processor Communication (IPC). When one processor needs to send a short message—such as a memory address, status code, or command flag—to another, it writes directly to the mailbox register. This write often automatically triggers a hardware interrupt on the receiving processor, waking it up to read the message. For a deeper dive into how modern OS kernels manage this architecture, see the Linux Kernel Mailbox Framework[^1].
 
 ```c
 // ==========================================
@@ -105,7 +105,7 @@ Writing a simple string across this hardware boundary exposes the bizarre quirks
 - **Heterogeneous Memory:** The host and the device rarely share a unified address space. The host ELF loader must manage distinct physical memory regions (e.g., host DRAM vs. device scratchpad SRAM) and ensure cache coherency when moving the string via DMA.
 - **Unconventional Data Types and Compiler Nightmares:** On many specialized DSPs, the fundamental addressable memory unit is not an 8-bit byte, but a 16-bit or even 32-bit word. The C standard mandates that `sizeof(char) == 1`, meaning on these architectures, a single `char` is actually 32 bits wide! Writing `"Hello, World!"` across this boundary requires packing characters into 32-bit words, completely breaking standard host-side string assumptions. 
 
-  More critically, this is a massive problem for modern compiler infrastructure. Historically, industrial compilers like LLVM have had the assumption of an 8-bit byte (`sizeof(char) == 1` and `alignment == 1`) deeply hardcoded in countless places across the codebase. Bringing up a modern toolchain for these DSPs often requires painfully ripping out and refactoring these deeply entrenched assumptions. (For deeper insights into these compiler struggles, see the LLVM community discussions on [supporting non-8-bit bytes](https://discourse.llvm.org/t/rfc-on-non-8-bit-bytes-and-the-target-for-it/53455?page=3) and [refactoring alignment assumptions](https://discourse.llvm.org/t/alignment-member-functions-should-be-virtual/48448)).
+  More critically, this is a massive problem for modern compiler infrastructure. Historically, industrial compilers like LLVM have had the assumption of an 8-bit byte (`sizeof(char) == 1` and `alignment == 1`) deeply hardcoded in countless places across the codebase. Bringing up a modern toolchain for these DSPs often requires painfully ripping out and refactoring these deeply entrenched assumptions. (For deeper insights into these compiler struggles, see the LLVM community discussions on supporting non-8-bit bytes[^2] and refactoring alignment assumptions[^3]).
 - **Mixed Precision and Endianness:** The host might be a 64-bit Little-Endian x86 processor, while the co-processor might be a 32-bit Big-Endian accelerator. The host ELF loader and the DMA controller must actively perform endian-swapping and pointer translation just to read the string correctly.
 
 In a heterogeneous system, "Hello, World!" is no longer a trivial beginner's exercise—it is the ultimate system integration test. 
@@ -121,7 +121,7 @@ If you have worked on ML compilers, you know that debugging is often a lost caus
 Modern accelerators are not merely grids of giant matmuls; they are entire heterogeneous compute systems in their own right. Recent designs actively embed tiny scalar CPUs alongside tensor cores to handle control flow and scheduling. For example:
 - Intel's Gaudi architecture integrates control processors alongside its main accelerator fabric.
 - Apple's M-series chips feature a high-performance Neural Engine running alongside the CPU and GPU, necessitating a unified programming model to orchestrate tasks across diverse processing units.
-- Nvidia's GPU System Processor (GSP) famously embeds [RISC-V cores directly onto the GPU die](https://riscv.org/blog/how-nvidia-shipped-one-billion-risc-v-cores-in-2024/) to manage hardware initialization and task scheduling.
+- Nvidia's GPU System Processor (GSP) famously embeds RISC-V cores directly onto the GPU die[^6] to manage hardware initialization and task scheduling.
 
 When your "accelerator" actually contains half a dozen different CPU architectures coordinating a massive tensor fabric, being able to reliably execute a "Hello, World!" from a sub-core becomes a critical foundational capability.
 
@@ -170,7 +170,7 @@ flowchart TD
     H --> I[Safe Abort]
 ```
 
-This technique relies on the principles of **Debugger-Driven Execution Redirection**. While widely known in vulnerability research and fuzzing to force execution down specific paths, it serves as an incredibly powerful, low-latency error recovery and control-flow mechanism in modern heterogeneous systems.
+This technique relies on the principles of **Debugger-Driven Execution Redirection**[^7]. While widely known in vulnerability research and fuzzing to force execution down specific paths, it serves as an incredibly powerful, low-latency error recovery and control-flow mechanism in modern heterogeneous systems.
 
 ## Note on Current ML Frameworks
 
@@ -178,7 +178,7 @@ This level of fine-grained, host-driven execution control is still a bleeding-ed
 
 These frameworks were fundamentally designed around static computational graphs and ahead-of-time compilers (like XLA) that expect uniform, uninterrupted execution across massive batches of data. Injecting dynamic, asynchronous host-device interrupts completely shatters these compiler assumptions.
 
-However, the industry is rapidly recognizing this bottleneck. Emerging research into **Early Exit (EE) Architectures**—such as the [EE-LLM project](https://arxiv.org/html/2312.04916v3) for large-scale distributed inference—is forcing the ecosystem to adapt to dynamic compute graphs and "compute-budget" aware scheduling. Simultaneously, compiler engineers are increasingly leveraging lower-level Intermediate Representations (like MLIR) or custom kernel languages (like JAX's Pallas, Modular's Mojo, Triton by OpenAI, Helion by Meta, etc.) to claw back the granular hardware control that rigid, monolithic frameworks abstracted away.
+However, the industry is rapidly recognizing this bottleneck. Emerging research into **Early Exit (EE) Architectures**—such as the [EE-LLM project](https://arxiv.org/html/2312.04916v3) for large-scale distributed inference—is forcing the ecosystem to adapt to dynamic compute graphs and "compute-budget" aware scheduling. Simultaneously, compiler engineers are increasingly leveraging lower-level Intermediate Representations (like MLIR) or custom kernel languages (like JAX's Pallas[^8], Modular's Mojo[^9], Triton by OpenAI[^10], Helion by Meta[^11], etc.) to claw back the granular hardware control that rigid, monolithic frameworks abstracted away.
 
 ## A Message to Current Systems Developers
 
