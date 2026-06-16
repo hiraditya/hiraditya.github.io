@@ -192,17 +192,27 @@ The seemingly trivial task of printing "Hello, World!" across a bus reveals the 
 
 ## References
 
-1. **Linux Kernel Mailbox Framework:** Official documentation on how modern OS kernels manage IPC mailboxes. ([Link](https://www.kernel.org/doc/html/latest/driver-api/mailbox.html))
-2. **LLVM Non-8-bit Bytes RFC:** Community discussion detailing the engineering struggles of adapting modern compilers to non-standard byte sizes. ([Link](https://discourse.llvm.org/t/rfc-on-non-8-bit-bytes-and-the-target-for-it/53455?page=3))
-3. **LLVM Alignment Virtualization:** Discussions around refactoring alignment assumptions in LLVM. ([Link](https://discourse.llvm.org/t/alignment-member-functions-should-be-virtual/48448))
-4. **ARM Semihosting Reference:** Using semihosting to access resources on the host computer. ([Link](https://developer.arm.com/documentation/101470/2025-1/Controlling-Target-Execution/Using-semihosting-to-access-resources-on-the-host-computer?lang=en))
+[^1]: **Linux Kernel Mailbox Framework:** Official documentation on how modern OS kernels manage IPC mailboxes. ([Link](https://www.kernel.org/doc/html/latest/driver-api/mailbox.html))
+
+[^2]: **LLVM Non-8-bit Bytes RFC:** Community discussion detailing the engineering struggles of adapting modern compilers to non-standard byte sizes. ([Link](https://discourse.llvm.org/t/rfc-on-non-8-bit-bytes-and-the-target-for-it/53455?page=3))
+
+[^3]: **LLVM Alignment Virtualization:** Discussions around refactoring alignment assumptions in LLVM. ([Link](https://discourse.llvm.org/t/alignment-member-functions-should-be-virtual/48448))
+
+[^4]: **ARM Semihosting Reference:** Using semihosting to access resources on the host computer. ([Link](https://developer.arm.com/documentation/101470/2025-1/Controlling-Target-Execution/Using-semihosting-to-access-resources-on-the-host-computer?lang=en))
+
 [^5]: **Segger Semihosting Guide:** Detailed breakdown of semihosting traps, exception handling, and parameter blocks. ([Link](https://kb.segger.com/Semihosting))
-6. **Nvidia's RISC-V GSP:** How Nvidia shipped over a billion RISC-V cores embedded within their GPUs. ([Link](https://riscv.org/blog/how-nvidia-shipped-one-billion-risc-v-cores-in-2024/))
-7. **Debugger-Driven Execution Redirection:** Official GDB documentation on modifying the program counter to manually alter execution flow. ([Link](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Altering.html))
-8. **JAX Pallas:** A JAX extension for writing custom, hardware-specific kernels for GPUs and TPUs. ([Link](https://jax.readthedocs.io/en/latest/pallas/index.html))
-9. **Modular's Mojo:** A programming language designed for AI developers that combines the usability of Python with low-level systems and hardware control. ([Link](https://www.modular.com/mojo))
-10. **OpenAI Triton:** An open-source Python-like language and compiler for writing highly efficient custom Deep-Learning primitives. ([Link](https://github.com/triton-lang/triton))
-11. **Meta's Helion:** A Python-embedded domain-specific language (DSL) for authoring portable, high-performance ML kernels with built-in autotuning. ([Link](https://pytorch.org/blog/introducing-helion/))
+
+[^6]: **Nvidia's RISC-V GSP:** How Nvidia shipped over a billion RISC-V cores embedded within their GPUs. ([Link](https://riscv.org/blog/how-nvidia-shipped-one-billion-risc-v-cores-in-2024/))
+
+[^7]: **Debugger-Driven Execution Redirection:** Official GDB documentation on modifying the program counter to manually alter execution flow. ([Link](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Altering.html))
+
+[^8]: **JAX Pallas:** A JAX extension for writing custom, hardware-specific kernels for GPUs and TPUs. ([Link](https://jax.readthedocs.io/en/latest/pallas/index.html))
+
+[^9]: **Modular's Mojo:** A programming language designed for AI developers that combines the usability of Python with low-level systems and hardware control. ([Link](https://www.modular.com/mojo))
+
+[^10]: **OpenAI Triton:** An open-source Python-like language and compiler for writing highly efficient custom Deep-Learning primitives. ([Link](https://github.com/triton-lang/triton))
+
+[^11]: **Meta's Helion:** A Python-embedded domain-specific language (DSL) for authoring portable, high-performance ML kernels with built-in autotuning. ([Link](https://pytorch.org/blog/introducing-helion/))
 
 ---
 
