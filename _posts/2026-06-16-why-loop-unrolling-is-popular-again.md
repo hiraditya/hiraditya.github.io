@@ -179,7 +179,7 @@ However, in high-performance compute kernels (such as General Matrix Multiplies 
 
     Because of this heavy reliance on complex SCEV analysis and fragile cost models, many performance engineers prefer manual or structural unrolling over blindly trusting the middle-end heuristics.
 
-3.  **LLVM-MIR (Machine IR) - The Missing Piece:** 
+3.  **LLVM-MIR (Machine IR) - The Missing Piece:**
     As we get closer to the metal, things get gnarly. Interestingly, while LLVM currently lacks a generalized loop unroller at the Machine IR (MIR) level, **this is the exact level where you *want* to unroll**. 
 
     Why? Because at the MIR level, the cost-model no longer relies on fragile heuristics or estimations. The compiler has perfect, target-specific visibility into pipeline depths, precise instruction latencies, and physical register availability. An MIR-level unroller would perform significantly better because its cost-model is grounded in the absolute reality of the hardware. This is where **software pipelining is most impactful**. By unrolling loops at the MIR level, a backend scheduler could theoretically achieve perfect overlap of memory loads, vector MAC operations, and stores across multiple iterations, hiding hardware latencies entirely.
@@ -188,7 +188,9 @@ However, in high-performance compute kernels (such as General Matrix Multiplies 
 
 #### 3. Hardware Level (Spatial Loop Unrolling)
 
-When we move beyond traditional CPUs and GPUs into the realm of custom deep learning accelerators like Systolic Arrays (such as Google's TPUs[^8]), loop unrolling takes on a physical dimension. This concept is often referred to as **spatial loop unrolling**[^4].
+When we say 'loop unrolling', we usually mean 'temporal' loop unrolling; the same processing element executes *all* those instructions at different times. But what if we process different instructions with different PEs? That means we unroll the loop and map different iterations to different PEs. This is called 'spatial' loop unrolling.
+
+When we move beyond traditional CPUs and GPUs into the realm of custom deep learning accelerators like Systolic Arrays—such as Google's TPUs[^8], NVIDIA's Tensor Cores[^9], AWS Inferentia/Trainium[^10], and Intel Gaudi[^11]—loop unrolling takes on a physical dimension. This concept is often referred to as **spatial loop unrolling**[^4].
 
 Unlike software loop unrolling—where instructions are duplicated in memory to be executed sequentially over time—spatial loop unrolling maps different iterations of a nested loop directly onto a 2D grid of physical Processing Elements (PEs). In systolic arrays, the way a compiler chooses to unroll the nested loops of a matrix multiplication dictates the hardware's entire **dataflow model** (e.g., Weight Stationary, Output Stationary, or Input Stationary)[^5].
 
@@ -208,5 +210,8 @@ Loop unrolling is no longer just a neat trick to save a few cycles on a branch i
 [^6]: Lespert, R., et al. (2022). *Triton: An Intermediate Language and Compiler for Tiled GPU Kernels*. PLDI 2022.
 [^7]: NVIDIA Corporation. *CUDA C++ Best Practices Guide*. (Provides practical guidelines on how loop unrolling increases register usage, which can reduce active warp occupancy).
 [^8]: Jouppi, N. P., et al. (2017). *In-datacenter performance analysis of a tensor processing unit*. ISCA, 2017. (Primary source for TPU architecture, loop tiling, and systolic execution).
+[^9]: NVIDIA Corporation. (2020). *NVIDIA A100 Tensor Core GPU Architecture*. (Documentation of the Ampere architecture, including the WMMA (Warp Matrix Multiply Accumulate) API, which explicitly requires unrolled inner loops to saturate the Tensor Cores). ([Link](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf))
+[^10]: AWS. *AWS Trainium and Inferentia Architecture*. (Overview of Amazon's custom machine learning accelerators, which utilize spatial dataflow engines and heavily rely on loop unrolling to maximize utilization during LLM inference and training). ([Link](https://aws.amazon.com/machine-learning/inferentia/))
+[^11]: Intel Corporation. *Intel Gaudi AI Accelerator Architecture*. (Details Intel's purpose-built deep learning processors, which employ Matrix Multiplication Engines (MMEs) and spatial execution models that benefit from aggressive compiler-level unrolling). ([Link](https://habana.ai/))
 
 *Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
