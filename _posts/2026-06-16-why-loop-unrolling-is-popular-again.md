@@ -159,11 +159,11 @@ However, in high-performance compute kernels (such as General Matrix Multiplies 
     *Related Tiling Machinery (Data-Layout Optimization):*
     While not technically loop unrolling, modern ML compilers heavily rely on data-layout optimization to pack data into tiled layouts for cache locality during matrix multiplication. To reverse this structural "looping" over tiles, MLIR uses the `linalg.unpack` operation (which replaced the older `tensor.unpack`) to flatten the layout back into its original iteration space:
     ```llvm
-    // Unpacking a tiled 8x1 tensor layout.
+    // Unpacking a 2x3 grid of 8x1 tiles back into a flat 15x3 tensor
     %A_unpack = linalg.unpack %A 
         inner_dims_pos = [0, 1] 
         inner_tiles = [8, 1] 
-        into %A_unpack_empty : tensor<?x3x?x1xi32> -> tensor<7x3xi32>
+        into %A_unpack_empty : tensor<2x3x8x1xi32> -> tensor<15x3xi32>
     ```
 
 2.  **LLVM-IR (`-funroll-loops` implementation):** 
