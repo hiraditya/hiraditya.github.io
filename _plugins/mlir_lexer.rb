@@ -1,27 +1,22 @@
-require 'rogue'
+require 'rouge' 
 
-# frozen_string_literal: true
+module Rouge 
+ module Lexers 
+ class MLIR < RegexLexer 
+ title "MLIR" 
+ desc "Multi-Level Intermediate Representation" 
+ tag 'mlir' 
+ filenames '*.mlir' 
 
-module Rouge
-  module Lexers
-    class MLIR < RegexLexer
-      title "MLIR"
-      desc "A custom language lexer for highlighting MLIR"
-      tag "mlir"
-      filenames "*.mlir"
-
-      state :root do
-        # Matches single line comments starting with // until the end of the line
-        rule %r|//.*$|, Comment::Single
-        
-        # Whitespace and numbers
-        rule %r/\s+/, Text
-        rule %r/\d+/, Num::Integer
-        
-        # Strings
-        rule %r/"[^"]*"/, Str
-      end
-    end
-  end
-end
-
+ state :root do 
+ rule %r/\/\/.*$/, Comment::Single 
+ rule %r/\b(func|affine\.for|affine\.load|memref|tensor|linalg\.\w+)\b/, Keyword 
+ rule %r/%[\w.]+/, Name::Variable 
+ rule %r/[<>{}()\[\],=]/, Punctuation 
+ rule %r/\d+/, Num 
+ rule %r/\s+/, Text 
+ rule %r/./, Text # catch-all so nothing falls into `err` 
+ end 
+ end 
+ end 
+end 
