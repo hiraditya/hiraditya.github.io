@@ -96,6 +96,8 @@ Loop unrolling was such a common optimization during the OoO processor heydays t
 
 #### 2. Compiler Level
 
+While manual and compile-time unrolling offer absolute certainty, most production software relies on the compiler's optimization pipeline to automatically unroll loops. However, shifting this responsibility to the compiler introduces significant structural complexity. To safely unroll a loop, the compiler cannot simply copy-paste instructions; it must structurally transform the program's Control Flow Graph (CFG) to guarantee correctness for any arbitrary loop bound, carefully managing entry guards, multiple loop headers, and remainder execution paths.
+
 **Visualizing the Control Flow Graph (CFG) Transformation:**
 
 To appreciate the true complexity of loop unrolling, here is the standard loop structure before any unrolling is applied, including the initial guard branch (`Z -> C`) which skips the loop entirely if it runs zero times:
