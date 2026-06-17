@@ -1,5 +1,5 @@
 ---
-title: "Feeding the Beast: Loop Unrolling and Software Pipelining in ML Hardware"
+title: "Loop Unrolling in the ML Era"
 date: 2026-06-16 08:00:00 -0700
 categories: [Systems, Compilers]
 tags: [architecture, compiler, llvm, mlir, performance]
@@ -10,7 +10,7 @@ If you have a massive compute architecture—whether it's a modern wide-SIMD vec
 
 This architectural shift has led to significantly increased activity and attention surrounding loop unrolling. 
 
-Loop unrolling isn't a new concept. It's a classic compiler optimization originally designed to reduce loop control overhead and expose Instruction-Level Parallelism (ILP). In the pre-ML era, it didn't receive much mainstream attention because typical web or mobile workloads don't rely heavily on fine-grained ILP. But today, we are seeing a massive surge in its usage for a very specific reason: machine learning workloads—specifically dense matmuls—need to be heavily vectorized and tiled. In modern compilers, auto-vectorization and loop unrolling are tightly coupled. By unrolling a loop, the compiler exposes a larger sequence of independent, isomorphic scalar instructions, making it significantly easier to safely pack those operations into wide SIMD vectors.
+Loop unrolling isn't a new concept. It's a classic compiler optimization originally designed to reduce loop control overhead and expose Instruction-Level Parallelism (ILP). In the pre-ML era, it received less attention because typical web or mobile workloads don't rely heavily on fine-grained ILP. But today, we are seeing a massive surge in its usage for a very specific reason: machine learning workloads—specifically dense matmuls—need to be heavily vectorized and tiled. In modern compilers, auto-vectorization and loop unrolling are tightly coupled. By unrolling a loop, the compiler exposes a larger sequence of independent, isomorphic scalar instructions, making it significantly easier to safely pack those operations into wide SIMD vectors.
 
 To maximize throughput on these tiled matrix multiplications, the pipeline must be kept completely full. Loop unrolling is the critical enabler for **software pipelining**, allowing the compiler to overlap memory fetches for the next tile with compute for the current tile[^3]. Furthermore, the concept has now expanded into the physical realm: with **spatial loop unrolling**, iterations are mapped directly onto 2D grids of hardware Processing Elements, dictating the chip's entire dataflow. To fully utilize modern ML hardware, we are aggressively unrolling loops at every single level of abstraction.
 
@@ -88,7 +88,6 @@ Loop unrolling was such a common optimization during the OoO processor heydays t
     }
 
     void process_tile(float* a, float* b, float* c) {
-        // Unrolled code at compile time using C++17
         process<4>(a, b, c); 
     }
     ```
@@ -133,21 +132,11 @@ graph TD
 
 However, in high-performance compute kernels (such as General Matrix Multiplies or GEMMs), branching into a scalar cleanup loop introduces severe pipeline bubbles and branch misprediction overhead. Performance engineers actively avoid this fallback path. A common strategy is to systematically pad tensor dimensions so they are exact multiples of the unroll factor (and vector width), allowing the compiler to mathematically prove the remainder is zero and elide the cleanup loop entirely. Alternatively, techniques like **loop peeling** handle the initial unaligned iterations separately, ensuring the main unrolled body executes under perfect alignment constraints.
 
-1.  **MLIR (Unpack & Affine Dialects):** 
+1.  **MLIR (Affine Dialects & Tiling Machinery):** 
     In the modern ML compiler stack (like Triton[^6], IREE, or XLA), high-level dialects in MLIR handle structural loop unrolling long before the code reaches lower-level scalar optimizations.
 
-    *Using `linalg.unpack` (formerly `tensor.unpack`):*
-    Often, ML compilers pack data into tiled layouts for cache locality during matrix multiplication. To reverse this structural "looping" over tiles, MLIR uses the `linalg.unpack` operation (which replaced the older `tensor.unpack`) to flatten the layout back into its original iteration space:
-    ```llvm
-    // Unpacking a tiled 8x1 tensor layout back into a flat 7x3 iteration space
-    %A_unpack = linalg.unpack %A 
-        inner_dims_pos = [0, 1] 
-        inner_tiles = [8, 1] 
-        into %A_unpack_empty : tensor<?x3x?x1xi32> -> tensor<7x3xi32>
-    ```
-
     *Using `affine.for` Unrolling:*
-    For more traditional loop structures, MLIR's Affine dialect provides built-in unrolling passes. By running `mlir-opt -affine-loop-unroll="unroll-factor=4"`, the compiler automatically transforms structured `affine.for` loops to expose ILP:
+    For traditional loop structures, MLIR's Affine dialect provides built-in unrolling passes. By running `mlir-opt -affine-loop-unroll="unroll-factor=4"`, the compiler automatically transforms structured `affine.for` loops to expose ILP:
     ```llvm
     // Before Unrolling
     affine.for %i = 0 to 4 {
@@ -165,7 +154,17 @@ However, in high-performance compute kernels (such as General Matrix Multiplies 
     %v3 = affine.load %A[3] : memref<4xf32>
     // ... process %v3 ...
     ```
-    This structural unrolling in MLIR ensures that by the time the intermediate representation is lowered to LLVM, the heavy lifting of multi-dimensional vectorization and tile-flattening is already complete.
+    This structural unrolling in MLIR ensures that by the time the intermediate representation is lowered to LLVM, the heavy lifting of multi-dimensional vectorization is already complete.
+
+    *Related Tiling Machinery (Data-Layout Optimization):*
+    While not technically loop unrolling, modern ML compilers heavily rely on data-layout optimization to pack data into tiled layouts for cache locality during matrix multiplication. To reverse this structural "looping" over tiles, MLIR uses the `linalg.unpack` operation (which replaced the older `tensor.unpack`) to flatten the layout back into its original iteration space:
+    ```llvm
+    // Unpacking a tiled 8x1 tensor layout.
+    %A_unpack = linalg.unpack %A 
+        inner_dims_pos = [0, 1] 
+        inner_tiles = [8, 1] 
+        into %A_unpack_empty : tensor<?x3x?x1xi32> -> tensor<7x3xi32>
+    ```
 
 2.  **LLVM-IR (`-funroll-loops` implementation):** 
     This is the classic LLVM middle-end pass (implemented primarily in [`llvm/lib/Transforms/Scalar/LoopUnrollPass.cpp`](https://github.com/llvm/llvm-project/blob/main/llvm/lib/Transforms/Scalar/LoopUnrollPass.cpp)). 
