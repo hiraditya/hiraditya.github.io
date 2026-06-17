@@ -74,8 +74,8 @@ Loop unrolling was such a common optimization during the OoO processor heydays t
 
     **Tradeoffs:** While `#pragma unroll` is incredibly powerful for exposing instruction-level parallelism, it causes **code bloat**. Unrolling massive loops blows up the size of the binary. If the unrolled code exceeds the capacity of the L1 instruction cache (I-cache), the hardware will stall fetching instructions from slower memory, completely negating any performance benefits. Furthermore, excessive unrolling consumes architectural registers, causing register spilling and severely reducing GPU warp occupancy. It's a delicate balance between compute density, I-cache limits, and register pressure[^7].
 
-2.  **C++ (Template Metaprogramming):** 
-    When the loop bounds are statically known at compile-time (like the dimensions of a small 4x4 matrix tile), C++ developers use template metaprogramming. By using templates, they can recursively generate massive, straight-line blocks of code. This eliminates branch overhead entirely before the code even reaches the compiler's middle-end.
+2.  **C++ (Compile-Time Evaluation):** 
+    When the loop bounds are statically known at compile-time (like the dimensions of a small 4x4 matrix tile), modern C++ developers leverage compile-time evaluation features. By using templates combined with `if constexpr`, they can recursively generate massive, straight-line blocks of code. This eliminates branch overhead entirely before the code even reaches the compiler's middle-end.
 
     **Example in C++:**
     ```cpp
