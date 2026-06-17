@@ -179,12 +179,12 @@ However, in high-performance compute kernels (such as General Matrix Multiplies 
 
     Because of this heavy reliance on complex SCEV analysis and fragile cost models, many performance engineers prefer manual or structural unrolling over blindly trusting the middle-end heuristics.
 
-3.  **LLVM-MIR (Machine IR):** 
-    As we get closer to the metal, the backend handles target-specific loop unrolling. This is where things get gnarly. At the Machine IR level, unrolling is tailored directly to the specific pipeline depths, instruction latencies, and register files of the target chip. 
-    
-    This is the exact level where you *want* to unroll, because **this is where software pipelining is most impactful**. By unrolling loops at the MIR level, the backend scheduler can perfectly overlap memory loads, vector MAC operations, and stores across multiple iterations, hiding hardware latencies entirely. 
-    
-    Crucially, unrolling also directly attacks the memory wall. By issuing multiple independent memory loads across unrolled iterations, the compiler significantly increases **memory request concurrency**. For memory-bound kernels, this is often the only mechanism to keep enough outstanding memory requests in flight to fully saturate the hardware memory bus and achieve peak memory bandwidth. (If you want to know how painful tuning this is, just ask me...).
+3.  **LLVM-MIR (Machine IR) - The Missing Piece:** 
+    As we get closer to the metal, things get gnarly. Interestingly, while LLVM currently lacks a generalized loop unroller at the Machine IR (MIR) level, **this is the exact level where you *want* to unroll**. 
+
+    Why? Because at the MIR level, the cost-model no longer relies on fragile heuristics or estimations. The compiler has perfect, target-specific visibility into pipeline depths, precise instruction latencies, and physical register availability. An MIR-level unroller would perform significantly better because its cost-model is grounded in the absolute reality of the hardware. This is where **software pipelining is most impactful**. By unrolling loops at the MIR level, a backend scheduler could theoretically achieve perfect overlap of memory loads, vector MAC operations, and stores across multiple iterations, hiding hardware latencies entirely.
+
+    Crucially, unrolling also directly attacks the memory wall. By issuing multiple independent memory loads across unrolled iterations, the compiler significantly increases **memory request concurrency**. For memory-bound kernels, this is often the only mechanism to keep enough outstanding memory requests in flight to fully saturate the hardware memory bus and achieve peak memory bandwidth. (If you want to know how painful writing this is, just ask me...).
 
 #### 3. Hardware Level (Spatial Loop Unrolling)
 
