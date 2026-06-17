@@ -1,4 +1,10 @@
-# The Surging Importance of Loop Unrolling in the ML Era
+---
+title: "The Surging Importance of Loop Unrolling in the ML Era"
+date: 2026-06-16 08:00:00 -0700
+categories: [Systems, Compilers]
+tags: [architecture, compiler, llvm, mlir, performance]
+mermaid: true
+---
 
 If you have a massive compute architecture—whether it's a modern wide-SIMD vector engine, a Tensor Core array, or a custom deep learning accelerator like a Systolic Array—you face one fundamental problem: feeding the beast. You have immense execution width, but if your instructions are bottlenecked by branch overhead and short basic blocks, those execution units sit idle.
 
