@@ -137,7 +137,7 @@ However, in high-performance compute kernels (such as General Matrix Multiplies 
 
     *Using `affine.for` Unrolling:*
     For traditional loop structures, MLIR's Affine dialect provides built-in unrolling passes. By running `mlir-opt -affine-loop-unroll="unroll-factor=4"`, the compiler automatically transforms structured `affine.for` loops to expose ILP:
-    ```llvm
+    ```mlir
     // Before Unrolling
     affine.for %i = 0 to 4 {
       %v = affine.load %A[%i] : memref<4xf32>
@@ -158,7 +158,7 @@ However, in high-performance compute kernels (such as General Matrix Multiplies 
 
     *Related Tiling Machinery (Data-Layout Optimization):*
     While not technically loop unrolling, modern ML compilers heavily rely on data-layout optimization to pack data into tiled layouts for cache locality during matrix multiplication. To reverse this structural "looping" over tiles, MLIR uses the `linalg.unpack` operation (which replaced the older `tensor.unpack`) to flatten the layout back into its original iteration space:
-    ```llvm
+    ```mlir
     // Unpacking a 2x3 grid of 8x1 tiles back into a flat 15x3 tensor
     %A_unpack = linalg.unpack %A 
         inner_dims_pos = [0, 1] 
