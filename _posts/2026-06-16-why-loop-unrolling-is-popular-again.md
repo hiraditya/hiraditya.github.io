@@ -4,13 +4,13 @@ If you have a massive compute architecture—whether it's a modern wide-SIMD vec
 
 This architectural shift has led to significantly increased activity and attention surrounding loop unrolling. 
 
-Loop unrolling isn't a new concept. It's a classic compiler optimization originally designed to reduce loop control overhead and expose Instruction-Level Parallelism (ILP). In the pre-ML era, it didn't receive much mainstream attention because typical web or mobile workloads don't rely heavily on fine-grained ILP. But today, we are seeing a massive surge in its usage for a very specific reason: machine learning workloads—specifically dense matmuls—need to be heavily vectorized and tiled. 
+Loop unrolling isn't a new concept. It's a classic compiler optimization originally designed to reduce loop control overhead and expose Instruction-Level Parallelism (ILP). In the pre-ML era, it didn't receive much mainstream attention because typical web or mobile workloads don't rely heavily on fine-grained ILP. But today, we are seeing a massive surge in its usage for a very specific reason: machine learning workloads—specifically dense matmuls—need to be heavily vectorized and tiled. In modern compilers, auto-vectorization and loop unrolling are tightly coupled. By unrolling a loop, the compiler exposes a larger sequence of independent, isomorphic scalar instructions, making it significantly easier to safely pack those operations into wide SIMD vectors.
 
-To maximize throughput on these tiled matrix multiplications, the pipeline must be kept completely full. Loop unrolling is the critical enabler for **software pipelining**, allowing the compiler to overlap memory fetches for the next tile with compute for the current tile [[3]](#ref3). Furthermore, the concept has now expanded into the physical realm: with **spatial loop unrolling**, iterations are mapped directly onto 2D grids of hardware Processing Elements, dictating the chip's entire dataflow. To fully utilize modern ML hardware, we are aggressively unrolling loops at every single level of abstraction.
+To maximize throughput on these tiled matrix multiplications, the pipeline must be kept completely full. Loop unrolling is the critical enabler for **software pipelining**, allowing the compiler to overlap memory fetches for the next tile with compute for the current tile[^3]. Furthermore, the concept has now expanded into the physical realm: with **spatial loop unrolling**, iterations are mapped directly onto 2D grids of hardware Processing Elements, dictating the chip's entire dataflow. To fully utilize modern ML hardware, we are aggressively unrolling loops at every single level of abstraction.
 
 ### Unrolling at Multiple Levels
 
-Loop unrolling was such a common optimization during the OoO processor heydays that programmers often wrote unrolled loops by hand to expose ILP to the hardware [[2]](#ref2). Practically every optimizing compiler has a loop unrolling pass and it is common for compiler courses to teach loop unroller [[1]](#ref1).
+Loop unrolling was such a common optimization during the OoO processor heydays that programmers often wrote unrolled loops by hand to expose ILP to the hardware[^2]. Practically every optimizing compiler has a loop unrolling pass and it is common for compiler courses to teach loop unroller[^1].
 
 #### 1. Language Level
 
@@ -123,6 +123,8 @@ graph TD
     Cleanup_B --> C2
 ```
 
+However, in high-performance compute kernels (such as General Matrix Multiplies or GEMMs), branching into a scalar cleanup loop introduces severe pipeline bubbles and branch misprediction overhead. Performance engineers actively avoid this fallback path. A common strategy is to systematically pad tensor dimensions so they are exact multiples of the unroll factor (and vector width), allowing the compiler to mathematically prove the remainder is zero and elide the cleanup loop entirely. Alternatively, techniques like **loop peeling** handle the initial unaligned iterations separately, ensuring the main unrolled body executes under perfect alignment constraints.
+
 1.  **MLIR (Unpack & Affine Dialects):** 
     In the modern ML compiler stack (like Triton, IREE, or XLA), high-level dialects in MLIR handle structural loop unrolling long before the code reaches lower-level scalar optimizations.
 
@@ -172,11 +174,13 @@ graph TD
 3.  **LLVM-MIR (Machine IR):** 
     As we get closer to the metal, the backend handles target-specific loop unrolling. This is where things get gnarly. At the Machine IR level, unrolling is tailored directly to the specific pipeline depths, instruction latencies, and register files of the target chip. 
     
-    This is the exact level where you *want* to unroll, because **this is where software pipelining is most impactful**. By unrolling loops at the MIR level, the backend scheduler can perfectly overlap memory loads, vector MAC operations, and stores across multiple iterations, hiding hardware latencies entirely. (If you want to know how painful tuning this is, just ask me...).
+    This is the exact level where you *want* to unroll, because **this is where software pipelining is most impactful**. By unrolling loops at the MIR level, the backend scheduler can perfectly overlap memory loads, vector MAC operations, and stores across multiple iterations, hiding hardware latencies entirely. 
+    
+    Crucially, unrolling also directly attacks the memory wall. By issuing multiple independent memory loads across unrolled iterations, the compiler significantly increases **memory request concurrency**. For memory-bound kernels, this is often the only mechanism to keep enough outstanding memory requests in flight to fully saturate the hardware memory bus and achieve peak memory bandwidth. (If you want to know how painful tuning this is, just ask me...).
 
 #### 3. Hardware Level (Spatial Loop Unrolling)
 
-When we move beyond traditional CPUs and GPUs into the realm of custom deep learning accelerators like Systolic Arrays (such as Google's TPUs), loop unrolling takes on a physical dimension. This concept is often referred to as **spatial loop unrolling** [[4]](#ref4).
+When we move beyond traditional CPUs and GPUs into the realm of custom deep learning accelerators like Systolic Arrays (such as Google's TPUs), loop unrolling takes on a physical dimension. This concept is often referred to as **spatial loop unrolling**[^4].
 
 Unlike software loop unrolling—where instructions are duplicated in memory to be executed sequentially over time—spatial loop unrolling maps different iterations of a nested loop directly onto a 2D grid of physical Processing Elements (PEs). In systolic arrays, the way a compiler chooses to unroll the nested loops of a matrix multiplication dictates the hardware's entire **dataflow model** (e.g., Weight Stationary, Output Stationary, or Input Stationary). 
 
@@ -186,9 +190,11 @@ However, because DNN workloads are vastly larger than any physical chip, acceler
 
 Loop unrolling is no longer just a neat trick to save a few cycles on a branch instruction. It is a mandatory structural requirement for modern performance engineering. As hardware grows wider and deeper, software must unroll to keep pace, generating massive, uninterrupted streams of compute to keep the silicon fed.
 
-### References
+## References
 
-<a name="ref1"></a>[1] Muchnick, S. S. (1997). *Advanced Compiler Design and Implementation*. Morgan Kaufmann. (A foundational text detailing classic loop optimizations, including unrolling, that are universally taught in compiler courses).
-<a name="ref2"></a>[2] Hennessy, J. L., & Patterson, D. A. (2017). *Computer Architecture: A Quantitative Approach*. Morgan Kaufmann. (Covers Instruction-Level Parallelism (ILP), OoO execution, and how software loop unrolling exposes parallelism to the hardware).
-<a name="ref3"></a>[3] Russell, R. M. (1978). *The CRAY-1 Computer System*. Communications of the ACM, 21(1), 63-72. (Demonstrating early reliance on loop unrolling and software pipelining for vector and supercomputing machines).
-<a name="ref4"></a>[4] Wang, Y., et al. (2023). *A Survey of Design and Optimization for Systolic Array-based DNN Accelerators*. ACM Computing Surveys, 56(2), 1-36. (Details how loop unrolling is mapped spatially onto physical processing elements and dictates dataflow models).
+[^1]: Muchnick, S. S. (1997). *Advanced Compiler Design and Implementation*. Morgan Kaufmann. (A foundational text detailing classic loop optimizations, including unrolling, that are universally taught in compiler courses).
+[^2]: Hennessy, J. L., & Patterson, D. A. (2017). *Computer Architecture: A Quantitative Approach*. Morgan Kaufmann. (Covers Instruction-Level Parallelism (ILP), OoO execution, and how software loop unrolling exposes parallelism to the hardware).
+[^3]: Russell, R. M. (1978). *The CRAY-1 Computer System*. Communications of the ACM, 21(1), 63-72. (Demonstrating early reliance on loop unrolling and software pipelining for vector and supercomputing machines).
+[^4]: Wang, Y., et al. (2023). *A Survey of Design and Optimization for Systolic Array-based DNN Accelerators*. ACM Computing Surveys, 56(2), 1-36. (Details how loop unrolling is mapped spatially onto physical processing elements and dictates dataflow models).
+
+*Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
