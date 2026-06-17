@@ -1,5 +1,5 @@
 ---
-title: "The Surging Importance of Loop Unrolling in the ML Era"
+title: "Feeding the Beast: Loop Unrolling and Software Pipelining in ML Hardware"
 date: 2026-06-16 08:00:00 -0700
 categories: [Systems, Compilers]
 tags: [architecture, compiler, llvm, mlir, performance]
