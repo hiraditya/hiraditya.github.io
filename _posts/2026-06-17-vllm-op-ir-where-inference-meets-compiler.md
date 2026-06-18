@@ -25,7 +25,7 @@ GPUs/TPUs · NVLink · RDMA                           ← hardware
 
 One vLLM instance owns one model across one node's GPUs (tensor/expert parallel within a node, pipeline parallel across nodes). Everything above it — autoscaling, prefix-cache-aware routing, prefill/decode disaggregation — is orchestration around many vLLM replicas. The mental model that fits best is the application server: it's the engine that actually executes the workload efficiently, while gateways and schedulers layer around it.
 
-The part that matters for the rest of this post: vLLM's model-execution path is migrating to be **`torch.compile`-centric**. Once you commit to that, you inherit every problem a compiler frontend has — and that's where the IR comes from.
+The part that matters for the rest of this post: vLLM's model-execution path is migrating to be **`torch.compile`-centric**. During the autoregressive decode phase (where batch sizes are small), eager-mode PyTorch's Python overhead and kernel launch latencies become massive bottlenecks. Capturing the model graph via `torch.compile` and CUDA graphs is mandatory to squash that overhead. However, once you commit to ahead-of-time compilation, you inherit every problem a compiler frontend has — and that's where the IR comes from.
 
 ## Part 2: the actual problem
 
@@ -39,7 +39,7 @@ Consider RMSNorm. In vLLM it has to exist in at least these forms simultaneously
 
 Now layer on three requirements that pull in different directions:
 
-1. **`torch.compile` must be able to fuse around it.** Inductor's whole value is fusing pointwise/reduction chains. If your custom op is opaque[^6], the compiler routes around it and you lose fusion at the boundary.
+1. **You must retain graph-level fusion capabilities.** Inductor's whole value is fusing pointwise/reduction chains. If you inject a completely opaque custom op[^6] into the middle of the graph, Inductor's generic code generator cannot see inside it, forcing it to route around the op and break fusion at the boundary. Therefore, you have to explicitly orchestrate fusion yourself before lowering.
 2. **You must be able to swap implementations by hardware and by argument shape/dtype** — at runtime, on the hot path, cheaply.
 3. **Every fast path must be checkable against the reference**, within numerical tolerance, or you'll ship a kernel that's subtly wrong at one shape out of millions.
 
@@ -47,7 +47,7 @@ Without a unifying abstraction, all of this lives as `if current_platform.is_cud
 
 ## Part 3: the IR is a dialect on top of ATen
 
-The key thing to understand: `vllm/ir` is **not** an LLVM/MLIR-style IR with its own types and passes. It's an **op registry built on PyTorch's `torch.library` custom-op machinery**[^7], designed so each op survives as a single recognizable node in the ATen graph that AOTAutograd hands to Inductor. If you think in compiler terms, it's a *dialect*: a set of named, stable, non-decomposed ops with reference semantics, plus the metadata to lower and verify them.
+The terminology might trip up traditional compiler engineers: `vllm/ir` is **not** an AST or an LLVM/MLIR-style IR with its own blocks, regions, or SSA values. Rather, it is an **op registry built on PyTorch's `torch.library` custom-op machinery**[^7]. It acts as an "IR" only in the sense that it strictly defines the node semantics that populate the FX graph. If you think in compiler terms, it's a *dialect*: a set of named, stable, non-decomposed ops with reference semantics, plus the metadata required to lower and verify them.
 
 Here's the registration (`vllm/ir/op.py`[^8]):
 
@@ -60,7 +60,7 @@ lib.impl(self.name, self._inner_call, dispatch_key="CompositeExplicitAutograd")
 lib._register_fake(self.name, self._fake_call)
 ```
 
-That comment is the whole point. The `CompositeExplicitAutograd` dispatch key[^9] is chosen specifically so AOTAutograd **does not decompose the op** during ATen IR normalization. The reference implementation in `vllm/ir/ops/layernorm.py`[^10] is written in plain PyTorch — `x.pow(2).mean(...)`, `torch.rsqrt(...)` — and if it were composite-decomposed, Inductor would see the constituent pointwise/reduction ops and the *identity* "this is an RMSNorm" would be gone. By registering it explicit, the op stays a single graph node. The vLLM compilation passes[^11] can then pattern-match `rms_norm` followed by `add` and rewrite it to `fused_add_rms_norm` — **fusion as a graph rewrite over the IR, not as something you hand-code in the model.**
+That comment is the whole point. The `CompositeExplicitAutograd` dispatch key[^9] is chosen specifically so AOTAutograd **does not decompose the op** during ATen IR normalization. The reference implementation in `vllm/ir/ops/layernorm.py`[^10] is written in plain PyTorch — `x.pow(2).mean(...)`, `torch.rsqrt(...)` — and if it were composite-decomposed, Inductor would see the constituent pointwise/reduction ops and the *identity* "this is an RMSNorm" would be gone. By registering it explicitly, the op survives into the FX graph as a single opaque node. Because Inductor cannot fuse this opaque node automatically, vLLM runs custom compilation passes[^11] prior to lowering. These passes pattern-match the high-level semantic nodes (e.g., `rms_norm` followed by `add`) and rewrite them into `fused_add_rms_norm`. This shifts **fusion to a graph rewrite over the dialect, rather than relying on the backend or hand-coding it in the model.**
 
 So each op has a dual personality:
 - **To the compiler:** one opaque, schema-typed node with a fake/meta function for shape and dtype propagation.
