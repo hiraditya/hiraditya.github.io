@@ -25,7 +25,7 @@ GPUs/TPUs · NVLink · RDMA                           ← hardware
 
 One vLLM instance owns one model across one node's GPUs (tensor/expert parallel within a node, pipeline parallel across nodes). Everything above it — autoscaling, prefix-cache-aware routing, prefill/decode disaggregation — is orchestration around many vLLM replicas. The mental model that fits best is the application server: it's the engine that actually executes the workload efficiently, while gateways and schedulers layer around it.
 
-The part that matters for the rest of this post: vLLM's model-execution path is migrating to be **`torch.compile`-centric**. During the autoregressive decode phase (where batch sizes are small), eager-mode PyTorch's Python overhead and kernel launch latencies become massive bottlenecks. Capturing the model graph via `torch.compile` and CUDA graphs is mandatory to squash that overhead. However, once you commit to ahead-of-time compilation, you inherit every problem a compiler frontend has — and that's where the IR comes from.
+The part that matters for the rest of this post: vLLM's model-execution path is migrating to be **`torch.compile`-centric**. During the autoregressive decode phase—where the engine generates one token at a time and operations are fast, memory-bound matrix-vector multiplications—eager-mode PyTorch's Python overhead and kernel launch latencies become massive bottlenecks. Capturing the model graph via `torch.compile` and CUDA graphs is mandatory to squash that overhead. However, once you commit to ahead-of-time compilation, you inherit every problem a compiler frontend has — and that's where the IR comes from.
 
 ## Part 2: the actual problem
 
