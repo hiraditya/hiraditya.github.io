@@ -3,19 +3,28 @@ title: "vLLM's op IR, or: where the inference engine meets the compiler"
 date: 2026-06-17 08:00:00 -0700
 categories: [Systems, Compilers]
 tags: [architecture, compiler, pytorch, vllm]
+mermaid: true
+description: "How vLLM's op‑level IR reconciles the tension between a compiler target and hand‑tuned kernel dispatch, enabling graph‑level fusion while supporting multiple back‑ends."
 ---
 
-If you work on ML frameworks, compilers, or kernel performance, vLLM[^1] is worth understanding not as "the thing that serves Llama fast" but as a case study in a specific tension: **an inference engine has to be a compiler target and a hand-tuned-kernel dispatcher at the same time.** Recently vLLM grew a small op-level IR to resolve that tension explicitly. This post walks through where vLLM sits in the stack, then digs into why that IR exists and how it's built — because the design decisions in `vllm/ir` are the kind of thing you'll recognize if you've ever fought AOTAutograd's decomposition table or tried to keep a custom kernel alive through `torch.compile`[^2].
+If you work on ML frameworks, compilers, or kernel performance, vLLM[^1] is worth understanding not as "the thing that serves Llama fast" but as a case study in a specific tension: **an inference engine has to be a compiler target and a hand-tuned-kernel dispatcher at the same time.** Recently vLLM grew a small op-level IR to resolve that tension explicitly. Model code calls named IR ops; `torch.compile` (Dynamo) traces them into an FX graph where they survive as opaque nodes; and at runtime, each op dispatches to the best available kernel for the current platform. This post digs into why that IR exists and how it's built — because the design decisions in `vllm/ir` are the kind of thing you'll recognize if you've ever fought AOTAutograd's decomposition table or tried to keep a custom kernel alive through `torch.compile`[^2].
 
-```mermaid
-flowchart TD
-    Engine[vLLM Engine]
-    PyTorch["PyTorch (Inductor)"]
-    Kernels[Hand-Tuned Kernels]
-
-    Engine -- "lowers into<br>(op IR)" --> PyTorch
-    Engine -- "calls<br>(torch.compile)" --> PyTorch
-    Engine -- "dispatches to" --> Kernels
+```text
+  vLLM Model Code
+        │
+        │ uses vllm_ir ops
+        ▼
+┌─────────────────┐     ┌────────────────┐
+│ torch.compile   │     │   Hand-Tuned   │
+│(Dynamo/Inductor)│     │    Kernels     │
+└────────┬────────┘     └────────▲───────┘
+         │                       │
+         │ captures into         │ dispatches to
+         ▼                       │
+   ┌───────────┐                 │
+   │  FX Graph │──── vllm/ir ────┘
+   │ (IR nodes)│    (at runtime)
+   └───────────┘
 ```
 
 ## The Two-Faced Inference Engine
@@ -50,27 +59,23 @@ This duality—acting as a compiler target while relying on opaque kernels—cre
 
 Now layer on three requirements that pull in different directions:
 
-1. **You must retain graph-level fusion capabilities.** Inductor's whole value is fusing pointwise/reduction chains. If you inject a completely opaque custom op[^6] into the middle of the graph, Inductor's generic code generator cannot see inside it, forcing it to route around the op and break fusion at the boundary.
-   
-```mermaid
-flowchart LR
-    subgraph Ideal["Ideal (Graph-Level Fusion)"]
-        direction TB
-        A1[Add] --> M1[Mul]
-        M1 -- "Inductor can fuse this chain" --> R1[RMSNorm]
-    end
-
-    subgraph Broken["Broken (Opaque Kernel Boundary)"]
-        direction TB
-        A2[Add] --> M2[Mul]
-        M2 -- "Fusion Boundary<br>Memory Read/Write" --> K2[Opaque Kernel]
-        K2 -- "Fusion Boundary<br>Memory Read/Write" --> N2[Next Op]
-    end
-```
-   
-   Therefore, you have to explicitly orchestrate fusion yourself before lowering.
+1. **You must retain graph-level fusion capabilities.** Inductor's whole value is fusing pointwise/reduction chains. If you inject a completely opaque custom op[^6] into the middle of the graph, Inductor's generic code generator cannot see inside it, forcing it to route around the op and break fusion at the boundary. You have to explicitly orchestrate fusion yourself before lowering.
 2. **You must be able to swap implementations by hardware and by argument shape/dtype** — at runtime, on the hot path, cheaply.
 3. **Every fast path must be checkable against the reference**, within numerical tolerance, or you'll ship a kernel that's subtly wrong at one shape out of millions.
+
+When the op is decomposed, Inductor sees the constituent ATen ops and can fuse them into a single kernel:
+
+```mermaid
+flowchart LR
+    P1[pow] --> M1[mean] --> R1[rsqrt] --> Mul1[mul]
+```
+
+But when the op is registered as opaque, Inductor must treat it as a black box — forcing memory reads and writes at each boundary:
+
+```mermaid
+flowchart LR
+    A2[Prior Ops] -- "Fusion Boundary" --> K2["RMSNorm (opaque)"] -- "Fusion Boundary" --> N2[Next Ops]
+```
 
 Without a unifying abstraction, all of this lives as `if current_platform.is_cuda() and dtype == ...` branches sprinkled through model code, invisible to the compiler and impossible to test uniformly. The IR is the seam that pulls those three concerns out of the model and into one object.
 
@@ -98,12 +103,11 @@ So each op has a dual personality:
 - **To the runtime:** a dispatcher over N implementations.
 
 ```mermaid
-flowchart TB
-    Compiler[Compiler / FX Graph] -- "Sees single node" --> OpIR["vLLM Op IR (e.g. rms_norm)"]
-    OpIR -- "Runtime dispatches<br>to specific kernel" --> Backends
-    
+flowchart LR
+    OpIR["vLLM Op IR (e.g. rms_norm)"] -- "Appears as single opaque node in" --> Compiler[FX Graph / Compiler]
+    OpIR -- "Dispatches to" --> Backends
+
     subgraph Backends["Hardware/Kernel Backends"]
-        direction LR
         CUDA
         ROCm
         Triton
@@ -156,10 +160,10 @@ def func_impl_fn(self, *args, **kwargs):
 flowchart TD
     Input["Input Tensor<br>(Functional Path)"] --> FuncImpl[func_impl_fn]
     FuncImpl --> Check{"Is inplace<br>enabled?"}
-    
+
     Check -- "Yes" --> Clone[Clone Tensor]
     Check -- "No" --> Exec[Execute Core Kernel]
-    
+
     Clone --> Exec
     Exec --> Output[Output Tensor]
 ```
