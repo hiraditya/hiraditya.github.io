@@ -3,29 +3,44 @@ title: "vLLM's op IR, or: where the inference engine meets the compiler"
 date: 2026-06-17 08:00:00 -0700
 categories: [Systems, Compilers]
 tags: [architecture, compiler, pytorch, vllm]
+mermaid: true
 ---
 
 If you work on ML frameworks, compilers, or kernel performance, vLLM[^1] is worth understanding not as "the thing that serves Llama fast" but as a case study in a specific tension: **an inference engine has to be a compiler target and a hand-tuned-kernel dispatcher at the same time.** Recently vLLM grew a small op-level IR to resolve that tension explicitly. This post walks through where vLLM sits in the stack, then digs into why that IR exists and how it's built — because the design decisions in `vllm/ir` are the kind of thing you'll recognize if you've ever fought AOTAutograd's decomposition table or tried to keep a custom kernel alive through `torch.compile`[^2].
+
+```text
+            ┌─────────────────┐
+    ┌──────▶│   vLLM Engine   │─────────┐
+    │       └────────┬────────┘         │
+    │                │                  │
+    │ lowers into    │ calls            │ dispatches to
+    │ (op IR)        │ (torch.compile)  │
+    │                ▼                  ▼
+    │       ┌─────────────────┐ ┌────────────────┐
+    └───────┤     PyTorch     │ │   Hand-Tuned   │
+            │   (Inductor)    │ │    Kernels     │
+            └─────────────────┘ └────────────────┘
+```
 
 ## Part 1: where vLLM sits
 
 vLLM is a **model-serving engine**[^3]. It does not train. It takes trained weights and runs forward passes for inference at the highest throughput and lowest cost it can manage. Its founding idea was PagedAttention[^4] — managing the KV cache the way an OS manages virtual memory, with non-contiguous pages and an indirection table — which is what let it do continuous batching without massive memory fragmentation.
 
-In a data center it occupies the layer between the runtime and the orchestration tier:
+In a data center it occupies the layer between the runtime and the orchestration tier (like Ray Serve or llm-d[^5]):
 
 ```text
-Applications · agents · RAG                         ← your product
-API gateway / router (LiteLLM, Envoy)               ← auth, multi-model, billing
-Cluster orchestration (K8s, Ray Serve, llm-d[^5])   ← N replicas, KV-aware routing, P/D split
-────────────────────────────────────────────────
->>> vLLM engine <<<                                 ← scheduler, KV cache, model exec, sampling
-PyTorch · CUDA/ROCm · NCCL · Triton · FlashAttn     ← runtime
-GPUs/TPUs · NVLink · RDMA                           ← hardware
+[Applications] [Agents] [RAG]                     ← your product
+[API Gateway / Router (LiteLLM, Envoy)]           ← auth, multi-model, billing
+[Cluster Orchestration (K8s, Ray Serve, llm-d)]   ← N replicas, KV-aware routing, P/D split
+─────────────────────────────────────────────────────────────────────────────────────────────
+>>> vLLM engine <<<                               ← scheduler, KV cache, model exec, sampling
+[PyTorch] [CUDA/ROCm] [NCCL] [Triton] [FlashAttn] ← runtime
+[GPUs/TPUs] [NVLink] [RDMA]                       ← hardware
 ```
 
 One vLLM instance owns one model across one node's GPUs (tensor/expert parallel within a node, pipeline parallel across nodes). Everything above it — autoscaling, prefix-cache-aware routing, prefill/decode disaggregation — is orchestration around many vLLM replicas. The mental model that fits best is the application server: it's the engine that actually executes the workload efficiently, while gateways and schedulers layer around it.
 
-The part that matters for the rest of this post: vLLM's model-execution path is migrating to be **`torch.compile`-centric**. During the autoregressive decode phase—where the engine generates one token at a time and operations are fast, memory-bound matrix-vector multiplications—eager-mode PyTorch's Python overhead and kernel launch latencies become massive bottlenecks. Capturing the model graph via `torch.compile` and CUDA graphs is mandatory to squash that overhead. However, once you commit to ahead-of-time compilation, you inherit every problem a compiler frontend has — and that's where the IR comes from.
+The part that matters for the rest of this post: vLLM's model-execution path is migrating to be **`torch.compile`-centric**. During the autoregressive decode phase, where the engine generates one token at a time and operations are fast, memory-bound matrix-vector multiplications, eager-mode PyTorch's Python overhead and kernel launch latencies become massive bottlenecks. Capturing the model graph via `torch.compile` and CUDA graphs is mandatory to squash that overhead. However, once you commit to ahead-of-time compilation, you inherit every problem a compiler frontend has — and that's where the IR comes from.
 
 ## Part 2: the actual problem
 
