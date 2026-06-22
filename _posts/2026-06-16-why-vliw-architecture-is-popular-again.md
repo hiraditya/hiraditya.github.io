@@ -1,6 +1,6 @@
 ---
 title: "Why VLIW Architecture is Popular Again"
-date: 2026-06-16 08:00:00 -0700
+date: 2026-06-22 08:00:00 -0700
 categories: [Architecture, ML-Systems]
 tags: [vliw, ml-accelerators, compiler, instruction-scheduling, hardware-design]
 mermaid: true
@@ -195,4 +195,4 @@ There is no settled answer, which is what makes this the most interesting it has
 
 ---
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
+*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
