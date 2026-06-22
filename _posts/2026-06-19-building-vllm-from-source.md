@@ -15,7 +15,7 @@ through a real end-to-end build on an **AWS g5 instance (NVIDIA A10G)** running
 The target was a CUDA build of a vLLM fork. The same playbook applies to a stock
 `vllm-project/vllm` checkout.
 
----
+______________________________________________________________________
 
 ## TL;DR — the working recipe
 
@@ -54,7 +54,7 @@ pip install -v -e . --no-build-isolation
 
 Read on for *why* each line is there and what breaks without it.
 
----
+______________________________________________________________________
 
 ## Prerequisites & how to check them
 
@@ -97,7 +97,7 @@ the exception.
 > **Lesson:** `lspci` detects hardware. `nvidia-smi` detects a *working driver*. They
 > answer different questions. Decide CPU-vs-GPU from `lspci`.
 
----
+______________________________________________________________________
 
 ## Step 2: Install and load the NVIDIA driver
 
@@ -105,8 +105,9 @@ the exception.
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y dkms build-essential linux-headers-$(uname -r) \
-                        nvidia-driver-575-open
+sudo apt-get install -y dkms build-essential \
+     linux-headers-$(uname -r) \
+     nvidia-driver-575-open
 ```
 
 We used the **open-kernel** variant (`-open`), which is NVIDIA's recommendation for
@@ -147,8 +148,8 @@ $ python -c "import torch; print(torch.cuda.is_available())"
 RuntimeError: CUDA unknown error ...    # False
 ```
 
-A direct driver-API probe confirmed the runtime was broken even though `nvidia-smi`
-was fine:
+A direct driver-API probe confirmed the runtime was broken even
+though `nvidia-smi` was fine:
 
 ```python
 import ctypes
@@ -170,7 +171,7 @@ Two distinct causes, both worth knowing:
    sudo mknod -m 666 /dev/nvidia-uvm-tools  c $UVM_MAJOR 1
    ```
 
-2. **`nvidia-modprobe` is not installed.** This setuid helper is what the CUDA runtime
+1. **`nvidia-modprobe` is not installed.** This setuid helper is what the CUDA runtime
    shells out to in order to create/initialize device nodes for non-root processes.
    Without it, raw `cuInit` may pass but **torch's runtime init throws 999**. This was
    the actual fix for us:
@@ -188,7 +189,7 @@ Two distinct causes, both worth knowing:
 > If `cuInit` returns 999, look at `/dev/nvidia-uvm` and make sure `nvidia-modprobe`
 > exists.
 
----
+______________________________________________________________________
 
 ## Step 3: The virtual environment
 
@@ -210,7 +211,7 @@ grep requires-python pyproject.toml
 It built fine — `torch==2.11.0` and every dependency had `cp314` wheels. But see
 Pitfall 6: a *bundled submodule* had its own narrower Python check.
 
----
+______________________________________________________________________
 
 ## Step 4: CUDA torch + a *consistent* CUDA toolkit
 
@@ -255,32 +256,39 @@ packages (`nvidia-cuda-nvcc`, `nvidia-nvvm`, `nvidia-cuda-crt`, `nvidia-cuda-ccc
 minor versions**. Each mismatch fails differently:
 
 **5a. ptxas can't assemble newer PTX:**
+
 ```text
 ptxas fatal : Unsupported .version 9.3; current version is '9.0'
 ```
+
 nvcc front-end was 13.3 (emits PTX 9.3) but `ptxas` was 13.0 (≤ PTX 9.0). → align them.
 
 **5b. CMake refuses on nvcc-vs-headers mismatch** (PyTorch's `cuda.cmake`):
+
 ```text
-CMake Error: FindCUDA says CUDA version is 13.3 (from nvcc), but the CUDA headers
-say the version is 13.0.
+CMake Error: FindCUDA says CUDA version is 13.3 (from nvcc), but 
+the CUDA headers say the version is 13.0.
 ```
 
 **5c. flashinfer's bundled cccl refuses at *runtime*** (its JIT compiler):
+
 ```text
-cccl/.../cuda_toolkit.h:41: error: "CUDA compiler and CUDA toolkit headers are
-incompatible, please check your include paths"
+cccl/.../cuda_toolkit.h:41: error: "CUDA compiler and CUDA
+toolkit headers are incompatible, please check your include paths"
 ```
+
 The cccl check requires `CUDART_VERSION`'s minor to **exactly equal** nvcc's minor.
 
 **The fix for all three:** pin the *entire* CUDA userspace to one minor version.
 
 > **Why 13.3 and not 13.0 (to match torch's `cu130`)?** Because **CUDA 13.0 headers
 > don't compile on glibc 2.43** (Ubuntu 26.04):
+>
 > ```text
 > /usr/include/.../mathcalls.h:206: error: exception specification is incompatible
 > with that of previous function "rsqrt"
 > ```
+>
 > CUDA 13.1+ headers fixed this. So we align *up* to 13.3. torch built for `cu130`
 > still runs on a 13.3 runtime thanks to **CUDA 13 minor-version compatibility** (any
 > 13.x toolkit runs on an R580+ driver).
@@ -292,8 +300,8 @@ pip install "cuda-toolkit==13.3.0" "nvidia-cuda-runtime==13.3.29" \
             "nvidia-cuda-nvrtc==13.3.33" "nvidia-cublas==13.3.0.5"
 
 # verify nvcc and headers agree:
-nvcc --version | grep release                                   # 13.3
-grep CUDART_VERSION $CUDA_HOME/include/cuda_runtime_api.h        # 13030  (= 13.3)
+nvcc --version | grep release                               # 13.3
+grep CUDART_VERSION $CUDA_HOME/include/cuda_runtime_api.h   # 13030  (= 13.3)
 ```
 
 `pip` prints a dependency-conflict *warning* (torch pins `cuda-toolkit==13.0.2`) — it's
@@ -301,7 +309,7 @@ cosmetic; torch runs fine via minor-version compat. **But beware:** reinstalling
 later re-pulls its `requirements/cuda.txt` and **silently downgrades the runtime back
 to 13.0**, breaking flashinfer's JIT again. Re-run the 13.3 pins after any reinstall.
 
----
+______________________________________________________________________
 
 ## Step 5: Assemble a working `CUDA_HOME`
 
@@ -335,7 +343,7 @@ $CUDA_HOME/bin/nvcc -arch=sm_86 -I$CUDA_HOME/include -L$CUDA_HOME/lib -lcudart /
 cmake -P <(echo 'find_package(CUDAToolkit REQUIRED); message("CTK ${CUDAToolkit_VERSION}")') 2>&1
 ```
 
----
+______________________________________________________________________
 
 ## Step 6: Build vLLM
 
@@ -349,16 +357,16 @@ export PATH=$CUDA_HOME/bin:$PATH
 export CUDACXX=$CUDA_HOME/bin/nvcc
 export VLLM_TARGET_DEVICE=cuda
 export TORCH_CUDA_ARCH_LIST="8.6+PTX"     # A10G = sm_86
-export MAX_JOBS=12                        # ~2-3 GB RAM per job; tune to your box
+export MAX_JOBS=12          # ~2-3 GB RAM per job; tune to your box
 export NVCC_THREADS=2
 export CMAKE_ARGS="-DCUDAToolkit_ROOT=$CUDA_HOME -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc"
 pip install -v -e . --no-build-isolation
 ```
 
 A few notes:
+
 - `--no-build-isolation` is required so the build sees the torch/CUDA you installed.
-- `enforce_eager`-style arch warnings like `DeepGEMM/FlashMLA will not compile:
-  unsupported CUDA architecture 8.6` are **expected** on Ampere — those kernels target
+- `enforce_eager`-style arch warnings like `DeepGEMM/FlashMLA will not compile: unsupported CUDA architecture 8.6` are **expected** on Ampere — those kernels target
   Hopper (sm_90+) and are simply skipped.
 - On 16 cores / 62 GB this took ~30–40 min and produced `_C.abi3.so` (~117 MB),
   `_moe_C.abi3.so`, etc.
@@ -426,7 +434,7 @@ default. You'll notice ninja drops to fewer jobs near the end (`[267/340]`) — 
 dependency ordering on the final heavy template units and the `.so` link, not a
 misconfiguration. `NVCC_THREADS` parallelizes within a single nvcc invocation.
 
----
+______________________________________________________________________
 
 ## Step 7: Verify — and the runtime-only pitfalls
 
@@ -467,7 +475,7 @@ OUTPUT: ' the capital of the French Republic...'
 
 🎉
 
----
+______________________________________________________________________
 
 ## Step 8: Run the GPU test suite
 
@@ -507,7 +515,7 @@ python -m pytest tests/kernels/attention/test_cache.py -k "not fp8" -q
 Takeaway: on pre-Ada GPUs, treat FP8 KV-cache test failures as expected, and gate them
 out with `-k "not fp8"` rather than chasing them.
 
----
+______________________________________________________________________
 
 ## Appendix: every error → one-line fix
 
@@ -540,8 +548,7 @@ pip install -v -e . --no-build-isolation --no-deps     # --no-deps dodges resolv
 # re-pin the CUDA toolkit to 13.3 if anything got downgraded, then re-run the smoke test
 ```
 
-Before pulling, check the gap with `git diff --name-only HEAD..upstream/main | grep -E
-'\.cu|CMakeLists|requirements/'` — if native/build files changed (they usually have),
+Before pulling, check the gap with `git diff --name-only HEAD..upstream/main | grep -E '\.cu|CMakeLists|requirements/'` — if native/build files changed (they usually have),
 budget for a full recompile (~30–40 min) and re-verification. Also confirm the
 `torch==` pin and `requires-python` in `pyproject.toml` didn't move; if torch's version
 changed, you're re-doing the whole CUDA/toolkit alignment, not just a rebuild.
@@ -550,19 +557,19 @@ changed, you're re-doing the whole CUDA/toolkit alignment, not just a rebuild.
 
 1. **Detect hardware with `lspci`, not `nvidia-smi`.** Don't build for CPU because a
    tool is missing.
-2. **`nvidia-smi` working ≠ CUDA working.** UVM nodes + `nvidia-modprobe` matter.
-3. **Pin the entire CUDA pip toolkit to one minor version.** Skew fails three
+1. **`nvidia-smi` working ≠ CUDA working.** UVM nodes + `nvidia-modprobe` matter.
+1. **Pin the entire CUDA pip toolkit to one minor version.** Skew fails three
    different ways at three different stages.
-4. **Pick the CUDA minor that's compatible with your glibc/compiler**, then rely on
+1. **Pick the CUDA minor that's compatible with your glibc/compiler**, then rely on
    CUDA minor-version compatibility for the driver/torch.
-5. **A green build isn't done** — runtime JIT (flashinfer) needs `CUDA_HOME` and a
+1. **A green build isn't done** — runtime JIT (flashinfer) needs `CUDA_HOME` and a
    couple of symlinks. Verify with a real `generate()`.
-6. **Scope `TORCH_CUDA_ARCH_LIST` to your GPU** to keep build times sane.
-7. **Some test failures are hardware limits, not build bugs.** On pre-Ada GPUs the FP8
+1. **Scope `TORCH_CUDA_ARCH_LIST` to your GPU** to keep build times sane.
+1. **Some test failures are hardware limits, not build bugs.** On pre-Ada GPUs the FP8
    KV-cache tests `assert` instead of `skip` — deselect them with `-k "not fp8"`.
 
 ## References
 
 [^1]: vLLM Project. *vLLM Repository*. ([Link](https://github.com/vllm-project/vllm))
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
+*Disclaimer: This article was generated using the Claude-4.8 model.*
