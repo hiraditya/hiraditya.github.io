@@ -1,6 +1,6 @@
 ---
 title: "Why VLIW Architecture is Popular Again"
-date: 2026-06-22 08:00:00 -0700
+date: 2026-06-21 08:00:00 -0700
 categories: [Architecture, ML-Systems]
 tags: [vliw, ml-accelerators, compiler, instruction-scheduling, hardware-design]
 mermaid: true

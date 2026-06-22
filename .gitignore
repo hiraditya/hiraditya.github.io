@@ -27,3 +27,4 @@ _sass/vendors
 assets/js/dist
 AGENTS.md
 .claude/settings.local.json
+TOPICS.md
