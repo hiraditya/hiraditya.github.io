@@ -266,7 +266,7 @@ nvcc front-end was 13.3 (emits PTX 9.3) but `ptxas` was 13.0 (≤ PTX 9.0). → 
 **5b. CMake refuses on nvcc-vs-headers mismatch** (PyTorch's `cuda.cmake`):
 
 ```text
-CMake Error: FindCUDA says CUDA version is 13.3 (from nvcc), but 
+CMake Error: FindCUDA says CUDA version is 13.3 (from nvcc), but
 the CUDA headers say the version is 13.0.
 ```
 
@@ -572,4 +572,4 @@ changed, you're re-doing the whole CUDA/toolkit alignment, not just a rebuild.
 
 [^1]: vLLM Project. *vLLM Repository*. ([Link](https://github.com/vllm-project/vllm))
 
-*Disclaimer: This article was generated using the Claude-4.8 model.*
+*Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
