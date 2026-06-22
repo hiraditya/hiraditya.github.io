@@ -18,15 +18,18 @@ In a scalar processor, instructions are fetched and retired in program order, an
 
 A typical VLIW bundle might look like this conceptually:
 ```asm
-{
+P1: {
   LOAD  v0, [ptr1]      // Memory unit 1
   LOAD  v1, [ptr2]      // Memory unit 2
+}
+P2: {
   VMAC  v2, v0, v1      // Vector Math unit (Multiply-Accumulate)
   ADD   ptr1, ptr1, 32  // Scalar ALU 1
   ADD   ptr2, ptr2, 32  // Scalar ALU 2
+  // if ptr1 or ptr2 is null then go to exit else goto P1
 }
 ```
-In a single clock cycle, the hardware fetches this entire bundle and issues all five operations in parallel to their respective execution units.
+Each packet issues in a single cycle: `P1` fires both loads together, then `P2` fires the multiply-accumulate and the two pointer bumps together, with the loop back-edge folded into the same packet. The compiler is asserting that every operation inside a packet is mutually independent and that the hardware may launch them simultaneously.
 
 The advantage is compute density and power efficiency. The hardware spends no area or energy determining whether the `VMAC` depends on the preceding `LOAD`s—that guarantee is encoded by the compiler in how the bundle was formed. Anything placed in the same bundle issues together. What this saves is precisely the machinery an OoO core spends recovering the same parallelism at runtime.
 
@@ -61,6 +64,37 @@ graph TB
 ```
 
 All five instructions issue to their respective units in parallel—zero stalls, zero hardware checking for data dependencies.
+
+### What a Real Bundle Looks Like
+
+The conceptual bundle above hides the features that make a production VLIW ISA usable. Here is the same idea on Qualcomm's Hexagon, drawn from the global-scheduling work in the talk referenced above[^1]. This fragment walks a linked list, loading a field from each node and comparing it against a target in `R3`:
+
+```asm
+{
+  R7 = R2                                      // copy current node pointer
+  R4 = load.word (R2+#4)                       // load a field      (load slot 0)
+  R2 = load.word (R2)                          // R2 = node->next   (load slot 1)
+}
+{
+  R4 = load.u_half (R4+#2)                     // dereference that field
+  if (compare.equal (R4.new, R3)) jump BB#3    // branch on a value produced THIS cycle
+}
+```
+
+Two things here have no equivalent on a scalar machine. First, the opening packet issues three operations—a register move and two independent loads—in one cycle. All source operands are read at the start of the packet, so both reads of `R2` see its old value even though another slot overwrites `R2` in the same cycle; the compiler relies on those parallel-read semantics to pack the next-pointer load alongside the field load. Second, the `.new` suffix: the `load.u_half` that defines `R4` and the `compare.equal` that consumes it sit in the *same* packet. `R4.new` tells the hardware to forward the freshly produced value within the cycle rather than waiting for the register write-back—latency the compiler has already accounted for.
+
+Predication is the other lever. Instead of branching around a short region, the compiler can guard individual operations with a predicate register and hoist them across what used to be a basic-block boundary:
+
+```asm
+{
+  R7 = R2
+  p0 = compare.equal (R2, #0)                  // is next == NULL?
+  if (!p0.new) R4 = load.word (R2+#4)          // speculative load, guarded by p0
+  if (p0.new) jump BB#10                        // exit if the list ended
+}
+```
+
+A compare sets `p0`, and *within the same packet* a guarded load and a guarded branch both consume `p0.new`. The load executes only when the pointer is non-null; the exit branch is taken when it is. That load was pulled up out of a successor block and made conditional so it could ride along in an otherwise half-empty packet—global, cross-block scheduling in action. None of it is free: it is exactly the modeling of pipeline latency, predicate liveness, and per-slot resource constraints that a VLIW compiler has to get right, which is what the talk was about[^1].
 
 ## Compiler-Driven Scheduling vs. Out-of-Order (OoO)
 
@@ -109,7 +143,7 @@ There is no settled answer, which is what makes this the most interesting it has
 
 ## References
 
-[^1]: **Global Instruction Scheduling for VLIW** — Sergei Larin and Aditya, LLVM Developers' Meeting (2014). [Slides (PDF)](https://llvm.org/devmtg/2014-10/Slides/Larin-GlobalInstructionScheduling.pdf)
+[^1]: **Global Instruction Scheduling for LLVM** — Sergei Larin and Aditya Kumar, Qualcomm Innovation Center, LLVM Developers' Meeting (2014). [Slides (PDF)](https://llvm.org/devmtg/2014-10/Slides/Larin-GlobalInstructionScheduling.pdf)
 
 [^2]: **Branch Delay Slots** — Explanation of control-flow exposure in pipelines. [Wikipedia: Delay slot](https://en.wikipedia.org/wiki/Delay_slot)
 
