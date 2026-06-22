@@ -19,17 +19,20 @@ In a scalar processor, instructions are fetched and retired in program order, an
 A typical VLIW bundle might look like this conceptually:
 ```asm
 P1: {
-  LOAD  v0, [ptr1]      // Memory unit 1
-  LOAD  v1, [ptr2]      // Memory unit 2
+  LOAD  v0, [ptr1]      // Load unit 0
+  LOAD  v1, [ptr2]      // Load unit 1
 }
 P2: {
-  VMAC  v2, v0, v1      // Vector Math unit (Multiply-Accumulate)
-  ADD   ptr1, ptr1, 32  // Scalar ALU 1
-  ADD   ptr2, ptr2, 32  // Scalar ALU 2
-  // if ptr1 or ptr2 is null then go to exit else goto P1
+  VMAC  v2, v0, v1      // Vector Math unit: v2 += v0 * v1
+  ADD   ptr1, ptr1, 32  // Scalar ALU 0: advance pointer 1
+  ADD   ptr2, ptr2, 32  // Scalar ALU 1: advance pointer 2
+  SUB   n, n, 1         // Scalar ALU 2: decrement trip count
+}
+P3: {
+  JNZ   n, P1           // Branch back to P1 while n != 0
 }
 ```
-Each packet issues in a single cycle: `P1` fires both loads together, then `P2` fires the multiply-accumulate and the two pointer bumps together, with the loop back-edge folded into the same packet. The compiler is asserting that every operation inside a packet is mutually independent and that the hardware may launch them simultaneously.
+Each packet issues in a single cycle. `P1` fires both loads together; `P2` then issues the multiply-accumulate alongside the two pointer increments and the trip-count decrement—four operations in one cycle—because the compiler has proven they are mutually independent and the hardware may launch them simultaneously. `P3` takes the loop back-edge. Spending an entire packet on a lone branch is wasteful, and it is exactly the kind of inefficiency a real ISA removes by folding the compare-and-branch into the packet that produces the value being tested—as the Hexagon example below shows.
 
 The advantage is compute density and power efficiency. The hardware spends no area or energy determining whether the `VMAC` depends on the preceding `LOAD`s—that guarantee is encoded by the compiler in how the bundle was formed. Anything placed in the same bundle issues together. What this saves is precisely the machinery an OoO core spends recovering the same parallelism at runtime.
 
@@ -37,33 +40,40 @@ The advantage is compute density and power efficiency. The hardware spends no ar
 
 ```mermaid
 graph TB
-    subgraph Bundle["Instruction Bundle (Single Clock Cycle)"]
-        L1["LOAD v0, [ptr1]<br/>Memory Unit 1"]
-        L2["LOAD v1, [ptr2]<br/>Memory Unit 2"]
-        VM["VMAC v2, v0, v1<br/>Vector Math Unit"]
-        A1["ADD ptr1, ptr1, 32<br/>Scalar ALU 1"]
-        A2["ADD ptr2, ptr2, 32<br/>Scalar ALU 2"]
+    subgraph P1["Packet P1 — cycle 1"]
+        L1["LOAD v0, [ptr1]"]
+        L2["LOAD v1, [ptr2]"]
+    end
+
+    subgraph P2["Packet P2 — cycle 2"]
+        VM["VMAC v2, v0, v1"]
+        A1["ADD ptr1, ptr1, 32"]
+        A2["ADD ptr2, ptr2, 32"]
+        S1["SUB n, n, 1"]
     end
 
     subgraph HW["Hardware Execution Units"]
-        MU1["Memory Unit 1"]
-        MU2["Memory Unit 2"]
+        MU0["Load Unit 0"]
+        MU1["Load Unit 1"]
         VMU["Vector Math Unit"]
+        ALU0["Scalar ALU 0"]
         ALU1["Scalar ALU 1"]
         ALU2["Scalar ALU 2"]
     end
 
-    L1 -.->|Issued| MU1
-    L2 -.->|Issued| MU2
-    VM -.->|Issued| VMU
-    A1 -.->|Issued| ALU1
-    A2 -.->|Issued| ALU2
+    L1 -.->|cycle 1| MU0
+    L2 -.->|cycle 1| MU1
+    VM -.->|cycle 2| VMU
+    A1 -.->|cycle 2| ALU0
+    A2 -.->|cycle 2| ALU1
+    S1 -.->|cycle 2| ALU2
 
-    style Bundle fill:#e1f5ff
+    style P1 fill:#e1f5ff
+    style P2 fill:#e1f5ff
     style HW fill:#f3e5f5
 ```
 
-All five instructions issue to their respective units in parallel—zero stalls, zero hardware checking for data dependencies.
+Within each packet, every operation issues to its unit in the same cycle—no stalls, no hardware checking for data dependencies, because the compiler guaranteed the operations were independent when it built the packet.
 
 ### What a Real Bundle Looks Like
 
