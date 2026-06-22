@@ -19,17 +19,17 @@ In a scalar processor, instructions are fetched and retired in program order, an
 A typical VLIW bundle might look like this conceptually:
 ```asm
 P1: {
-  LOAD  v0, [ptr1]      // Load unit 0
-  LOAD  v1, [ptr2]      // Load unit 1
+  LOAD  v0, [ptr1]      // 1. Both loads fire simultaneously on two independent load units
+  LOAD  v1, [ptr2]      // 2. These reads pull from distinct addresses without hardware dependency checking
 }
 P2: {
-  VMAC  v2, v0, v1      // Vector Math unit: v2 += v0 * v1
-  ADD   ptr1, ptr1, 32  // Scalar ALU 0: advance pointer 1
-  ADD   ptr2, ptr2, 32  // Scalar ALU 1: advance pointer 2
-  SUB   n, n, 1         // Scalar ALU 2: decrement trip count
+  VMAC  v2, v0, v1      // 3. Vector math issues alongside pointer arithmetic in a single cycle
+  ADD   ptr1, ptr1, 32  // 4. Advance pointer 1
+  ADD   ptr2, ptr2, 32  // 5. Advance pointer 2
+  SUB   n, n, 1         // 6. Decrement loop trip count
 }
 P3: {
-  JNZ   n, P1           // Branch back to P1 while n != 0
+  JNZ   n, P1           // 7. Branch back to P1 while n != 0
 }
 ```
 Each packet issues in a single cycle. `P1` fires both loads together; `P2` then issues the multiply-accumulate alongside the two pointer increments and the trip-count decrement—four operations in one cycle—because the compiler has proven they are mutually independent and the hardware may launch them simultaneously. `P3` takes the loop back-edge. Spending an entire packet on a lone branch is wasteful, and it is exactly the kind of inefficiency a real ISA removes by folding the compare-and-branch into the packet that produces the value being tested—as the Hexagon example below shows.
@@ -81,13 +81,13 @@ The conceptual bundle above hides the features that make a production VLIW ISA u
 
 ```asm
 {
-  R7 = R2                                      // copy current node pointer
-  R4 = load.word (R2+#4)                       // load a field      (load slot 0)
-  R2 = load.word (R2)                          // R2 = node->next   (load slot 1)
+  R7 = R2                                      // 1. Copy current node pointer
+  R4 = load.word (R2+#4)                       // 2. Load a field using load slot 0
+  R2 = load.word (R2)                          // 3. Load next pointer using load slot 1. Both reads see old R2.
 }
 {
-  R4 = load.u_half (R4+#2)                     // dereference that field
-  if (compare.equal (R4.new, R3)) jump BB#3    // branch on a value produced THIS cycle
+  R4 = load.u_half (R4+#2)                     // 4. Dereference the field loaded in the previous bundle
+  if (compare.equal (R4.new, R3)) jump BB#3    // 5. .new suffix forwards R4 value produced THIS cycle to the branch
 }
 ```
 
@@ -97,10 +97,10 @@ Predication is the other lever. Instead of branching around a short region, the 
 
 ```asm
 {
-  R7 = R2
-  p0 = compare.equal (R2, #0)                  // is next == NULL?
-  if (!p0.new) R4 = load.word (R2+#4)          // speculative load, guarded by p0
-  if (p0.new) jump BB#10                        // exit if the list ended
+  R7 = R2                                      // 1. Copy current node pointer
+  p0 = compare.equal (R2, #0)                  // 2. Evaluate if next pointer is NULL, setting predicate p0
+  if (!p0.new) R4 = load.word (R2+#4)          // 3. Speculative load executes ONLY if p0 is false (forwarded .new)
+  if (p0.new) jump BB#10                       // 4. Exit branch executes ONLY if p0 is true (forwarded .new)
 }
 ```
 
@@ -195,4 +195,4 @@ There is no settled answer, which is what makes this the most interesting it has
 
 ---
 
-*Disclaimer: This article was generated using the Claude Opus 4.8 model.*
+*Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
