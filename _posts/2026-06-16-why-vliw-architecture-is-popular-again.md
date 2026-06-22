@@ -141,6 +141,16 @@ That alignment shows up across nearly every serious AI accelerator, all of which
 
 By moving scheduling out of hardware and into the compiler, these designs reach a level of compute density and energy efficiency that general-purpose OoO cores cannot match on the same workloads. None of this repeals the lesson of Itanium—it confirms it. VLIW wins when the workload is statically predictable, and the current generation of ML accelerators is, more than anything, a bet that the workload will stay that way. Given the shape of modern models, that looks like a safe bet for now.
 
+### A Concrete Example: Inside the TPU's 322-bit Bundle
+
+This is not hand-waving. The TPUv2/v3 TensorCore is a VLIW machine at the instruction level, and its designers published the format. Each bundle is **322 bits** wide and carries eight operation slots: two scalar slots, four vector slots (two of them vector load/store), two matrix slots—a *push* and a *pop*—one miscellaneous slot, and six immediates[^13]. The scalar unit fetches a complete bundle from local instruction memory, executes the scalar slots itself, and forwards the decoded vector and matrix slots downstream, where they run later and decoupled from the scalar pipeline[^13].
+
+Consider what that one bundle expresses. In a single instruction the compiler can issue scalar address arithmetic, a vector load and a vector store, two vector ALU operations across all 128 lanes, and—through the matrix slots—*queue* a tile into the matrix-multiply unit while *draining* a result out of it. Those push and pop slots are the telling detail: they let the compiler keep the systolic array fed and emptied in the same instruction as the vector work that prepares and consumes the data. Matrix, vector, and scalar units advancing together under one static schedule is exactly the software pipelining described earlier, expressed directly in the ISA. The design paper states the rationale plainly—"a VLIW architecture was the simplest way for the hardware to express instruction level parallelism and allowed us to utilize known compiler techniques"[^13]—and the complexity was moved into XLA by design.
+
+The continuity is not only conceptual—it runs through the people. One of the TPU's architects, Cliff Young, co-wrote the standard text on the subject, *Embedded Computing: A VLIW Approach*, with Joseph Fisher, who coined the term "VLIW" at Yale and founded Multiflow Computer to build the first trace-scheduled VLIW machines[^15]. Fisher's later work at HP Labs—alongside Bob Rau of Cydrome—became the EPIC research that Intel and HP productized as Itanium. Norman Jouppi, the TPU's tech lead, spent most of the 2000s at that same HP Labs before joining Google. The throughline from Multiflow to Itanium to the TPU is not just a migration of ideas; some of the same architects carried VLIW from the machines where it failed to the one where it works. What changed was never the principle—only the workload.
+
+If you would rather read a production ML-accelerator VLIW ISA than take this on trust, AMD's AI Engine is the most accessible target: a 7-way, in-order, exposed-pipeline VLIW core with an open-source toolchain. The `llvm-aie` backend and the `mlir-aie` compiler let you build a kernel and inspect the emitted bundles, slot assignments, and scheduling decisions end to end[^14]. It is a rare opportunity to see exactly how a modern accelerator lowers a tensor kernel into packed VLIW instructions.
+
 ## If You Were Designing the Next TPU
 
 Here is where it gets interesting. The whole argument above rests on one assumption: that ML workloads stay statically predictable. That assumption is already fraying at the edges. Mixture-of-experts routing makes the active computation data-dependent. Dynamic sequence lengths, speculative decoding, and KV-cache management introduce control flow that the compiler cannot fully resolve ahead of time. Sparsity—real, unstructured sparsity—is exactly the pointer-chasing pattern that VLIW handles worst. The clean, rigid loops that make VLIW pay off are slowly acquiring the irregularity that made Itanium fail.
@@ -176,6 +186,12 @@ There is no settled answer, which is what makes this the most interesting it has
 [^11]: **Compiler-Driven Software Pipelining for ML Kernels** — Techniques for optimizing compiler scheduling on spatially distributed architectures. [arXiv:2008.04166](https://arxiv.org/abs/2008.04166)
 
 [^12]: **XLA: Optimizing Compiler for Machine Learning** — Technical documentation on XLA's compile-time instruction scheduling and buffer analysis. [TensorFlow XLA Documentation](https://www.tensorflow.org/xla/architecture)
+
+[^13]: **The Design Process for Google's Training Chips: TPUv2 and TPUv3** — Norrie, T., Patil, N., Yoon, D. H., Kurian, G., Li, S., Laudon, J., Young, C., Jouppi, N., Patterson, D. *IEEE Micro*, 2021. Describes the 322-bit VLIW bundle and its slot layout. ([DOI: 10.1109/MM.2021.3058217](https://doi.org/10.1109/MM.2021.3058217))
+
+[^14]: **AMD AI Engine open-source toolchain** — `llvm-aie`, an LLVM backend for the AI Engine VLIW ISA, and `mlir-aie`, an MLIR-based compiler for AMD Ryzen AI and Versal devices. ([llvm-aie](https://github.com/Xilinx/llvm-aie), [mlir-aie](https://github.com/Xilinx/mlir-aie))
+
+[^15]: **Embedded Computing: A VLIW Approach to Architecture, Compilers and Tools** — Fisher, J. A., Faraboschi, P., Young, C. Morgan Kaufmann, 2005. Fisher coined the term "VLIW" and founded Multiflow Computer; the trace-scheduling lineage runs from Multiflow and Cydrome through HP Labs' EPIC research into Itanium, and co-author Cliff Young went on to help design Google's TPU. ([Publisher](https://shop.elsevier.com/books/embedded-computing/fisher/978-1-55860-766-8))
 
 ---
 
