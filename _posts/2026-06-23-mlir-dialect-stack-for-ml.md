@@ -145,7 +145,7 @@ From here the `affine`/`scf` loops can be tiled, vectorized into the `vector` di
 
 ## The Real Payoff: Reusable Lowering Machinery
 
-What makes this practical is not the dialects themselves but the shared infrastructure beneath them. MLIR provides a **dialect conversion** framework: you declare a conversion target (which dialects/ops are "legal" at the end), supply rewrite patterns that transform illegal ops into legal ones, and the framework applies them to a fixed point, handling type conversions and operand remapping along the way.[^2] Pattern rewriting, the verifier, location/debug-info propagation, and the pass manager are all dialect-agnostic. A new abstraction is a set of op definitions plus a set of patterns; everything around it is inherited.
+What makes this practical is not the dialects themselves but the shared infrastructure beneath them. MLIR provides a **dialect conversion** framework: you declare a conversion target (which dialects/ops are "legal" at the end), supply rewrite patterns that transform illegal ops into legal ones, and the framework applies them to a fixed point, handling type conversions and operand remapping along the way.[^2] Pattern rewriting, the verifier, location/debug-info propagation, and the pass manager are all dialect-agnostic. Most transformations are written as local rewrite patterns rather than hand-coded IR traversals, including the canonicalization patterns each dialect registers to fold and simplify its own ops, and they can be declared declaratively (via PDL/DRR) and applied by a shared driver.[^10] A new abstraction is a set of op definitions plus a set of patterns; everything around it is inherited.
 
 This is why the ecosystem consolidated. Rather than each project maintaining a bespoke compiler middle-end, they share one:
 
@@ -167,9 +167,30 @@ graph LR
 
 It is also how new hardware gets targeted. A vendor adds a dialect that models its device's operations and memory, plus the passes that lower the standard mid-level dialects (`linalg`, `memref`, `vector`) onto it. The frontend, the optimizer, and the tooling come for free; the vendor writes only the part that is genuinely specific to their silicon.[^6]
 
+## The Costs: Verification, Debugging, and Fragile Pipelines
+
+The machinery that makes MLIR productive has sharp edges worth stating plainly.
+
+**Defining correct verification is real work.** Every dialect ships a verifier that enforces invariants on its ops and types, and the shared framework runs all of them together. That catches malformed IR early, but the burden of writing *correct* verification rules falls on whoever defines a dialect. Get a type invariant wrong, or leave one out, and malformed IR passes the verifier and resurfaces as a crash in a later pass, far from where it was actually introduced.[^7]
+
+**Debugging spans altitudes.** With several dialects in one module and a long sequence of passes, a miscompile or a performance regression has to be traced from a high-level tensor op down to a specific LLVM or PTX instruction. Location tracking propagates source positions through lowering and helps, but a bug frequently manifests many passes after the one that caused it. The practical tools are dumping the IR between passes (`mlir-opt --mlir-print-ir-after-all`) and the automatic crash reproducer; even with them, multi-level debugging is its own skill, and improving it is a recurring topic in the MLIR community.[^8]
+
+**Dialects are stable; pipelines are not.** StableHLO is a versioned, portable interchange, and the built-in dialects are reasonably stable. The *pass pipelines* that string transformations together are not. A lowering pipeline tuned for Torch-MLIR will not generally run unmodified through IREE, and a sequence that works on one release can break on the next. "Built on MLIR" means the dialects compose; it does not mean two MLIR-based stacks interoperate end to end.[^9]
+
+## Key Technical Takeaways
+
+| Concept | What it is | Why it matters |
+| :--- | :--- | :--- |
+| **Dialects** | Namespaces for ops and types (e.g. `linalg`, `arith`). | Lets high-level and low-level ops mix in one module without an impedance mismatch. |
+| **Regions** | Ops can contain nested blocks of further ops. | Enables a multi-level IR where one op holds a whole sub-computation (a loop body inside a structured op). |
+| **Bufferization** | Converting `tensor` (value semantics) to `memref` (buffers). | The transition where the program acquires aliasing, allocation, and side effects. |
+| **Dialect conversion** | A framework that rewrites illegal ops into legal ones to a fixed point. | The engine that drives lowering, e.g. `linalg` → `vector` → `llvm`. |
+
 ## Where the Infrastructure Stops
 
 MLIR is, deliberately, plumbing. It gives you a place to *represent* hardware and a disciplined way to *lower* onto it, and that is an enormous amount. But it is not a source language, and it does not, by itself, decide where a computation should run or guarantee that a buffer lives in the memory space an operation expects. Those choices are made by whatever sits on top, the frontend language, the pass pipeline, the cost model, and they are still, today, mostly expressed outside the type system and checked late, if at all. That gap, between MLIR giving you the machinery to lower onto heterogeneous hardware and the source languages above it largely treating placement and memory space as an afterthought, is a recurring theme I will keep coming back to in future posts.
+
+You can see the same gap from the other side. MLIR keeps its core deliberately small, so any requirement the upstream dialects do not cover, framework-specific tensor semantics, sharding, quantization, target-specific ops, tends to become yet another dialect. The published roster of MLIR users reads, in effect, as a catalog of these in-tree and out-of-tree (and often proprietary) dialects, many of them re-solving overlapping problems in incompatible ways.[^11] Extensibility and fragmentation are the same property viewed from two sides, and the abstractions ML programming most depends on, including where data lives and where work runs, are among the things reinvented per stack rather than expressed once.
 
 For now, the takeaway is narrower: the stack you already use is an MLIR stack. Knowing its altitudes, where tensors become buffers, where structure becomes loops, where loops become a target, is most of what it takes to read what your compiler is actually doing to your model.
 
@@ -188,5 +209,15 @@ For now, the takeaway is narrower: the stack you already use is an MLIR stack. K
 [^5]: **Bufferization in MLIR** — Converting value-semantic tensors to side-effecting memrefs. ([mlir.llvm.org/docs/Bufferization](https://mlir.llvm.org/docs/Bufferization/))
 
 [^6]: **StableHLO** — The portable, versioned MLIR dialect used as an interchange for XLA-class compilers. ([openxla.org/stablehlo](https://openxla.org/stablehlo))
+
+[^7]: **Defining Dialects: Operations** — How op verifiers and invariants are written, and why downstream passes are allowed to assume verified IR. The community has also debated the limits of static verification, since some invalid cases only show up at runtime. ([Operation definitions](https://mlir.llvm.org/docs/DefiningDialects/Operations/), [RFC: Runtime Op Verification](https://discourse.llvm.org/t/rfc-runtime-op-verification/66776))
+
+[^8]: **Debugging MLIR** — The official debugging guide (IR printing with `--mlir-print-ir-before/after-all`, `--mlir-disable-threading`, and the crash reproducer), alongside ongoing community efforts to improve cross-pass tracing. ([Debugging guide](https://mlir.llvm.org/getting_started/Debugging/), [RFC: MLIR Action, Tracing and Debugging](https://discourse.llvm.org/t/rfc-mlir-action-tracing-and-debugging-mlir-based-compilers/68679))
+
+[^9]: **Pipeline fragility across stacks** — A Torch-MLIR lowering that breaks at a backend boundary, and an IREE case where inserting or reordering a single pass cascades into downstream legalization failures. ([torch-mlir#2096](https://github.com/llvm/torch-mlir/issues/2096), [iree#12283](https://github.com/iree-org/iree/issues/12283))
+
+[^10]: **Pattern-Based IR Rewriting in MLIR** — Springer, M. LLVM Developers' Meeting (2024). Canonicalization and declarative (PDL/DRR) rewrite patterns applied by a shared driver. ([Slides (PDF)](https://llvm.org/devmtg/2024-10/slides/techtalk/Springer-Pattern-Based-IR-Rewriting-in-MLIR.pdf))
+
+[^11]: **MLIR Users** — The published list of projects building on MLIR, a proxy for the breadth of in-tree and out-of-tree dialects. ([mlir.llvm.org/users](https://mlir.llvm.org/users/))
 
 *Disclaimer: This article was generated using the Claude Opus 4.8 model.*
