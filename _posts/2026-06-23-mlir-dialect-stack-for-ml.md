@@ -18,7 +18,7 @@ MLIR's premise is that those representations have far more in common than not, a
 
 The unit of everything in MLIR is the **Operation**. An op has operands and results (SSA values), a set of typed **attributes** (compile-time constants like shapes or strides), and zero or more **regions**, which themselves contain blocks of further ops. That last property is what makes the IR genuinely multi-level: a single op can carry a whole nested computation, so a high-level `linalg.generic` and a low-level `llvm.add` are the same kind of object at different altitudes. Every op belongs to a dialect, which is simply a namespace for a related family of ops, types, and attributes.
 
-Stated as a grammar, the relationship is small and recursive. A dialect supplies *vocabulary*, the op names, types, and attributes, while the *shape* of an operation is universal:
+Stated as a grammar, the relationship is small and recursive. A dialect supplies *vocabulary*, the op names, types, and attributes, while the *shape* of an operation is universal. The form below is simplified from MLIR's textual grammar to show the essential structure; the authoritative productions are in the Language Reference[^2]:
 
 ```ebnf
 ; A dialect is a namespace that contributes a family of ops, types, and attributes.
@@ -30,15 +30,15 @@ operation  ::= [ result ("," result)* "=" ] op-name
                attr-dict? region*
                ":" type-signature
 
-op-name    ::= dialect-name "." mnemonic       ; e.g. linalg.matmul, scf.for, llvm.add
+op-name    ::= dialect-name "." mnemonic       ; e.g. linalg.matmul; quoted as a string in the generic form
 attr-dict  ::= "{" attr-entry ("," attr-entry)* "}"   ; compile-time constants
 region     ::= "{" block+ "}"
 block      ::= operation+                      ; ops hold regions hold ops -> it recurses
 
 result     ::= ssa-value                       ; %C
 operand    ::= ssa-value                       ; %A, %B
-type       ::= dialect-name "." mnemonic | builtin-type   ; tensor<...>, memref<...>
-attr-entry ::= name "=" (dialect-name "." mnemonic | builtin-attr)
+type       ::= "!" dialect-name "." mnemonic | builtin-type   ; e.g. !llvm.ptr; builtins: tensor<...>, memref<...>
+attr-entry ::= name "=" attribute-value        ; e.g. 1 : i64, "foo", #dialect.attr<...>
 ```
 
 Two consequences fall out of this. First, the op name, the types, and the attributes are all namespaced by a dialect (`linalg.matmul`, `tensor<128x256xf32>`), so "adding a dialect" extends the vocabulary without touching the grammar, which is exactly why the surrounding infrastructure can be dialect-agnostic. Second, because an `operation` may contain a `region`, and a `region` contains `block`s of further `operation`s, the structure nests without bound, and that recursion is what lets a single op carry an entire computation rather than one instruction.
