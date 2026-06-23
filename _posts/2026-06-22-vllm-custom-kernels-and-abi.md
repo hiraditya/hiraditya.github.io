@@ -23,10 +23,10 @@ graph TD
     E -.->|returns immediately| B
     F --> G["GPU SMs execute<br/>while CPU runs ahead"]
 
-    style A fill:#e1f5ff
-    style D fill:#fff3cd
-    style F fill:#f3e5f5
-    style G fill:#f3e5f5
+    style A fill:#e1f5ff,color:#1a1a1a
+    style D fill:#fff3cd,color:#1a1a1a
+    style F fill:#f3e5f5,color:#1a1a1a
+    style G fill:#f3e5f5,color:#1a1a1a
 ```
 
 The important feature of this path is that the bulk data, the multi-gigabyte tensors, never moves. Only metadata and pointers cross the boundary; the launch is asynchronous, so the CPU returns to Python and queues the next op while the GPU is still working on the last one.
@@ -59,9 +59,9 @@ graph TD
     K -->|Meta| META["_meta: shape & dtype only<br/>(no data, for torch.compile)"]
     K -->|Autograd| AG["autograd formula<br/>(if differentiable)"]
 
-    style OP fill:#e1f5ff
-    style K fill:#fff3cd
-    style META fill:#d4edda
+    style OP fill:#e1f5ff,color:#1a1a1a
+    style K fill:#fff3cd,color:#1a1a1a
+    style META fill:#d4edda,color:#1a1a1a
 ```
 
 Registration happens in C++ through the `torch.library` API (the `TORCH_LIBRARY` family of macros; vLLM wraps these in its own `TORCH_LIBRARY_EXPAND` helper). The schema is declared as a string, and the implementation is bound for a specific dispatch key:
@@ -194,8 +194,8 @@ graph LR
         PTX2 --> CUBIN["cubin<br/>(cached on disk)"]
     end
 
-    style AOT fill:#e1f5ff
-    style JIT fill:#f3e5f5
+    style AOT fill:#e1f5ff,color:#1a1a1a
+    style JIT fill:#f3e5f5,color:#1a1a1a
 ```
 
 **AOT CUDA (`.cu`).** These kernels are compiled by `nvcc` during the vLLM build, with loop unrolling, register allocation, and instruction scheduling specialized to a target architecture (for example `-gencode arch=compute_90,code=sm_90`). The resulting PTX and SASS are embedded in a shared library that the runtime loads with `dlopen`, and the ABI is fixed at compile time, which is exactly why the libstdc++ and libtorch constraints above apply to them.
@@ -239,8 +239,8 @@ graph TD
         REP --> COST2["≈1 × overhead per step"]
     end
 
-    style PerOp fill:#fff3cd
-    style Graph fill:#d4edda
+    style PerOp fill:#fff3cd,color:#1a1a1a
+    style Graph fill:#d4edda,color:#1a1a1a
 ```
 
 ```python

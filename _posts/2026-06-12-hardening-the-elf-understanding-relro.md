@@ -87,13 +87,13 @@ graph LR
     subgraph Partial_RELRO ["Partial RELRO"]
         P_GOT[".got<br>(R--)"]
         P_GOTPLT[".got.plt<br>(RW-)"]
-        style P_GOTPLT fill:#ffcccc,stroke:#ff0000,stroke-width:2px
+        style P_GOTPLT fill:#ffcccc,stroke:#ff0000,stroke-width:2px,color:#1a1a1a
     end
 
     subgraph Full_RELRO ["Full RELRO"]
         F_GOT[".got<br>(R--)"]
         F_GOTPLT[".got.plt<br>(R--)"]
-        style F_GOTPLT fill:#ccffcc,stroke:#00aa00,stroke-width:2px
+        style F_GOTPLT fill:#ccffcc,stroke:#00aa00,stroke-width:2px,color:#1a1a1a
     end
 ```
 

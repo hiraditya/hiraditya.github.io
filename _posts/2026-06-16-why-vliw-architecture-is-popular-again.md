@@ -68,9 +68,9 @@ graph TB
     A2 -.->|cycle 2| ALU1
     S1 -.->|cycle 2| ALU2
 
-    style P1 fill:#e1f5ff
-    style P2 fill:#e1f5ff
-    style HW fill:#f3e5f5
+    style P1 fill:#e1f5ff,color:#1a1a1a
+    style P2 fill:#e1f5ff,color:#1a1a1a
+    style HW fill:#f3e5f5,color:#1a1a1a
 ```
 
 Within each packet, every operation issues to its unit in the same cycle with no stalls and no hardware checking for data dependencies, because the compiler guaranteed the operations were independent when it built the packet.
