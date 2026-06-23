@@ -12,9 +12,9 @@ This post is a tour of MLIR: what it is, the dialect idea that makes it differen
 
 ## What MLIR Actually Is
 
-The common misconception is that MLIR is "another IR like LLVM IR." It is better described as an IR *construction kit*. LLVM IR is a single, fixed, low-level representation: roughly a typed assembly with SSA values. That is the right abstraction for the last mile to machine code, and the wrong one for a matrix multiply over tensors. Historically, every domain compiler that needed a higher-level representation, XLA's HLO, Halide's IR, TensorFlow's graph, invented its own from scratch, along with its own pass manager, its own serialization, its own verifier, and its own pile of bugs.[^1]
+The common misconception is that MLIR is "another IR like LLVM IR." It is better described as an IR *construction kit*. LLVM IR is a single, fixed, low-level representation: roughly a typed assembly with SSA values. That is the right abstraction for the last mile to machine code, and the wrong one for a matrix multiply over tensors. Historically, every domain compiler that needed a higher-level representation invented its own from scratch: XLA had HLO, Halide its own IR, TensorFlow its graph, each shipping with a separate pass manager, serialization format, verifier, and pile of bugs.[^1]
 
-MLIR's premise is that those representations have far more in common than not, and that the common parts, SSA, a CFG of regions and blocks, a pass infrastructure, a pattern rewriter, location tracking, verification, can be built once and shared. What differs between domains is then expressed as a *dialect*.
+MLIR's premise is that those representations have far more in common than not, and that the common parts can be built once and shared: SSA, a CFG of regions and blocks, a pass infrastructure, a pattern rewriter, location tracking, and verification. What differs between domains is then expressed as a *dialect*.
 
 The unit of everything in MLIR is the **Operation**. An op has operands and results (SSA values), a set of typed **attributes** (compile-time constants like shapes or strides), and zero or more **regions**, which themselves contain blocks of further ops. That last property is what makes the IR genuinely multi-level: a single op can carry a whole nested computation, so a high-level `linalg.generic` and a low-level `llvm.add` are the same kind of object at different altitudes. Every op belongs to a dialect, which is simply a namespace for a related family of ops, types, and attributes.
 
@@ -56,17 +56,17 @@ The skill MLIR encodes is choosing *when* to drop from one altitude to the next.
 The word *coexist* is easy to gloss over, so here is a single function that uses four dialects at once. Nothing has been lowered yet; these ops simply live side by side in one SSA region, and the verifier checks them together:
 
 ```mlir
-// func: the function shell and its terminator.
+// One region, four dialects; each line is tagged with the dialect it comes from.
 func.func @scale_in_place(%buf: memref<1024xf32>, %a: f32) {
-  %c0 = arith.constant 0    : index   // 2. arith: loop bounds are scalar index constants
-  %c1 = arith.constant 1    : index   // 3. arith
-  %n  = arith.constant 1024 : index   // 4. arith
-  scf.for %i = %c0 to %n step %c1 {    // 5. scf: a structured loop that carries a region
-    %x = memref.load %buf[%i]  : memref<1024xf32>   // 6. memref: read from an explicit buffer
-    %y = arith.mulf %x, %a     : f32                // 7. arith: the scalar multiply
-    memref.store %y, %buf[%i]  : memref<1024xf32>   // 8. memref: write the result back
+  %c0 = arith.constant 0    : index   // 1. arith: loop bounds are scalar index constants
+  %c1 = arith.constant 1    : index   // 2. arith
+  %n  = arith.constant 1024 : index   // 3. arith
+  scf.for %i = %c0 to %n step %c1 {    // 4. scf: a structured loop that carries a region
+    %x = memref.load %buf[%i]  : memref<1024xf32>   // 5. memref: read from an explicit buffer
+    %y = arith.mulf %x, %a     : f32                // 6. arith: the scalar multiply
+    memref.store %y, %buf[%i]  : memref<1024xf32>   // 7. memref: write the result back
   }
-  return                              // 9. func: terminator
+  return                              // 8. func: terminator
 }
 ```
 
@@ -106,12 +106,12 @@ Take a single matrix multiply. At the top, it is one structured **op** over (val
 // Shapes are part of the type; this is pure dataflow over tensors.
 func.func @matmul(%A: tensor<128x256xf32>,
                   %B: tensor<256x64xf32>) -> tensor<128x64xf32> {
-  %zero = arith.constant 0.0 : f32                       // 2. scalar identity for the accumulator
-  %init = tensor.empty() : tensor<128x64xf32>            // 3. an uninitialized result value
+  %zero = arith.constant 0.0 : f32                       // 1. scalar identity for the accumulator
+  %init = tensor.empty() : tensor<128x64xf32>            // 2. an uninitialized result value
   %acc  = linalg.fill ins(%zero : f32)
                       outs(%init : tensor<128x64xf32>)
-                      -> tensor<128x64xf32>              // 4. zero-initialize the accumulator
-  %C = linalg.matmul                                     // 5. the whole multiply, as one op
+                      -> tensor<128x64xf32>              // 3. zero-initialize the accumulator
+  %C = linalg.matmul                                     // 4. the whole multiply, as one op
          ins(%A, %B : tensor<128x256xf32>, tensor<256x64xf32>)
          outs(%acc  : tensor<128x64xf32>) -> tensor<128x64xf32>
   return %C : tensor<128x64xf32>
@@ -125,15 +125,15 @@ Two transformations turn this into something close to machine code. First, **buf
 func.func @matmul(%A: memref<128x256xf32>,
                   %B: memref<256x64xf32>,
                   %C: memref<128x64xf32>) {
-  affine.for %i = 0 to 128 {                             // 2. the loop nest the matmul implied
+  affine.for %i = 0 to 128 {                             // 1. the loop nest the matmul implied
     affine.for %j = 0 to 64 {
       affine.for %k = 0 to 256 {
-        %a = affine.load %A[%i, %k] : memref<128x256xf32>  // 3. explicit loads from buffers
+        %a = affine.load %A[%i, %k] : memref<128x256xf32>  // 2. explicit loads from buffers
         %b = affine.load %B[%k, %j] : memref<256x64xf32>
         %c = affine.load %C[%i, %j] : memref<128x64xf32>
-        %p = arith.mulf %a, %b : f32                     // 4. the arithmetic, now scalar
+        %p = arith.mulf %a, %b : f32                     // 3. the arithmetic, now scalar
         %s = arith.addf %c, %p : f32
-        affine.store %s, %C[%i, %j] : memref<128x64xf32> // 5. accumulate back into the buffer
+        affine.store %s, %C[%i, %j] : memref<128x64xf32> // 4. accumulate back into the buffer
       }
     }
   }
@@ -188,7 +188,7 @@ The machinery that makes MLIR productive has sharp edges worth stating plainly.
 
 ## Where the Infrastructure Stops
 
-MLIR is, deliberately, plumbing. It gives you a place to *represent* hardware and a disciplined way to *lower* onto it, and that is an enormous amount. But it is not a source language, and it does not, by itself, decide where a computation should run or guarantee that a buffer lives in the memory space an operation expects. Those choices are made by whatever sits on top, the frontend language, the pass pipeline, the cost model, and they are still, today, mostly expressed outside the type system and checked late, if at all. That gap, between MLIR giving you the machinery to lower onto heterogeneous hardware and the source languages above it largely treating placement and memory space as an afterthought, is a recurring theme I will keep coming back to in future posts.
+MLIR is, deliberately, plumbing. It gives you a place to *represent* hardware and a disciplined way to *lower* onto it, and that is a great deal. But it is not a source language, and it does not, by itself, decide where a computation should run or guarantee that a buffer lives in the memory space an operation expects. Those choices are made by whatever sits on top: the frontend language, the pass pipeline, the cost model. They are still, today, mostly expressed outside the type system and checked late, if at all. That gap, between MLIR giving you the machinery to lower onto heterogeneous hardware and the source languages above it largely treating placement and memory space as an afterthought, is a recurring theme I will keep coming back to in future posts.
 
 You can see the same gap from the other side. MLIR keeps its core deliberately small, so any requirement the upstream dialects do not cover, framework-specific tensor semantics, sharding, quantization, target-specific ops, tends to become yet another dialect. The published roster of MLIR users reads, in effect, as a catalog of these in-tree and out-of-tree (and often proprietary) dialects, many of them re-solving overlapping problems in incompatible ways.[^11] Extensibility and fragmentation are the same property viewed from two sides, and the abstractions ML programming most depends on, including where data lives and where work runs, are among the things reinvented per stack rather than expressed once.
 
