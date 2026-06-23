@@ -25,6 +25,10 @@ package-lock.json
 # Misc
 _sass/vendors
 assets/js/dist
-AGENTS.md
 .claude/settings.local.json
+
+# Local files
+AGENTS.md
 TOPICS.md
+CONTENT_PLAN.md
+planning.md
