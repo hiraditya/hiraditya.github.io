@@ -1,6 +1,6 @@
 ---
 title: "A tour of MLIR: The Dialect Stack Everyone Depends On"
-date: 2026-06-23 08:00:00 -0700
+date: 2026-06-23 05:00:00 -0700
 categories: [Systems, Compilers]
 tags: [mlir, compilers, llvm, xla, triton, codegen]
 mermaid: true
