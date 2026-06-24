@@ -122,7 +122,7 @@ graph LR
   style BWD fill:#f3e5f5,stroke:#6a4a6a,color:#1a1a1a;
 ```
 
-That "saved" edge, the intermediates the backward pass consumes, is exactly what the three representations that follow manage differently. Each is, at heart, machinery for recording this graph and replaying it backward; they diverge mainly in where those intermediates live and when they are produced. (Reducing the set is what gradient checkpointing trades compute for: drop the saved values and recompute them on the backward pass.)
+That "saved" edge, the intermediates the backward pass consumes, is exactly what the three representations that follow manage differently. Each is essentially machinery for recording this graph and replaying it backward. They diverge mainly in where those intermediates live and when they are produced. (Reducing the set is what gradient checkpointing trades compute for: drop the saved values and recompute them on the backward pass.)
 
 ## Representation 1: The Runtime Tape (PyTorch)
 
@@ -146,11 +146,11 @@ z.backward()
 print(x.grad)             # 5. 12.0 = d(3 x^2)/dx at x = 2
 ```
 
-The strength is expressiveness. Because the tape is whatever ran, arbitrary Python control flow just works, including data-dependent branches, loops with runtime trip counts, and recursion, and the tape reflects the path taken on this input. The weakness is the flip side: the graph exists only at runtime, one op at a time, so there is no whole-program form for an optimizer to fuse or rearrange ahead of time. `torch.compile` exists precisely to recover a static graph after the fact, by tracing the tape-building code and handing the result to a compiler.
+Because the tape is whatever ran, arbitrary Python control flow just works. This includes data-dependent branches, loops with runtime trip counts, and recursion. The tape reflects the path taken on this input. The weakness is the flip side: the graph exists only at runtime, one op at a time, so there is no whole-program form for an optimizer to fuse or rearrange ahead of time. `torch.compile` exists precisely to recover a static graph after the fact, by tracing the tape-building code and handing the result to a compiler.
 
 ## Representation 2: Trace to a Functional IR (JAX)
 
-JAX takes gradients of *pure functions*. It traces the function once with abstract values to produce a jaxpr, a small functional intermediate representation, and then differentiation is a transformation *on that IR* rather than a runtime recording.[^2] Because the result is a program transformation, it composes with the other transformations JAX offers.
+JAX takes gradients of *pure functions*. It traces the function once with abstract values to produce a jaxpr, a small functional intermediate representation. Differentiation is then a transformation *on that IR* rather than a runtime recording.[^2] Because the result is a program transformation, it composes with the other transformations JAX offers.
 
 ```python
 import jax
@@ -187,15 +187,15 @@ double grad_sq(double x) {
 }
 ```
 
-This buys two things the framework-level engines cannot easily get. First, differentiating after optimization tends to produce better gradient code, because the derivative is taken of the code that will actually run, not of a higher-level form that still has abstraction overhead. Second, it can differentiate code the framework never wrote, including foreign functions, hand-written kernels, and library calls, because it works at the IR every language compiles to, not at the level of a framework's tensor objects.
+This buys two things the framework-level engines cannot easily get. First, differentiating after optimization tends to produce better gradient code. The derivative is taken of the code that will actually run instead of a higher-level form with abstraction overhead. Second, it can differentiate code the framework never wrote, including foreign functions, hand-written kernels, and library calls. It works at the IR every language compiles to, rather than at the level of a framework's tensor objects.
 
 Working at the IR also imposes the strictest requirements of the three. Autodiff differentiates the operations a program actually executes, not the mathematical function you intended, so for source transformation to produce a gradient three conditions have to hold:
 
-- **Every instruction it traverses needs a derivative rule.** The tool walks each IR instruction and emits its adjoint; an op with no rule, a `floor`, a comparison, an opaque external call, is treated as having zero derivative unless you supply one. That same rule-at-the-IR-level is what lets it differentiate foreign code in the first place.
+- **Every instruction it traverses needs a derivative rule.** The tool walks each IR instruction and emits its adjoint. An op with no rule, a `floor`, a comparison, or an opaque external call, is treated as having zero derivative unless you supply one. That same rule-at-the-IR-level is what lets it differentiate foreign code in the first place.
 - **Active values must be separated from inert ones.** An *activity analysis* finds which values depend on the inputs and reach the outputs; constants and integer index arithmetic are skipped. Getting it wrong wastes work or corrupts the gradient.
-- **Memory must be analyzed.** IR has loads, stores, and aliasing, not just values, so the tool has to track how a stored value is later read in order to route the adjoint correctly, the genuinely hard part, and the reason source-level AD needed a real compiler to get right.[^4]
+- **Memory must be analyzed.** IR has loads, stores, and aliasing, not just values. The tool has to track how a stored value is later read in order to route the adjoint correctly. This is the genuinely hard part and the reason source-level AD needed a real compiler to get right.[^4]
 
-Beneath all three is a baseline that governs *every* representation in this post: the function must be built from differentiable elementary operations and evaluated where it is differentiable. At a kink such as `relu(0)` autodiff returns a convention rather than a true derivative (a subgradient, usually `0`), and where control flow makes the function piecewise it differentiates only the active piece, blind to the jump at the boundary.[^9] The tape and the trace inherit this baseline and add their own constraints: the tape needs every op to carry a backward formula, and the trace needs a pure function with structured control flow. Source transformation's extra burden is the activity and memory analysis the other two largely sidestep by working on values rather than an IR.
+Beneath all three is a baseline that governs *every* representation in this post: the function must be built from differentiable elementary operations and evaluated where it is differentiable. At a kink such as `relu(0)` autodiff returns a convention rather than a true derivative (a subgradient, usually `0`). Where control flow makes the function piecewise, it differentiates only the active piece, blind to the jump at the boundary.[^9] The tape and the trace inherit this baseline and add their own constraints: the tape needs every op to carry a backward formula, and the trace needs a pure function with structured control flow. Source transformation's extra burden is the activity and memory analysis the other two largely sidestep by working on values rather than an IR.
 
 ## The Real Axis: Where Differentiation Happens
 
@@ -213,7 +213,7 @@ There is a consequence worth flagging for later. Once differentiation is a trans
 
 ## Conclusion
 
-Tape, trace, and source transform are three answers to the same question, the chain rule applied to a program, distinguished mainly by where the derivative is computed and what that location constrains. The runtime tape buys dynamism, the functional trace buys whole-graph optimization, and source transformation buys reach: the ability to differentiate optimized code in any language. Knowing which one a tool uses tells you, in advance, what it will let you write and how well its gradients will run.
+Tape, trace, and source transform are three answers to the same question: the chain rule applied to a program. They are distinguished mainly by where the derivative is computed and what that location constrains. The runtime tape buys dynamism, the functional trace buys whole-graph optimization, and source transformation buys reach: the ability to differentiate optimized code in any language. Knowing which one a tool uses tells you, in advance, what it will let you write and how well its gradients will run.
 
 ---
 
@@ -237,4 +237,4 @@ Tape, trace, and source transform are three answers to the same question, the ch
 
 [^9]: **A Mathematical Model for Automatic Differentiation in Machine Learning** — Bolte, J., Pauwels, E. *NeurIPS 2020*. What AD actually computes on nonsmooth functions (kinks, piecewise control flow), and why it returns valid subgradients almost everywhere. ([arXiv:2006.02080](https://arxiv.org/abs/2006.02080))
 
-*Disclaimer: This article was generated using the Claude Opus 4.8 model.*
+*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
