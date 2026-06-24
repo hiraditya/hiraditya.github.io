@@ -113,13 +113,6 @@ graph LR
   end
   A -. saved .-> GB
   B -. saved .-> GA
-
-  classDef fwd fill:#e1f5ff,stroke:#4a6572,color:#1a1a1a;
-  classDef bwd fill:#f3e5f5,stroke:#6a4a6a,color:#1a1a1a;
-  class X,A,B,L fwd;
-  class GL,GB,GA,GX bwd;
-  style FWD fill:#e1f5ff,stroke:#4a6572,color:#1a1a1a;
-  style BWD fill:#f3e5f5,stroke:#6a4a6a,color:#1a1a1a;
 ```
 
 That "saved" edge, the intermediates the backward pass consumes, is exactly what the three representations that follow manage differently. Each is essentially machinery for recording this graph and replaying it backward. They diverge mainly in where those intermediates live and when they are produced. (Reducing the set is what gradient checkpointing trades compute for: drop the saved values and recompute them on the backward pass.)
