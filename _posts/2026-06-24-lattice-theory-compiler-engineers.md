@@ -85,7 +85,7 @@ Returning to our dataflow equations, the whole equation system—one pair of equ
 F : L^n \to L^n,\qquad F(\vec{x}) = (g_1(\vec{x}),\dots,g_n(\vec{x})),
 \]
 
-where each $g_i$ computes the next-value of the $i$th unknown (an IN or OUT) from the current vector $\vec{x}$. Solving the dataflow system is finding $\vec{x}$ such that $F(\vec{x}) = \vec{x}$ — i.e., a fixpoint of $F$.
+where each $g_i$ computes the next-value of the $i$th unknown (an IN or OUT) from the current vector $\vec{x}$. Solving the dataflow system is finding $\vec{x}$ such that $F(\vec{x}) = \vec{x}$ — i.e., a fixpoint of $F$[^6].
 
 
 This is where the **Knaster-Tarski** layer steps in. Because the product of complete lattices is itself a complete lattice, and because $F$ is monotone, a least fixpoint is guaranteed to exist. If the lattice satisfies the Ascending Chain Condition (ACC) or has finite height, standard worklist iteration will reach this fixpoint in finite steps.
@@ -143,7 +143,7 @@ The fundamental relation is that the fixpoint computed by iteration is always a 
 
 \[\mathrm{Iterated\;fixpoint} \;\sqsubseteq\; \mathrm{MOP}.\]
 
-Here $\sqsubseteq$ denotes the lattice ordering used by the analysis (so "less than" means "more conservative"). Equality holds when transfer functions distribute over the confluence operator (this is the standard distributivity condition used in proofs that MFP = MOP).
+Here $\sqsubseteq$ denotes the lattice ordering used by the analysis (so "less than" means "more conservative"). Equality holds when transfer functions distribute over the confluence operator (this is the standard distributivity condition used in proofs that MFP = MOP)[^7].
 
 Concrete example (reaching definitions):
 
@@ -193,3 +193,5 @@ Checklist for reviewers / PL auditors:
 [^3]: **Introduction to Lattices and Order:** B. A. Davey and H. A. Priestley — standard reference for lattice theory and Knaster–Tarski.
 [^4]: **A Completeness Theorem for Kleene Algebras and the Algebra of Regular Events:** Dexter Kozen, Theoretical Computer Science, 1994. ([link](https://doi.org/10.1016/0304-3975(94)90096-3))
 [^5]: **Precise Interprocedural Dataflow Analysis via Graph Reachability:** T. W. Reps, S. Horwitz, and M. Sagiv, POPL 1995. ([link](https://doi.org/10.1145/199448.199462))
+[^6]: **A Unified Approach to Global Program Optimization:** Gary A. Kildall, POPL 1973. The seminal paper that introduced lattice-theoretic frameworks to dataflow analysis. ([link](https://doi.org/10.1145/512927.512945))
+[^7]: **Monotone Data Flow Analysis Frameworks:** John B. Kam and Jeffrey D. Ullman, Acta Informatica 1977. Formalized the MFP and MOP solution concepts and the distributivity condition for their equality. ([link](https://doi.org/10.1007/BF00290339))
