@@ -184,10 +184,6 @@ Checklist for reviewers / PL auditors:
 - **Soundness lemma:** Show $\alpha\circ \llbracket P\rrbracket_C \le_A \llbracket P\rrbracket_A \circ \alpha$ (or equivalent) and how it implies the abstract fixpoint over-approximates the concrete semantics via $\gamma$.
 - **Termination strategy:** If the domain has infinite height, state the widening/narrowing choices and their impact on precision.
 
----
-
-*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
-
 ## References
 
 [^1]: **A Theory of Program Analysis:** K. L. McMillan's course notes and surveys on model checking and program analysis. ([link](https://www.cs.cmu.edu/~modelcheck/mc.pdf))
@@ -203,3 +199,7 @@ Checklist for reviewers / PL auditors:
 [^6]: **A Unified Approach to Global Program Optimization:** Gary A. Kildall, POPL 1973. The seminal paper that introduced lattice-theoretic frameworks to dataflow analysis. ([link](https://doi.org/10.1145/512927.512945))
 
 [^7]: **Monotone Data Flow Analysis Frameworks:** John B. Kam and Jeffrey D. Ullman, Acta Informatica 1977. Formalized the MFP and MOP solution concepts and the distributivity condition for their equality. ([link](https://doi.org/10.1007/BF00290339))
+
+---
+
+*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
