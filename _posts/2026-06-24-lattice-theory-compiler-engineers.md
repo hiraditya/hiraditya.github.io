@@ -117,16 +117,16 @@ Consider the tiny CFG with blocks Entry -> B1 -> B2 -> Exit. Let definitions be 
 
 ```mermaid
 flowchart LR
-	Entry --> B1
-	B1 --> B2
-	B2 --> Exit
+	Entry["Entry<br/>d1: x = 5"] --> B1["B1<br/>d2: y = 10"]
+	B1 --> B2["B2<br/>x = 20 (kills d1)"]
+	B2 --> Exit["Exit"]
 ```
 
 Block summaries:
 
-- Entry: $\mathrm{gen}_{e}=\{d_1\}$, $\mathrm{kill}_{e}=\varnothing$.
-- B1: $\mathrm{gen}_{1}=\{d_2\}$, $\mathrm{kill}_{1}=\varnothing$.
-- B2: $\mathrm{gen}_{2}=\varnothing$, $\mathrm{kill}_{2}=\{d_1\}$ (overwrites $d_1$).
+- **Entry:** `d1: x = 5` $\implies \mathrm{gen}_{e}=\{d_1\}$, $\mathrm{kill}_{e}=\varnothing$.
+- **B1:** `d2: y = 10` $\implies \mathrm{gen}_{1}=\{d_2\}$, $\mathrm{kill}_{1}=\varnothing$.
+- **B2:** `x = 20` $\implies \mathrm{gen}_{2}=\varnothing$, $\mathrm{kill}_{2}=\{d_1\}$ (overwrites `x`).
 
 Iteration (join-based, initial IN=$\varnothing$):
 
