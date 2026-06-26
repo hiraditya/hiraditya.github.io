@@ -191,9 +191,15 @@ Checklist for reviewers / PL auditors:
 ## References
 
 [^1]: **A Theory of Program Analysis:** K. L. McMillan's course notes and surveys on model checking and program analysis. ([link](https://www.cs.cmu.edu/~modelcheck/mc.pdf))
+
 [^2]: **Abstract Interpretation:** P. Cousot and R. Cousot, "A Unified Lattice Model for Static Analysis of Programs by Construction or Approximation of Fixpoints", POPL 1977. ([link](https://doi.org/10.1145/512950.512973))
+
 [^3]: **Introduction to Lattices and Order:** B. A. Davey and H. A. Priestley — standard reference for lattice theory and Knaster–Tarski.
+
 [^4]: **A Completeness Theorem for Kleene Algebras and the Algebra of Regular Events:** Dexter Kozen, Theoretical Computer Science, 1994. ([link](https://doi.org/10.1016/0304-3975(94)90096-3))
+
 [^5]: **Precise Interprocedural Dataflow Analysis via Graph Reachability:** T. W. Reps, S. Horwitz, and M. Sagiv, POPL 1995. ([link](https://doi.org/10.1145/199448.199462))
+
 [^6]: **A Unified Approach to Global Program Optimization:** Gary A. Kildall, POPL 1973. The seminal paper that introduced lattice-theoretic frameworks to dataflow analysis. ([link](https://doi.org/10.1145/512927.512945))
+
 [^7]: **Monotone Data Flow Analysis Frameworks:** John B. Kam and Jeffrey D. Ullman, Acta Informatica 1977. Formalized the MFP and MOP solution concepts and the distributivity condition for their equality. ([link](https://doi.org/10.1007/BF00290339))
