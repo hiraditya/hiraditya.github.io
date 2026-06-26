@@ -28,6 +28,7 @@ assets/js/dist
 .claude/settings.local.json
 
 # Local files
+_drafts/
 AGENTS.md
 TOPICS.md
 CONTENT_PLAN.md
