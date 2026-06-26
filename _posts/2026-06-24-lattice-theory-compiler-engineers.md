@@ -44,11 +44,11 @@ Drill-down details for experts:
 
 Consider the standard forward dataflow equation for a basic block $b$:
 
-\[
+$$
 \mathrm{IN}[b] \;=\; \bigwedge_{p \in \mathrm{pred}(b)} \mathrm{OUT}[p]
 \qquad\qquad
 \mathrm{OUT}[b] \;=\; f_b\big(\mathrm{IN}[b]\big)
-\]
+$$
 
 These equations use every layer at once. They form the equation system whose solution is the fixpoint.
 
@@ -81,9 +81,9 @@ These laws act as the mathematical glue. They ensure that the upward ordering st
 
 Returning to our dataflow equations, the whole equation system—one pair of equations per block, mutually referencing each other through the control-flow graph—defines a single, large monotone function on the product lattice. Concretely, if there are n program points we work on the product lattice $L^n$ and define
 
-\[
+$$
 F : L^n \to L^n,\qquad F(\vec{x}) = (g_1(\vec{x}),\dots,g_n(\vec{x})),
-\]
+$$
 
 where each $g_i$ computes the next-value of the $i$th unknown (an IN or OUT) from the current vector $\vec{x}$. Solving the dataflow system is finding $\vec{x}$ such that $F(\vec{x}) = \vec{x}$ — i.e., a fixpoint of $F$[^6].
 
@@ -105,7 +105,7 @@ There are two primary notions of "the answer" in dataflow analysis:
 1. **Fixed point computed by iteration (often called MFP in classic texts):** The iterative worklist algorithm computes a fixpoint of $F$; in the common ordering where information grows upward, this is the least fixpoint. Be aware that some authors use differing names depending on ordering conventions, so explicitly stating the lattice order avoids confusion.
 2. **Meet Over all Paths (MOP):** The ideal, path-wise precise answer, defined as
 
-\[\mathrm{MOP}[b] = \bigwedge_{\text{paths } \pi \text{ to } b} f_{\pi}(\mathrm{init}).\]
+$$\mathrm{MOP}[b] = \bigwedge_{\text{paths } \pi \text{ to } b} f_{\pi}(\mathrm{init}).$$
 
 You run each path independently from the entry and meet the results at the end[^5].
 
@@ -141,14 +141,14 @@ The MOP is the semiring / Kleene-algebra "sum over all paths" formulation. For c
 
 The fundamental relation is that the fixpoint computed by iteration is always a sound approximation of the path-wise answer — in lattice terms the iterative solution is below (less precise than) the MOP:
 
-\[\mathrm{Iterated\;fixpoint} \;\sqsubseteq\; \mathrm{MOP}.\]
+$$\mathrm{Iterated\;fixpoint} \;\sqsubseteq\; \mathrm{MOP}.$$
 
 Here $\sqsubseteq$ denotes the lattice ordering used by the analysis (so "less than" means "more conservative"). Equality holds when transfer functions distribute over the confluence operator (this is the standard distributivity condition used in proofs that MFP = MOP)[^7].
 
 Concrete example (reaching definitions):
 
 Let the domain be $\mathcal{P}(\{d_1,d_2\})$ (sets of definitions) ordered by subset, with join $\cup$. For a block $b$ with
-\[ f_b(S) = (S \setminus \mathrm{kill}_b) \cup \mathrm{gen}_b,\]
+$$ f_b(S) = (S \setminus \mathrm{kill}_b) \cup \mathrm{gen}_b,$$
 these transfer functions are distributive over union, so the iterated fixpoint equals the MOP. This small, familiar example helps ground the abstract claim: distributivity implies path-precision for the iterative solver.
 
 ## Bringing It Together with Galois Connections
