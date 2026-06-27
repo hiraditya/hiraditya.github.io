@@ -47,9 +47,10 @@ Drill-down details for experts:
 Consider the standard forward dataflow equation for a basic block $b$:
 
 $$
-\mathrm{IN}[b] \;=\; \bigwedge_{p \in \mathrm{pred}(b)} \mathrm{OUT}[p]
-\qquad\qquad
-\mathrm{OUT}[b] \;=\; f_b\big(\mathrm{IN}[b]\big)
+\begin{aligned}
+\mathrm{IN}[b] &\;=\; {\textstyle\bigwedge_{p \in \mathrm{pred}(b)}} \mathrm{OUT}[p] \\
+\mathrm{OUT}[b] &\;=\; f_b\big(\mathrm{IN}[b]\big)
+\end{aligned}
 $$
 
 These equations use every layer at once. They form the equation system whose solution is the fixpoint.
@@ -84,7 +85,10 @@ These laws act as the mathematical glue. They ensure that the upward ordering st
 Returning to our dataflow equations, the whole equation system—one pair of equations per block, mutually referencing each other through the control-flow graph—defines a single, large monotone function on the product lattice. Concretely, if there are n program points we work on the product lattice $L^n$ and define
 
 $$
-F : L^n \to L^n,\qquad F(\vec{x}) = (g_1(\vec{x}),\dots,g_n(\vec{x})),
+\begin{aligned}
+F &: L^n \to L^n, \\
+F(\vec{x}) &= (g_1(\vec{x}),\dots,g_n(\vec{x})),
+\end{aligned}
 $$
 
 where each $g_i$ computes the next-value of the $i$th unknown (an IN or OUT) from the current vector $\vec{x}$. Solving the dataflow system is finding $\vec{x}$ such that $F(\vec{x}) = \vec{x}$ — i.e., a fixpoint of $F$[^6].
@@ -107,7 +111,7 @@ There are two primary notions of "the answer" in dataflow analysis:
 1. **Fixed point computed by iteration (often called MFP in classic texts):** The iterative worklist algorithm computes a fixpoint of $F$; in the common ordering where information grows upward, this is the least fixpoint. Be aware that some authors use differing names depending on ordering conventions, so explicitly stating the lattice order avoids confusion.
 2. **Meet Over all Paths (MOP):** The ideal, path-wise precise answer, defined as
 
-$$\mathrm{MOP}[b] = \bigwedge_{\text{paths } \pi \text{ to } b} f_{\pi}(\mathrm{init}).$$
+$$\mathrm{MOP}[b] = {\textstyle\bigwedge_{\text{paths } \pi \text{ to } b}} f_{\pi}(\mathrm{init}).$$
 
 You run each path independently from the entry and meet the results at the end[^5].
 
@@ -126,18 +130,21 @@ flowchart LR
 
 Block summaries:
 
-- **Entry:** `d1: x = 5` $\implies \mathrm{gen}_{e}=\{d_1\}$, $\mathrm{kill}_{e}=\varnothing$.
-- **B1:** `d2: y = 10` $\implies \mathrm{gen}_{1}=\{d_2\}$, $\mathrm{kill}_{1}=\varnothing$.
-- **B2:** `x = 20` $\implies \mathrm{gen}_{2}=\varnothing$, $\mathrm{kill}_{2}=\{d_1\}$ (overwrites `x`).
+- **Entry:** `d1: x = 5` $\Rightarrow \mathrm{gen}_{e}=\{d_1\},\ \mathrm{kill}_{e}=\varnothing$.
+- **B1:** `d2: y = 10` $\Rightarrow \mathrm{gen}_{1}=\{d_2\},\ \mathrm{kill}_{1}=\varnothing$.
+- **B2:** `x = 20` $\Rightarrow \mathrm{gen}_{2}=\varnothing,\ \mathrm{kill}_{2}=\{d_1\}$ (overwrites `x`).
 
-Iteration (join-based, initial IN=$\varnothing$):
+Naive iteration: initialize every value to $\varnothing$, then recompute all equations from the previous round's values until nothing changes. On this linear CFG the new facts propagate one block per round, so the wavefront takes several passes to reach the fixpoint:
 
 | Step | IN(Entry) | OUT(Entry) | IN(B1) | OUT(B1) | IN(B2) | OUT(B2) |
 |---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Init | $\varnothing$ | $\{d_1\}$ | $\{d_1\}$ | $\{d_1,d_2\}$ | $\{d_1,d_2\}$ | $\{d_2\}$ |
-| After 1 | $\varnothing$ | $\{d_1\}$ | $\{d_1\}$ | $\{d_1,d_2\}$ | $\{d_1,d_2\}$ | $\{d_2\}$ |
+| Init | $\varnothing$ | $\varnothing$ | $\varnothing$ | $\varnothing$ | $\varnothing$ | $\varnothing$ |
+| Round 1 | $\varnothing$ | $\{d_1\}$ | $\varnothing$ | $\{d_2\}$ | $\varnothing$ | $\varnothing$ |
+| Round 2 | $\varnothing$ | $\{d_1\}$ | $\{d_1\}$ | $\{d_1,d_2\}$ | $\{d_2\}$ | $\{d_2\}$ |
+| Round 3 | $\varnothing$ | $\{d_1\}$ | $\{d_1\}$ | $\{d_1,d_2\}$ | $\{d_1,d_2\}$ | $\{d_2\}$ |
+| Round 4 (fixpoint) | $\varnothing$ | $\{d_1\}$ | $\{d_1\}$ | $\{d_1,d_2\}$ | $\{d_1,d_2\}$ | $\{d_2\}$ |
 
-The iterated fixpoint equals the MOP here because the transfer functions are set-based and distribute over union: each path's contributions are preserved by union, so no precision is lost by the iterative solver.
+Round 4 reproduces Round 3 exactly, so the system has converged. (A worklist or round-robin solver that reuses values updated earlier in the same pass would reach this fixpoint faster; the naive schedule is shown here to make the propagation visible.) The iterated fixpoint equals the MOP here because the transfer functions are set-based and distribute over union: each path's contributions are preserved by union, so no precision is lost by the iterative solver.
 
 The MOP is the semiring / Kleene-algebra "sum over all paths" formulation. For cyclic graphs the Kleene star summarizes repeated traversals, which is why Kleene algebra is the natural playground for MOP reasoning.
 
