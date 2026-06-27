@@ -29,7 +29,7 @@ Beside the base hierarchy sits the **Semiring** and **Kleene Algebra** layer. Th
 
 There is an important nuance here: standard semiring theory typically assumes finite sums. However, because dataflow analysis relies on complete lattices to guarantee fixpoints over potentially infinite domains, we technically operate within a **complete semiring**, where the $\oplus$ operator is well-defined over infinite sets of paths.
 
-More concretely, in this idempotent semiring $(R,\oplus,\otimes,0,1)$, $\oplus$ aggregates alternative paths (think union or meet depending on ordering), and $\otimes$ composes effects along a path (function composition or relational composition). The Kleene star $x^*$ algebraically summarizes iteration over cycles[^4]. For PL architects, this layer formalizes the difference between "what a single path does" and "what the set of all paths does", providing a language for reasoning about precision and expressiveness of analyses.
+More concretely, in this idempotent semiring $(R,\oplus,\otimes,0,1)$, $\oplus$ aggregates alternative paths (think union or meet depending on ordering), and $\otimes$ composes effects along a path (function composition or relational composition). The Kleene star $x^*$ algebraically summarizes iteration over cycles[^4] (note that this is a *descriptive* device: real analyses almost never compute the star in closed form, instead recovering the same least fixpoint through worklist iteration to a stable point). For PL architects, this layer formalizes the difference between "what a single path does" and "what the set of all paths does", providing a language for reasoning about precision and expressiveness of analyses.
 
 ### 3. The Meta Layer
 Above and around the base set sit the relational layers that govern the analysis:
@@ -65,7 +65,7 @@ Operationally, a transfer function for a block implements the block's effect on 
 
 You might wonder: if a specific dataflow analysis only uses one confluence operator—for example, Reaching Definitions only uses Join ($\sqcup$ / Union) and Available Expressions only uses Meet ($\sqcap$ / Intersection)—why do we require a *complete lattice*? Why not just a semilattice?
 
-The answer is that even though the compiler's merge function explicitly invokes only one operator, the **mathematical dual** always exists across the domain. The framework forms a complete lattice because the underlying mathematical domain contains both meets and joins for every subset. The compiler uses one operator to merge information, while the dual operator implicitly defines how the "Top" ($\top$) and "Bottom" ($\bot$) boundaries behave.
+The answer is that even though the compiler's merge function explicitly invokes only one operator, the **mathematical dual** always exists across the domain. Even if your analysis only *uses* the join, the domain *is* a complete lattice because the underlying structure—sets under inclusion, intervals under containment—inherently possesses both meets and joins for every subset. The compiler uses one operator to merge information, while the dual operator implicitly defines how the "Top" ($\top$) and "Bottom" ($\bot$) boundaries behave.
 
 ### Decomposing and Reassembling Lattices
 
@@ -152,13 +152,34 @@ The fundamental relation is that the fixpoint computed by iteration is always a 
 
 $$\mathrm{Iterated\;fixpoint} \;\sqsubseteq\; \mathrm{MOP}.$$
 
-Here $\sqsubseteq$ denotes the lattice ordering used by the analysis (so "less than" means "more conservative"). Equality holds when transfer functions distribute over the confluence operator (this is the standard distributivity condition used in proofs that MFP = MOP)[^7].
+Here $\sqsubseteq$ denotes the lattice ordering used by the analysis (so "less than" means "more conservative"). **The iterative fixpoint (MFP) is always a safe approximation of MOP, and the two coincide only when the transfer functions are distributive over the confluence operator** (the standard distributivity condition used in proofs that MFP = MOP)[^7].
 
 Concrete example (reaching definitions):
 
 Let the domain be $\mathcal{P}(\{d_1,d_2\})$ (sets of definitions) ordered by subset, with join $\cup$. For a block $b$ with
 $$ f_b(S) = (S \setminus \mathrm{kill}_b) \cup \mathrm{gen}_b,$$
 these transfer functions are distributive over union, so the iterated fixpoint equals the MOP. This small, familiar example helps ground the abstract claim: distributivity implies path-precision for the iterative solver.
+
+### When MFP Is Strictly Worse: Constant Propagation
+
+The reaching-definitions example is reassuring but misleading if taken alone, because it only ever shows the case where MFP $=$ MOP. The canonical example where the iterative solver is *strictly* less precise than the path-wise answer is constant propagation, whose transfer functions are monotone but **not** distributive[^7].
+
+Use the per-variable flat lattice: $\bot$ (undefined), one element per integer constant, and $\top$ (provably not a constant). The join of two distinct constants collapses to $\top$. Consider a diamond:
+
+```mermaid
+flowchart TD
+	Entry --> A["A: x = 2; y = 3"]
+	Entry --> B["B: x = 3; y = 2"]
+	A --> M["M: z = x + y"]
+	B --> M
+```
+
+Compute $z$ at $M$ two ways:
+
+- **MOP** (evaluate each path to the end, then merge): via $A$, $z = 2+3 = 5$; via $B$, $z = 3+2 = 5$; merging the path results gives $5 \sqcup 5 = 5$. The path-wise answer says **$z$ is the constant 5**.
+- **MFP** (merge states at $M$ first, then apply the transfer function): $x = 2 \sqcup 3 = \top$ and $y = 3 \sqcup 2 = \top$, so $z = \top + \top = \top$. The iterative solver says **$z$ is not a constant**.
+
+The gap is exactly the non-distributivity of $+$ over the merge: $f(a \sqcup b) \neq f(a) \sqcup f(b)$. Merging *before* applying $f$ destroys the cross-variable correlation (the fact that $x$ and $y$ always sum to 5 on every path) that the path-wise computation preserves. In the ordering convention used above ($\sqsubseteq$ means "less precise / more conservative", and for constant propagation $\top$ sits *below* the constants in that precision order), this is the strict case $\mathrm{MFP} \sqsubset \mathrm{MOP}$ — sound, but lossy. Recovering the lost precision requires a relational domain that tracks $x+y$ directly, which is precisely the trade of expressiveness for cost noted earlier.
 
 ## Bringing It Together with Galois Connections
 
@@ -175,6 +196,33 @@ The Galois connection defines how these two worlds relate:
 - **Concretization ($\gamma$):** Maps an abstract sign back to the set of all possible integers it represents. For example, $\gamma(+) = \{x \in \mathbb{Z} \mid x > 0\}$.
 
 Soundness guarantees that any computation performed in the abstract sign domain will, when concretized via $\gamma$, fully contain the true runtime values. If our abstract transfer function says the result of multiplying two negative variables is $+$, then $\gamma(+)$ must safely over-approximate the concrete multiplication of any two negative integers.
+
+## The Three Layers in Real Frameworks: LLVM and MLIR
+
+The three-layer model is not just pedagogy; it also exposes what production dataflow frameworks choose to represent in their types and what they leave implicit. Read through this lens, both LLVM and MLIR **conflate the base and meta layers and omit the soundness layer entirely** — defensible engineering choices, but worth naming.
+
+Recall the layers as separable concerns:
+
+- **Carrier / semilattice** $(L, \sqcup)$ — the abstract values and their merge.
+- **Transfer monoid** $(F, \circ, \mathrm{id})$ — the per-instruction state transformers.
+- **Fixpoint engine** — the generic solver that iterates $F$ to a fixpoint.
+- **Soundness certificate** — the Galois connection $(\alpha, \gamma)$ relating the abstract domain to a concrete semantics.
+
+LLVM's sparse propagation (the machinery underneath SCCP[^8]) bundles the first two into a single user-supplied object: one `AbstractLatticeFunction` defines the lattice elements, the merge, *and* the transfer rules. The fixpoint engine (the worklist) is reusable, but it trusts — never checks — that the supplied merge is a true semilattice operation and that the transfer functions are monotone. There is no object anywhere for $\alpha$ or $\gamma$; the abstraction's soundness lives in the author's head and in the test suite. SCCP's "undef / constant / overdefined" lattice is hard-wired, so the carrier is not even a swappable component.
+
+MLIR's `DataFlowSolver` framework is cleaner on one axis: it genuinely separates the **engine** from the analysis, so the fixpoint loop is written once and reused across sparse and dense analyses[^9]. But within an analysis the same conflation returns: a `SparseForwardDataFlowAnalysis` subclass supplies both the lattice (`AnalysisState::join`) and the transfer function (`visitOperation`) through one interface. As with LLVM, monotonicity and finite height are *preconditions the framework assumes*, not properties it represents; there is no first-class widening operator in the core solver (extrapolation, if needed, must be folded into `join`), and there is no representation of the concretization $\gamma$, so soundness against a concrete semantics is again an out-of-band argument.
+
+In the vocabulary of this post:
+
+| Layer | LLVM (SCCP / sparse) | MLIR (`DataFlowSolver`) |
+|---|---|---|
+| Fixpoint engine | reusable worklist | reusable solver (clean separation) |
+| Carrier $(L,\sqcup)$ | bundled with transfer; SCCP lattice fixed | bundled with transfer (`join`) |
+| Transfer monoid $F$ | bundled (`AbstractLatticeFunction`) | bundled (`visitOperation`) |
+| Termination (height/ACC, $\nabla$) | assumed; no widening primitive | assumed; no widening primitive |
+| Soundness $(\alpha,\gamma)$ | absent (by-hand argument) | absent (by-hand argument) |
+
+None of this is a defect — bundling the lattice and transfer is ergonomic, and encoding a Galois connection in a compiler's type system buys little at runtime. But the model predicts exactly where these frameworks let you shoot yourself in the foot: a non-monotone `join`, an infinite-height domain with no widening hook, or an "abstraction" that silently under-approximates because nothing forced you to write down $\gamma$. The math tells you which guarantees you are getting for free and which you are still on the hook to prove.
 
 ## Conclusion: The Engineer's Mental Model
 
@@ -206,6 +254,10 @@ Checklist for reviewers / PL auditors:
 [^6]: **A Unified Approach to Global Program Optimization:** Gary A. Kildall, POPL 1973. The seminal paper that introduced lattice-theoretic frameworks to dataflow analysis. ([link](https://doi.org/10.1145/512927.512945))
 
 [^7]: **Monotone Data Flow Analysis Frameworks:** John B. Kam and Jeffrey D. Ullman, Acta Informatica 1977. Formalized the MFP and MOP solution concepts and the distributivity condition for their equality. ([link](https://doi.org/10.1007/BF00290339))
+
+[^8]: **Constant Propagation with Conditional Branches:** Mark N. Wegman and F. Kenneth Zadeck, ACM TOPLAS 1991. The SCCP algorithm and the undef/constant/overdefined lattice still used in LLVM. ([link](https://doi.org/10.1145/103135.103136))
+
+[^9]: **Writing DataFlow Analyses in MLIR:** MLIR project documentation for the `DataFlowSolver` framework and sparse/dense analyses. ([link](https://mlir.llvm.org/docs/Tutorials/DataFlowAnalysis/))
 
 ---
 
