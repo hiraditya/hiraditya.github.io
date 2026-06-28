@@ -208,21 +208,31 @@ Recall the layers as separable concerns:
 - **Fixpoint engine** — the generic solver that iterates $F$ to a fixpoint.
 - **Soundness certificate** — the Galois connection $(\alpha, \gamma)$ relating the abstract domain to a concrete semantics.
 
-LLVM's sparse propagation (the machinery underneath SCCP[^8]) bundles the first two into a single user-supplied object: one `AbstractLatticeFunction` defines the lattice elements, the merge, *and* the transfer rules. The fixpoint engine (the worklist) is reusable, but it trusts — never checks — that the supplied merge is a true semilattice operation and that the transfer functions are monotone. There is no object anywhere for $\alpha$ or $\gamma$; the abstraction's soundness lives in the author's head and in the test suite. SCCP's "undef / constant / overdefined" lattice is hard-wired, so the carrier is not even a swappable component.
+### LLVM: one class for three layers
 
-MLIR's `DataFlowSolver` framework is cleaner on one axis: it genuinely separates the **engine** from the analysis, so the fixpoint loop is written once and reused across sparse and dense analyses[^9]. But within an analysis the same conflation returns: a `SparseForwardDataFlowAnalysis` subclass supplies both the lattice (`AnalysisState::join`) and the transfer function (`visitOperation`) through one interface. As with LLVM, monotonicity and finite height are *preconditions the framework assumes*, not properties it represents; there is no first-class widening operator in the core solver (extrapolation, if needed, must be folded into `join`), and there is no representation of the concretization $\gamma$, so soundness against a concrete semantics is again an out-of-band argument.
+LLVM exposes two relevant artifacts. The generic, reusable framework is `SparseSolver` together with `AbstractLatticeFunction`, declared in `llvm/Analysis/SparsePropagation.h`[^10]. The header describes it as "an abstract sparse conditional propagation algorithm, modeled after SCCP, but with a customizable lattice function" — and it is used by passes such as `CalledValuePropagation`. That single `AbstractLatticeFunction` is where three of our layers collapse into one user-supplied object: it owns the lattice elements (`getUndefVal`, `getOverdefinedVal`, `getUntrackedVal`), the merge (`MergeValues`), *and* the transfer function (`ComputeInstructionState`). The merge even states its own correctness contract in a comment — "merging should only move one direction down the lattice to guarantee convergence" — but nothing enforces it. A `MergeValues` that occasionally moves *up* the lattice compiles cleanly and silently breaks termination; the reusable worklist trusts the contract rather than checking it.
+
+The production constant-propagation pass hard-wires even more. Modern SCCP[^8] runs on `SCCPSolver` over a fixed lattice, `ValueLatticeElement` (`llvm/Analysis/ValueLattice.h`[^11]), whose states are `unknown`, `undef`, `constant`, `notconstant`, `constantrange`, and `overdefined`. That is richer than the textbook undef–constant–overdefined three-point chain — it folds in a constant-range domain — but it is not a swappable carrier: the lattice and its transfer rules are compiled into the pass. In neither artifact is there an object for $\alpha$ or $\gamma$. The closest thing, `GetValueFromLatticeVal`, reads a concrete `Value` back out of a lattice element when one exists — a partial, one-directional decode, not a concretization that certifies the abstraction over-approximates the concrete semantics. Soundness lives in the author's head and the test suite.
+
+### MLIR: a clean engine, but the analysis still bundles
+
+MLIR is the more principled design[^9], and it earns credit in a specific place: its fixpoint **engine** is genuinely factored out. `DataFlowSolver` (`mlir/Analysis/DataFlowFramework.h`[^13]) orchestrates child analyses, owns the worklist of `(program point, analysis)` work items, runs `initializeAndRun` to a fixpoint, and propagates updates to dependents via `propagateIfChanged`. It is analysis-agnostic — the same solver drives both sparse and dense analyses unchanged. That is exactly the engine/everything-else split the theory implies but most compilers never make: the Knaster–Tarski layer, isolated as reusable code.
+
+Inside an analysis, the base/transfer conflation returns. A sparse forward analysis subclasses `AbstractSparseForwardDataFlowAnalysis` (or the typed `SparseForwardDataFlowAnalysis<StateT>`) in `mlir/Analysis/DataFlow/SparseAnalysis.h`[^12]. The transfer function is `visitOperation` / `visitOperationImpl`; the lattice lives in the `Lattice<ValueT>` template, whose `join` performs the merge — two layers, one object, again. Termination is assumed rather than represented: `join` carries *debug-only* assertions that each update is monotone (compiled out of release builds), the framework simply trusts that the lattice has finite height, and there is no widening operator in the core — an infinite-height domain forces you to fold the extrapolation into `join` by hand[^14]. As in LLVM, there is no concretization type and no soundness relation; the dual `meet` is even optional, detected by SFINAE and treated as a no-op when a lattice does not provide one.
+
+### The scorecard
 
 In the vocabulary of this post:
 
-| Layer | LLVM (SCCP / sparse) | MLIR (`DataFlowSolver`) |
+| Layer | LLVM (`SparsePropagation` / SCCP) | MLIR (`DataFlowSolver`) |
 |---|---|---|
-| Fixpoint engine | reusable worklist | reusable solver (clean separation) |
-| Carrier $(L,\sqcup)$ | bundled with transfer; SCCP lattice fixed | bundled with transfer (`join`) |
-| Transfer monoid $F$ | bundled (`AbstractLatticeFunction`) | bundled (`visitOperation`) |
-| Termination (height/ACC, $\nabla$) | assumed; no widening primitive | assumed; no widening primitive |
-| Soundness $(\alpha,\gamma)$ | absent (by-hand argument) | absent (by-hand argument) |
+| Fixpoint engine | reusable `SparseSolver` worklist | reusable `DataFlowSolver` (clean engine/analysis split) |
+| Carrier $(L,\sqcup)$ | bundled in `AbstractLatticeFunction`; SCCP's `ValueLatticeElement` fixed | bundled in the analysis (`Lattice<ValueT>::join`) |
+| Transfer monoid $F$ | bundled (`ComputeInstructionState`) | bundled (`visitOperation`) |
+| Termination (height/ACC, $\nabla$) | assumed; `MergeValues` monotonicity is an unchecked comment; no widening | assumed; monotonicity debug-asserted only; no widening |
+| Soundness $(\alpha,\gamma)$ | absent; `GetValueFromLatticeVal` is a partial decode, not $\gamma$ | absent; no concretization type |
 
-None of this is a defect — bundling the lattice and transfer is ergonomic, and encoding a Galois connection in a compiler's type system buys little at runtime. But the model predicts exactly where these frameworks let you shoot yourself in the foot: a non-monotone `join`, an infinite-height domain with no widening hook, or an "abstraction" that silently under-approximates because nothing forced you to write down $\gamma$. The math tells you which guarantees you are getting for free and which you are still on the hook to prove.
+None of this is a defect — bundling the lattice and transfer is ergonomic, and encoding a full Galois connection in a compiler's type system buys little at runtime. But the model predicts exactly where these frameworks let you shoot yourself in the foot: a non-monotone `MergeValues`/`join` that diverges or oscillates, an infinite-height domain with no widening hook, or an "abstraction" that silently under-approximates because nothing forced you to write down $\gamma$. The math tells you which guarantees you get for free and which you remain on the hook to prove.
 
 ## Conclusion: The Engineer's Mental Model
 
@@ -258,6 +268,16 @@ Checklist for reviewers / PL auditors:
 [^8]: **Constant Propagation with Conditional Branches:** Mark N. Wegman and F. Kenneth Zadeck, ACM TOPLAS 1991. The SCCP algorithm and the undef/constant/overdefined lattice still used in LLVM. ([link](https://doi.org/10.1145/103135.103136))
 
 [^9]: **Writing DataFlow Analyses in MLIR:** MLIR project documentation for the `DataFlowSolver` framework and sparse/dense analyses. ([link](https://mlir.llvm.org/docs/Tutorials/DataFlowAnalysis/))
+
+[^10]: **LLVM `SparsePropagation.h`:** `SparseSolver` and `AbstractLatticeFunction` — the generic, customizable-lattice sparse-propagation framework (`ComputeInstructionState`, `MergeValues`, `getUndefVal`/`getOverdefinedVal`/`getUntrackedVal`). ([source](https://llvm.org/doxygen/SparsePropagation_8h_source.html))
+
+[^11]: **LLVM `ValueLattice.h`:** `ValueLatticeElement`, the fixed lattice (unknown/undef/constant/notconstant/constantrange/overdefined) used by `SCCPSolver`. ([source](https://www.llvm.org/doxygen/ValueLattice_8h_source.html), [`SCCPSolver.cpp`](https://llvm.org/doxygen/SCCPSolver_8cpp_source.html))
+
+[^12]: **MLIR `SparseAnalysis.h`:** `AbstractSparseForwardDataFlowAnalysis` / `SparseForwardDataFlowAnalysis<StateT>` (transfer = `visitOperation`/`visitOperationImpl`) and the `Lattice<ValueT>` template (merge = `join`, debug-only monotonicity assertions, SFINAE-optional `meet`). ([source](https://mlir.llvm.org/doxygen/SparseAnalysis_8h_source.html))
+
+[^13]: **MLIR `DataFlowSolver`:** the generic, analysis-agnostic fixpoint engine (`load`, `initializeAndRun`, `propagateIfChanged`), declared in `DataFlowFramework.h`. ([class ref](https://mlir.llvm.org/doxygen/classmlir_1_1DataFlowSolver.html), [header](https://mlir.llvm.org/doxygen/DataFlowFramework_8h.html))
+
+[^14]: **MLIR Dataflow Analysis (LLVM Dev Mtg 2023):** T. Eccles and J. Niu, overview of the `DataFlowSolver` design, sparse/dense analyses, and the absence of a built-in widening operator. ([slides](https://llvm.org/devmtg/2023-05/slides/TechnicalTalks-May10/07-TomEccles-JeffNiu-MLIRDataflowAnalysis.pdf))
 
 ---
 
