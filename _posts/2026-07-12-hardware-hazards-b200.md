@@ -65,7 +65,7 @@ This architectural tradeoff means that compiler engineers must be pedantic about
 
 ## 1. The Predicate-Consumer Under-Stall (H1)
 
-The most difficult bugs slip through rigorous static checks. Recently, an internal scheduler shipped with a critical bug involving predicate evaluation. This occurred despite static metrics claiming full RAW coverage across the test suite.
+The most difficult bugs slip through rigorous static checks. Recently, while hacking on the B200, I discovered a critical bug involving predicate evaluation in an instruction scheduler. This occurred despite static metrics claiming full RAW coverage across the test suite.
 
 The pattern involves an integer set-predicate instruction (`ISETP`) that computes a condition. It writes it to a predicate register, which is then read by a branch instruction. This is classically seen in a back-edge branch defining a loop.
 
