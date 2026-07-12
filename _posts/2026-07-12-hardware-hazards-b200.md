@@ -32,7 +32,7 @@ Before diving into specific B200 hazards, it helps to establish some baseline co
 
 ## The Anatomy of an Instruction Pipeline Hazard
 
-Modern GPU streaming multiprocessors (SMs) are designed for extreme throughput. To achieve this, the pipeline is deep. The hardware relies on the compiler to explicitly encode dependency information.
+Modern GPU streaming multiprocessors (SMs) are designed for extreme throughput. To achieve this, the pipeline is deep. The hardware relies on the compiler to explicitly encode dependency information[^4].
 
 Consider a simple dataflow path where Instruction A produces a value that Instruction B consumes.
 
@@ -59,7 +59,7 @@ flowchart TD
 
 If Instruction B issues too early, its `Read Register` phase fetches the register's old contents before `WriteBack` completes.
 
-On CPUs, sophisticated out-of-order execution engines mask these latencies dynamically. On GPUs, the philosophy is to maximize die area for ALUs. This pushes the complexity of instruction scheduling onto the compiler.
+On CPUs, sophisticated out-of-order execution engines mask these latencies dynamically. On GPUs, the philosophy is to maximize die area for ALUs. This pushes the complexity of instruction scheduling onto the compiler[^5].
 
 This architectural tradeoff means that compiler engineers must be pedantic about low-level constraints like pipeline depths and barrier encodings.
 
@@ -122,7 +122,7 @@ If a scheduler emits a stall with a cycle count strictly below the hardware's fi
 
 ### Latency Measurement and Tradeoffs
 
-Through direct hardware probing on the B200, I measured the exact latency floors where execution transitions from incorrect (stale read) to correct (valid read)[^2].
+Through direct hardware probing on the B200, I measured the exact latency floors where execution transitions from incorrect (stale read) to correct (valid read)[^2][^6].
 
 | Operation | Precision | Measured Cycle Floor | Validation Signal |
 | :--- | :--- | :---: | :--- |
@@ -251,8 +251,11 @@ By systematically building a registry of targeted, minimal hardware hazards and 
 
 ## References
 
-[^1]: **NVIDIA RTX Blackwell GPU Architecture:** Detailed technical description of NVIDIA's Blackwell family and Streaming Multiprocessor design. ([Link](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf))
-[^2]: **Dissecting the NVIDIA Volta GPU Architecture via Microbenchmarking:** Zhe Jia et al., arXiv:1804.06826, 2018. Analysis of instruction latencies, pipeline depths, and scoreboard barrier rules. ([Link](https://arxiv.org/pdf/1804.06826))
-[^3]: **NVIDIA CUDA Driver API:** Reference documentation on virtual memory management and MMU memory protection faults. ([Link](https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__MEM.html))
+[^1]: **NVIDIA RTX Blackwell GPU Architecture:** Technical description of the Blackwell Streaming Multiprocessor design. ([Link](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf))
+[^2]: **Dissecting the NVIDIA Volta GPU Architecture via Microbenchmarking:** Zhe Jia et al., arXiv:1804.06826, 2018. Instruction latencies, pipeline depths, and scoreboard barrier encoding on GV100. ([Link](https://arxiv.org/abs/1804.06826))
+[^3]: **NVIDIA CUDA Driver API — Virtual Memory Management:** Reference documentation covering MMU memory protection faults and `CUDA_ERROR_ILLEGAL_ADDRESS`. ([Link](https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__MEM.html))
+[^4]: **Demystifying GPU Microarchitecture through Microbenchmarking:** Henry Wong et al., ISPASS 2010. Foundational work establishing microbenchmarking methodology for probing undocumented GPU pipeline characteristics. ([Link](https://ieeexplore.ieee.org/document/5452013))
+[^5]: **Analyzing Modern NVIDIA GPU Cores:** Rodrigo Huerta et al., arXiv:2503.20481, 2025. Demonstrates that modern NVIDIA GPUs use software-based (compiler-driven) dependence management rather than traditional hardware scoreboards. ([Link](https://arxiv.org/abs/2503.20481))
+[^6]: **Benchmarking and Dissecting the Nvidia Hopper GPU Architecture:** Weile Luo et al., IPDPS 2024 / arXiv:2402.13499. Multi-level microarchitectural analysis of the H100, including instruction latencies and memory hierarchy. ([Link](https://arxiv.org/abs/2402.13499))
 
 *Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
