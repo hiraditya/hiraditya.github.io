@@ -11,7 +11,7 @@ math: true
 
 **Executive Summary:** This article explains why compiler schedulers must be validated on real silicon, not just via static analysis, by detailing four critical hardware hazard classes on the B200.
 
-When engineering instruction schedulers for modern, deep-pipeline GPUs like the Nvidia B200, static analysis is necessary but insufficient. It is a humbling experience to build a compiler pass that reports 100% test coverage on dependency tracking, only to see the emitted code fail silently on actual silicon.
+When working with modern, deep-pipeline GPUs like the Nvidia B200, static analysis is necessary but insufficient for validating instruction schedules. It is a humbling experience to see a scheduler report 100% test coverage on dependency tracking, only to watch the emitted code fail silently on actual silicon.
 
 Why does this happen? The hardware pipeline itself is the final arbiter of correctness.
 
@@ -81,11 +81,9 @@ ISETP.GE.AND P1, PT, R0, R1, PT;
 
 ### The Mechanism of Failure
 
-The bug originated in the `def_use` dataflow analysis pass, which tracks where registers and predicates are defined and read.
+The bug surfaced while I was hacking on the B200's predicate handling. The compiler correctly recorded the guard predicate `P0` as a use for the branch, but it missed the branch condition operand `P1`.
 
-The analyzer correctly recorded the guard predicate `P0` as a use for the branch instruction. However, it systematically dropped the branch condition operand `P1`.
-
-Consequently, the internal dependency graph missed the `ISETP` $\rightarrow$ `BRA` RAW dependency. The scheduler failed to insert the required predicate-latency stall.
+Consequently, the `ISETP` $\rightarrow$ `BRA` RAW dependency was missed entirely. The scheduler failed to insert the required predicate-latency stall.
 
 ```mermaid
 sequenceDiagram
@@ -108,7 +106,7 @@ The branch issued roughly 4 cycles after the `ISETP`. This was well before the p
 
 ### Ground-Truth Mitigation
 
-To prevent this, the scheduler must be gated by a static test asserting that `def_use(@!P0 BRA P1)` yields uses `{0,1}`.
+To prevent this, a scheduler's operand analysis must correctly identify both `P0` and `P1` as uses of `@!P0 BRA P1`.
 
 However, the true defense is an on-silicon probe. I sweep the stall cycles between the `ISETP` and the branch, verifying the minimum latency required for correct execution.
 
@@ -135,7 +133,7 @@ Notice the tradeoff here: higher precision arithmetic naturally requires deeper 
 
 When building latency validation tests, it is critical to construct floating-point recurrence chains rather than integer linear chains. Integer chains can be folded or bypassed via pipeline forwarding networks in hardware, which masks under-stalls[^2]. Floating-point chains, due to strict execution pipeline stages and rounding, make dependency latencies visible.
 
-To validate the scheduler against these latencies, I employed probe kernels that intentionally under-stall and over-stall these dependencies.
+To validate these latencies, I employed probe kernels that intentionally under-stall and over-stall these dependencies.
 
 ```c
 // 1. Define the input floating-point operands and the result container.
