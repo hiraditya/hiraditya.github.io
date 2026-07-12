@@ -135,27 +135,56 @@ Notice the tradeoff here: higher precision arithmetic naturally requires deeper 
 
 When building latency validation tests, it is critical to construct floating-point recurrence chains rather than integer linear chains. Integer chains can be folded or bypassed via pipeline forwarding networks in hardware, which masks under-stalls[^2]. Floating-point chains, due to strict execution pipeline stages and rounding, make dependency latencies visible.
 
-To validate these latencies, I employed probe kernels that intentionally under-stall and over-stall these dependencies.
+To validate these latencies, I wrote a probe kernel that builds a long dependent FFMA chain: `a = a*1 + 1`, repeated 64 times, so the expected result is exactly `seed + 64`. Every FFMA reads the immediately preceding FFMA's result, creating a pure RAW hazard chain. A post-processing script then rewrites the stall field of every FFMA in the compiled SASS binary to a forced value and runs each variant on the B200.
 
 ```c
-// 1. Define the input floating-point operands and the result container.
-float a = 1.0f, b = 2.0f, c = 3.0f;
-float result = 0.0f;
+// probe_ffma.cu -- Tier-2 "minimum correct stall" probe for FFMA.
+//
+// A single dependent FFMA chain: a = a*1 + 1, CHAIN times.
+// The exact result is seed + CHAIN (integer-valued float, bit-exact on CPU).
+// Every FFMA reads the immediately-preceding FFMA's result -> a RAW hazard
+// on the FMA pipe.
+//
+// We compile this once, then rewrite the stall subfield of every FFMA
+// to a forced value N and run each variant on the B200:
+//   * if N < true FFMA latency -> consumer reads stale register -> WRONG
+//   * smallest N that stays CORRECT == the FFMA latency floor
 
-// 2. Execute inline assembly to guarantee back-to-back instructions with controlled stall insertion.
-asm volatile (
-    // 3. Perform the Single-precision Fused Multiply-Add (FFMA).
-    "ffma.rn.f32 %0, %1, %2, %3;\n\t"
-    // 4. Stall the pipeline for L cycles (inserted via custom post-processing of the SASS).
-    // --> INJECT STALL L HERE <--
-    // 5. Read the destination register %0 immediately as an operand in the floating-point addition (FADD).
-    "fadd.rn.f32 %0, %0, %4;\n\t"
-    : "=f"(result)
-    : "f"(a), "f"(b), "f"(c), "f"(1.0f)
-);
+#ifndef CHAIN
+#define CHAIN 64
+#endif
+
+extern "C" __global__ void probe(float *out, unsigned *cyc, float seed) {
+  float a = seed;
+  unsigned t0, t1;
+  asm volatile("mov.u32 %0, %%clock;" : "=r"(t0));
+#pragma unroll
+  for (int i = 0; i < CHAIN; i++)
+    asm volatile("fma.rn.f32 %0,%0,%1,%2;" : "+f"(a) : "f"(1.0f), "f"(1.0f));
+  asm volatile("mov.u32 %0, %%clock;" : "=r"(t1));
+  if (threadIdx.x == 0) {
+    out[0] = a;          // expected == seed + CHAIN if no hazard
+    cyc[0] = t1 - t0;    // timed cycles for the chain
+  }
+}
 ```
 
-A correct scheduler must target the cycle floor exactly. I used tools like `cuobjdump -sass` to verify the assembled control codes before running the resulting binaries directly on the GPU.
+Running this probe across stall values 0–15 on the B200 produces the following output:
+
+```
+# stall  cycles  result   (chain=64)
+     0    2205  CORRECT
+     1     225  WRONG
+     2     227  WRONG
+     3     291  WRONG
+     4     355  CORRECT
+     5     419  CORRECT
+     6     483  CORRECT
+     ...
+    15    1075  CORRECT
+```
+
+The boundary is unambiguous. Stall 3 yields WRONG (the consumer reads a stale register), stall 4 yields CORRECT. Stall 0 is a special encoding that defaults to a large wait, which is why it reports CORRECT but at a much higher cycle count. A correct scheduler must target the cycle floor exactly. I used tools like `cuobjdump -sass` to verify the assembled control codes before running the resulting binaries directly on the GPU.
 
 ## Variable Latency and Uncovered Scoreboards
 
