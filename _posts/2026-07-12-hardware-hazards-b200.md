@@ -1,5 +1,5 @@
 ---
-title: "Hardware Hazards on the B200: Ground-Truth Testing for Instruction Schedulers"
+title: "Silicon Doesn't Lie: Hunting Pipeline Hazards on the B200"
 date: 2026-07-12 12:00:00 -0700
 categories: [Systems, GPU Architecture]
 tags: [gpu, assembly, ptxsass, b200]
@@ -8,8 +8,6 @@ math: true
 ---
 
 {% include katex.html %}
-
-**Executive Summary:** This article explains why compiler schedulers must be validated on real silicon, not just via static analysis, by detailing four critical hardware hazard classes on the B200.
 
 When working with modern, deep-pipeline GPUs like the Nvidia B200, static analysis is necessary but insufficient for validating instruction schedules. It is a humbling experience to see a scheduler report 100% test coverage on dependency tracking, only to watch the emitted code fail silently on actual silicon.
 
