@@ -17,9 +17,9 @@ Why does this happen? The hardware pipeline itself is the final arbiter of corre
 
 When a scheduler *under-stalls* a dependency, it allows a consumer instruction to issue into the pipeline before the producer's result is firmly committed to the register file. The hardware does not raise an exception. Instead, it executes the schedule, reading stale state, and propagates garbage through the computation.
 
-These are not defects in the silicon. They are schedule violations where the hardware exposes the compiler's incorrect assumptions. In compiler backends, we generally adhere to a strict rule: **over-stalling is a performance bug, but under-stalling is a silent correctness bug.**
+These are not defects in the silicon. They are schedule violations where the hardware exposes the compiler's incorrect assumptions. In compiler backends, engineers generally adhere to a strict rule: **over-stalling is a performance bug, but under-stalling is a silent correctness bug.**
 
-To catch these, we must construct a registry of hardware hazards backed by minimal, reproducible on-silicon tests. 
+To catch these, I constructed a registry of hardware hazards backed by minimal, reproducible on-silicon tests. 
 
 ## Prerequisites & Terminology
 
@@ -110,7 +110,7 @@ The branch issued roughly 4 cycles after the `ISETP`. This was well before the p
 
 To prevent this, the scheduler must be gated by a static test asserting that `def_use(@!P0 BRA P1)` yields uses `{0,1}`. 
 
-However, the true defense is an on-silicon probe. We force a stall on the `ISETP` and validate that the branch reads the correct predicate on hardware. 
+However, the true defense is an on-silicon probe. I forced a stall on the `ISETP` and validated that the branch reads the correct predicate on hardware. 
 
 The baseline predicate latency must be dynamically probed on-device because architectural models are often approximations. On the B200, tier-1 differencing confirmed the divergence between the modeled 13 cycles and actual pipeline depths. (Tier-1 differencing is a method of comparing simulated architectural behavior against actual hardware execution).
 
@@ -124,7 +124,7 @@ If a scheduler emits a stall with a cycle count strictly below the hardware's fi
 
 ### Latency Measurement and Tradeoffs
 
-Through direct hardware probing on the B200, we measure the exact latency floors where execution transitions from incorrect (stale read) to correct (valid read).
+Through direct hardware probing on the B200, I measured the exact latency floors where execution transitions from incorrect (stale read) to correct (valid read).
 
 | Operation | Precision | Measured Cycle Floor | Validation Signal |
 | :--- | :--- | :---: | :--- |
@@ -133,7 +133,7 @@ Through direct hardware probing on the B200, we measure the exact latency floors
 
 Notice the tradeoff here: higher precision arithmetic naturally requires deeper pipelines. The FP64 unit requires exactly twice the latency of the FP32 unit.
 
-To validate the scheduler against these latencies, we employ probe kernels that intentionally under-stall and over-stall these dependencies.
+To validate the scheduler against these latencies, I employed probe kernels that intentionally under-stall and over-stall these dependencies.
 
 ```c
 // Probe Kernel Logic (Conceptual)
@@ -150,7 +150,7 @@ asm volatile (
 );
 ```
 
-A correct scheduler must target the cycle floor exactly. We use tools like `cuobjdump -sass` to verify the assembled control codes and run the resulting binaries directly on the GPU.
+A correct scheduler must target the cycle floor exactly. I used tools like `cuobjdump -sass` to verify the assembled control codes and run the resulting binaries directly on the GPU.
 
 ## 3. Variable Latency and Uncovered Scoreboards (H3)
 
@@ -213,7 +213,7 @@ This is highly desirable for Continuous Integration (CI) systems, where binary p
 
 A load-use hazard occurs when a value intended to be used as a memory address is read before the load producing it has landed.
 
-To amplify this into a guaranteed crash, we explicitly **poison** the index register. We load a wild constant into the register (e.g., `0x40000000`, translating to a +4 GiB offset in memory) before the actual load occurs. We maintain this poison value's liveness via a runtime-unknown guard so the compiler's dead-code elimination (DCE) pass cannot optimize it away.
+To amplify this into a guaranteed crash, I explicitly **poisoned** the index register. I loaded a wild constant into the register (e.g., `0x40000000`, translating to a +4 GiB offset in memory) before the actual load occurred. I maintained this poison value's liveness via a runtime-unknown guard so the compiler's dead-code elimination (DCE) pass could not optimize it away.
 
 ```c
 // 1. Poison the address register with a wild offset
