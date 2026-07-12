@@ -1,5 +1,5 @@
 ---
-title: "Silicon Doesn't Lie: Hunting Pipeline Hazards on the B200"
+title: "The Anatomy of an Instruction Pipeline Hazard"
 date: 2026-07-12 12:00:00 -0700
 categories: [Systems, GPU Architecture]
 tags: [gpu, assembly, ptxsass, b200]
@@ -28,7 +28,7 @@ Before diving into specific B200 hazards, it helps to establish some baseline co
 *   **RAW (Read-After-Write) Hazard:** A scenario where an instruction tries to read a register before a previous instruction has finished writing to it.
 *   **Variable-Latency Operations:** Operations whose execution time is not fixed. This includes global memory loads (`LDG`), shared memory operations (`LDS`), atomic operations (`ATOM`), and multi-function units (`MUFU`).
 
-## The Anatomy of an Instruction Pipeline Hazard
+## Silicon Doesn't Lie
 
 Modern GPU streaming multiprocessors (SMs) are designed for extreme throughput. To achieve this, the pipeline is deep. The hardware relies on the compiler to explicitly encode dependency information[^4].
 
