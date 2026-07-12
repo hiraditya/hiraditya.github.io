@@ -61,7 +61,7 @@ flowchart TD
 
 If Instruction B issues too early, its `Read Register` phase fetches the register's old contents before `WriteBack` completes.
 
-On CPUs, sophisticated out-of-order execution engines mask these latencies dynamically. On GPUs, the philosophy is to maximize die area for ALUs. This pushes the complexity of instruction scheduling onto the compiler[^5].
+On CPUs, sophisticated out-of-order execution engines mask these latencies dynamically. On GPUs, the philosophy is to maximize die area for ALUs. This pushes the complexity of instruction scheduling onto the compiler[^5]. This is reminiscent of [VLIW architectures](https://hiraditya.github.io/posts/why-vliw-architecture-is-popular-again/), which share the same philosophy of offloading scheduling decisions from hardware to the compiler.
 
 This architectural tradeoff means that compiler engineers must be pedantic about low-level constraints like pipeline depths and barrier encodings.
 
