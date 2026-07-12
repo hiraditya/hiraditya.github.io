@@ -9,9 +9,9 @@ math: true
 
 {% include katex.html %}
 
-When engineering instruction schedulers and assemblers for modern, deep-pipeline GPUs like the Nvidia B200, static analysis and coverage metrics are necessary but decidedly insufficient. It is a humbling experience to build a compiler pass that reports 100% test coverage on Read-After-Write (RAW) dependency tracking, only to see the emitted code fail catastrophically—and silently—on actual silicon.
+When engineering instruction schedulers and assemblers for modern, deep-pipeline GPUs like the Nvidia B200, static analysis and coverage metrics are necessary but insufficient. It is a humbling experience to build a compiler pass that reports 100% test coverage on Read-After-Write (RAW) dependency tracking, only to see the emitted code fail silently on actual silicon.
 
-Why does this happen? Because the hardware pipeline itself is the final, uncompromising arbiter of correctness. When an assembler or scheduler *under-stalls* a dependency—allowing a consumer instruction to issue into the pipeline before the producer's result is firmly committed to the register file—the hardware does not typically raise an exception. Instead, it dutifully executes the compromised schedule, reading whatever stale state happens to be in the register, and propagates garbage through the rest of the computation. 
+Why does this happen? Because the hardware pipeline itself is the final arbiter of correctness. When an assembler or scheduler *under-stalls* a dependency—allowing a consumer instruction to issue into the pipeline before the producer's result is firmly committed to the register file—the hardware does not typically raise an exception. Instead, it dutifully executes the compromised schedule, reading whatever stale state happens to be in the register, and propagates garbage through the rest of the computation.
 
 These are not defects in the silicon. They are schedule violations where the hardware exposes the compiler's incorrect assumptions. In compiler backends, we generally adhere to a strict rule: **over-stalling is a performance bug, but under-stalling is a silent correctness bug.**
 
@@ -50,7 +50,7 @@ This architectural tradeoff—shifting scheduling complexity to the compiler to 
 
 ## 1. The Predicate-Consumer Under-Stall (H1)
 
-The most insidious bugs are those that slip through rigorous static checks. Recently, an internal scheduler shipped with a critical bug involving predicate evaluation, despite static metrics claiming full RAW coverage across the test suite.
+The most difficult bugs are those that slip through rigorous static checks. Recently, an internal scheduler shipped with a critical bug involving predicate evaluation, despite static metrics claiming full RAW coverage across the test suite.
 
 The pattern involves an integer set-predicate instruction (`ISETP`) that computes a condition and writes it to a predicate register, which is subsequently read by a branch instruction. This is classically seen in a back-edge branch defining a loop.
 
@@ -66,7 +66,7 @@ ISETP.GE.AND P1, PT, R0, R1, PT;
 
 ### The Mechanism of Failure
 
-The bug originated in the `def_use` dataflow analysis pass of the compiler. The analyzer correctly recorded the guard predicate `P0` as a use for the branch instruction. However, it systematically dropped the branch condition operand `P1`. 
+The bug originated in the `def_use` dataflow analysis pass of the compiler. The analyzer correctly recorded the guard predicate `P0` as a use for the branch instruction. However, it systematically dropped the branch condition operand `P1`.
 
 Consequently, the compiler's internal dependency graph missed the `ISETP` $\rightarrow$ `BRA` RAW dependency. The scheduler, completely unaware of the dependency, failed to insert the required predicate-latency stall.
 
@@ -87,7 +87,7 @@ sequenceDiagram
     HW->>Reg: ISETP Writeback to P1 (Too late)
 ```
 
-The branch issued roughly 4 cycles after the `ISETP`, well before the predicate's actual latency (modeled at 13 cycles) had elapsed. The branch instruction read a stale value for `P1`, took the wrong execution edge, and resulted in a silent miscomputation. 
+The branch issued roughly 4 cycles after the `ISETP`, well before the predicate's actual latency (modeled at 13 cycles) had elapsed. The branch instruction read a stale value for `P1`, took the wrong execution edge, and resulted in a silent miscomputation.
 
 ### Ground-Truth Mitigation
 
@@ -108,9 +108,9 @@ Through direct hardware probing on the B200, we measure the exact latency floors
 | **FFMA** | FP32 | **4 cycles** | Stall 3 yields WRONG result. Stall 4 yields CORRECT result. |
 | **DFMA** | FP64 | **8 cycles** | Stall 7 yields WRONG result. Stall 8 yields CORRECT result. |
 
-Notice the tradeoff here: higher precision arithmetic naturally requires deeper pipelines. The FP64 unit requires exactly twice the latency of the FP32 unit. 
+Notice the tradeoff here: higher precision arithmetic naturally requires deeper pipelines. The FP64 unit requires exactly twice the latency of the FP32 unit.
 
-To validate the scheduler against these latencies, we employ probe kernels that intentionally under-stall and over-stall these dependencies. 
+To validate the scheduler against these latencies, we employ probe kernels that intentionally under-stall and over-stall these dependencies.
 
 ```c
 // Probe Kernel Logic (Conceptual)
@@ -131,9 +131,9 @@ A correct scheduler must target the cycle floor exactly. We use tools like `cuob
 
 ## 3. Variable Latency and Uncovered Scoreboards (H3)
 
-Fixed latencies apply only to deterministic ALU operations. However, a vast portion of a GPU's workload involves variable-latency operations. Global memory loads (`LDG`), shared memory operations (`LDS`), atomic memory operations (`ATOM`), and complex transcendental functions (`MUFU`) have execution times that fluctuate wildly based on cache hits, TLB state, memory subsystem contention, and structural hazards.
+Fixed latencies apply only to deterministic ALU operations. However, a vast portion of a GPU's workload involves variable-latency operations. Global memory loads (`LDG`), shared memory operations (`LDS`), atomic memory operations (`ATOM`), and complex transcendental functions (`MUFU`) have execution times that vary based on cache hits, TLB state, memory subsystem contention, and structural hazards.
 
-For these operations, static stall counts are entirely inadequate. Instead, the architecture utilizes a **scoreboard**. 
+For these operations, static stall counts are entirely inadequate. Instead, the architecture utilizes a **scoreboard**.
 
 ### The Scoreboard Mechanism
 
@@ -170,7 +170,7 @@ stateDiagram-v2
     ClearBarrier --> WaitBarrier : HW Signal
 ```
 
-If an assembler strips these control barriers (for instance, via a minimal `strip` mode that forces every instruction to `stall 1` and ignore scoreboard tracking), the pipeline coherence shatters. Consumers read destination registers before the variable-latency memory result has landed.
+If an assembler strips these control barriers (for instance, via a minimal `strip` mode that forces every instruction to `stall 1` and ignore scoreboard tracking), the pipeline coherence breaks down. Consumers read destination registers before the variable-latency memory result has landed.
 
 This invariably leads to incorrect mathematical results. More critically, if the stale data happens to be an address used in a subsequent memory access, it triggers a `CUDA_ERROR_ILLEGAL_ADDRESS`. Validation requires generating `*.strip` binaries for various kernels and asserting that they *must* either compute the wrong result or crash, proving that the scoreboard barriers in the fully assembled `*.ours` binaries are the sole mechanism guaranteeing correctness.
 
@@ -178,7 +178,7 @@ This invariably leads to incorrect mathematical results. More critically, if the
 
 While fixed-latency under-stalls (H2) cause silent data corruption by reading a nearby valid—but mathematically wrong—value, load-use hazards can be intentionally amplified to provide a deterministic, loud failure. This is highly desirable for Continuous Integration (CI) systems, where binary pass/fail crash signals are far easier to triage than heuristic output differencing.
 
-A load-use hazard occurs when a value intended to be used as a memory address is read before the load producing it has landed. 
+A load-use hazard occurs when a value intended to be used as a memory address is read before the load producing it has landed.
 
 To amplify this into a guaranteed, deterministic crash, we can explicitly **poison** the index register. We load a wild constant into the register (e.g., `0x40000000`, translating to a +4 GiB offset in memory) before the actual load occurs. We maintain this poison value's liveness via a runtime-unknown guard so the compiler's dead-code elimination (DCE) pass cannot optimize it away.
 
@@ -200,9 +200,9 @@ execute_memory_operation(addr_reg);
 
 ### The Amplification Tradeoff
 
-This testing methodology provides immense value. If the schedule is correct, the load lands, the valid pointer is used, and execution succeeds cleanly (`ok`). If the schedule under-covers the latency, the hardware reads the poisoned register, resulting in a deterministic MMU fault (`CUDA_ERROR_ILLEGAL_ADDRESS`).
+This testing methodology provides significant value. If the schedule is correct, the load lands, the valid pointer is used, and execution succeeds cleanly (`ok`). If the schedule under-covers the latency, the hardware reads the poisoned register, resulting in a deterministic MMU fault (`CUDA_ERROR_ILLEGAL_ADDRESS`).
 
-It is crucial to note that this is a *recoverable* software fault. The MMU and the CUDA driver safely contain the illegal memory access. It does not cause physical hardware damage; at worst, it results in a dead CUDA context that requires process restart or an `nvidia-smi --gpu-reset`. The immense upside is an unambiguous, self-contained, minimal form of the scoreboard hazard (H3) that leaves no room for debate in the CI logs.
+It is crucial to note that this is a *recoverable* software fault. The MMU and the CUDA driver safely contain the illegal memory access. It does not cause physical hardware damage; at worst, it results in a dead CUDA context that requires process restart or an `nvidia-smi --gpu-reset`. The primary advantage is an unambiguous, self-contained, minimal form of the scoreboard hazard (H3) that leaves no room for debate in the CI logs.
 
 ## The Path Forward: Trusting Silicon
 
