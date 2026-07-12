@@ -63,7 +63,7 @@ On CPUs, sophisticated out-of-order execution engines mask these latencies dynam
 
 This architectural tradeoff means that compiler engineers must be pedantic about low-level constraints like pipeline depths and barrier encodings.
 
-## 1. The Predicate-Consumer Under-Stall (H1)
+## The Predicate-Consumer Under-Stall
 
 The most difficult bugs slip through rigorous static checks. Recently, while hacking on the B200, I discovered a critical bug involving predicate evaluation in an instruction scheduler. This occurred despite static metrics claiming full RAW coverage across the test suite.
 
@@ -112,7 +112,7 @@ However, the true defense is an on-silicon probe. I sweep the stall cycles betwe
 
 The baseline predicate latency must be dynamically probed on-device because architectural models are often approximations. On the B200, microbenchmarking probes confirmed the divergence between the modeled 13 cycles and the actual pipeline depths, where the physical predicate latency floor sits at approximately 4 cycles.
 
-## 2. Fixed-Latency RAW Under-Stalls (H2)
+## Fixed-Latency RAW Under-Stalls
 
 Fixed-latency arithmetic instructions form the backbone of matrix multiplication and tensor core workloads. They require precise, fixed cycle delays before their destination registers can be safely read. Examples include:
 *   `FFMA` (Single-precision Fused Multiply-Add)
@@ -155,7 +155,7 @@ asm volatile (
 
 A correct scheduler must target the cycle floor exactly. I used tools like `cuobjdump -sass` to verify the assembled control codes before running the resulting binaries directly on the GPU.
 
-## 3. Variable Latency and Uncovered Scoreboards (H3)
+## Variable Latency and Uncovered Scoreboards
 
 Fixed latencies apply only to deterministic ALU operations. However, a vast portion of a GPU's workload involves variable-latency operations:
 *   `LDG` (Global memory loads)
@@ -208,9 +208,9 @@ This leads to incorrect mathematical results. More critically, if the stale data
 
 Validation requires generating stripped binaries for various kernels and asserting that they must either compute the wrong result or crash. This proves that the scoreboard barriers in the fully assembled binaries are the sole mechanism guaranteeing correctness.
 
-## 4. Crash-Amplified Load-Use Hazards (H4)
+## Crash-Amplified Load-Use Hazards
 
-Fixed-latency under-stalls (H2) cause silent data corruption by reading a nearby valid—but mathematically wrong—value. Load-use hazards, however, can be intentionally amplified to provide a deterministic, loud failure[^3].
+The fixed-latency under-stalls described above cause silent data corruption by reading a nearby valid—but mathematically wrong—value. Load-use hazards, however, can be intentionally amplified to provide a deterministic, loud failure[^3].
 
 This is highly desirable for Continuous Integration (CI) systems, where binary pass/fail crash signals are easier to triage than heuristic output differencing.
 
@@ -239,7 +239,7 @@ This testing methodology provides significant value:
 
 It is crucial to note that this is a *recoverable* software fault. The MMU and the CUDA driver safely contain the illegal memory access. It does not cause physical hardware damage; at worst, it results in a dead CUDA context that requires process restart or an `nvidia-smi --gpu-reset`.
 
-The primary advantage is an unambiguous, self-contained, minimal form of the scoreboard hazard (H3) that leaves no room for debate in the CI logs.
+The primary advantage is an unambiguous, self-contained, minimal form of the scoreboard hazard described earlier that leaves no room for debate in the CI logs.
 
 ## The Path Forward: Trusting Silicon
 
