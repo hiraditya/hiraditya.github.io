@@ -1,6 +1,5 @@
 ---
 title: "The Anatomy of an Instruction Pipeline Hazard"
-subtitle: "A case study of the B200 pipeline model"
 date: 2026-07-12 12:00:00 -0700
 categories: [Systems, GPU Architecture]
 tags: [gpu, assembly, ptxsass, b200]
@@ -9,6 +8,8 @@ math: true
 ---
 
 {% include katex.html %}
+
+*A case study of the B200 pipeline model*
 
 > **A note on methodology:** Everything in this article is based on my analysis of microbenchmarks executed directly on B200 silicon. Nvidia does not publish instruction latencies, pipeline depths, or scoreboard encoding details for its GPUs. The numbers and mechanisms described here represent my best empirical understanding. Readers should do their own due diligence and verify against their own hardware.
 
