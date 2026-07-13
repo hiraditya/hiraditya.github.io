@@ -184,7 +184,19 @@ Running this probe across stall values 0–15 on the B200 produces the following
     15    1075  CORRECT
 ```
 
-The boundary is unambiguous. Stall 3 yields WRONG (the consumer reads a stale register), stall 4 yields CORRECT. Stall 0 is a special encoding that defaults to a large wait, which is why it reports CORRECT but at a much higher cycle count. A correct scheduler must target the cycle floor exactly. I used tools like `cuobjdump -sass` to verify the assembled control codes before running the resulting binaries directly on the GPU.
+The boundary is unambiguous. Stall 3 yields WRONG (the consumer reads a stale register), stall 4 yields CORRECT. Stall 0 is a special encoding that defaults to a large wait, which is why it reports CORRECT but at a much higher cycle count. I used tools like `cuobjdump -sass` to verify the assembled control codes before running the resulting binaries directly on the GPU.
+
+### The "Friendliest Dependency" Trap
+
+A word of caution: the FFMA floor of 4 came from the friendliest possible dependency shape — an FFMA→FFMA chain where the consumer reads a single live register and two folded-immediate `1.0f` operands. This is the easiest case for the hardware to service.
+
+The true latency floor is not a property of the producer alone. It is a function of `stall(producer_op, consumer_op, operand_layout)`. Several mechanisms can push the required stall *higher* for real workloads:
+
+*   **Consumer op-class read stage.** Different consumer ops read their source operands at different pipeline stages. An FFMA result may need to be ready earlier for an `FADD` consumer than for another `FFMA`.
+*   **Operand-collector and register-bank pressure.** A consumer reading three distinct live registers in conflicting banks needs an extra operand-gather cycle. The probe above reads one register and two immediates, so it never pays this cost.
+*   **Operand `.reuse` flags.** A homogeneous same-slot chain is exactly what `ptxas` tags with `.reuse`. A served-from-latch operand has different timing than a cold gather, so the probe chain can see an artificially low floor that a real (non-reuse) instruction stream would not tolerate.
+
+A scheduler is correctness-first: if any real consumer needs stall 5 and the model emits 4, the result is a silent wrong-answer bug. The safe approach is to sweep across consumer op-classes and operand layouts, then set the model's scalar latency to the **maximum** observed floor. Do not trust a single producer→consumer microbenchmark in isolation.
 
 ## Variable Latency and Uncovered Scoreboards
 
