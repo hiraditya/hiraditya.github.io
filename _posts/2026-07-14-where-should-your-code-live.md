@@ -61,7 +61,7 @@ The tradeoff is scale. Codeberg runs on non-profit infrastructure. It can be slo
 
 ### SourceHut
 
-SourceHut[^4] (sr.ht) is the most opinionated platform on this list. Created by Drew DeVault, it is built around a philosophy of minimalism, privacy, and email-based workflows.
+SourceHut[^4] (sr.ht) is the most opinionated platform on this list. Created by [Drew DeVault](https://drewdevault.com/), it is built around a philosophy of minimalism, privacy, and email-based workflows.
 
 The distinguishing characteristics:
 
