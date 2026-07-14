@@ -50,7 +50,7 @@ The book is not without limitations when read today:
 
 **No discussion of memory hierarchy.** Wirth's cost model counts comparisons and pointer dereferences, but it does not account for cache lines, TLB misses, or NUMA topology. On modern hardware, a linked list traversal and an array scan of the same logical data can differ by an order of magnitude in wall-clock time purely due to memory access patterns. The algorithms in this book are analyzed in a flat-memory model that no longer reflects reality.
 
-**The language choice.** Pascal, Modula-2, and Oberon are all Wirth's own languages. They are clean, well-designed, and pedagogically effective. They are also not what anyone ships production code in today. A reader must mentally translate the idioms. This is not a fatal flaw — the algorithms are language-agnostic — but it does add friction, especially for readers whose only exposure is Python or JavaScript.
+**The language choice.** Pascal, Modula-2, and Oberon are all Wirth's own languages. They are clean, well-designed, and pedagogically effective. They are also not what anyone ships production code in today. A reader must mentally translate the idioms. This is not a fatal flaw (the algorithms are language-agnostic) but it does add friction, especially for readers in the current era.
 
 **The scope is narrow by modern standards.** There is no discussion of graphs (beyond trees), no probabilistic data structures (bloom filters, count-min sketches, HyperLogLog), no persistent or functional data structures, and no treatment of compression or serialization. These are topics that a modern systems programmer encounters daily.
 
@@ -60,7 +60,7 @@ The book is not without limitations when read today:
 
 The paradox of AI-assisted programming is that it simultaneously lowers the barrier to writing code and raises the bar for understanding it. When an LLM generates a red-black tree implementation or a merge sort in a language you have never used, you need a mental framework to evaluate whether it is correct, efficient, and appropriate for the task. You need to know what questions to ask: Is this $O(n \log n)$ or $O(n^2)$? Does it allocate on the heap or the stack? What happens under contention?
 
-Wirth's book provides that framework. Not because it covers every modern topic — it does not — but because it teaches a way of thinking. Data and algorithms are not separate concerns. Representation determines performance. Abstraction has a cost. The machine is not infinitely fast, and memory is not infinitely cheap.
+Wirth's book provides that framework. Not because it covers every modern topic but because it teaches a way of thinking. Data and algorithms are not separate concerns. Representation determines performance as well as developer experience. Abstraction has a cost. The machine is not infinitely fast, memory is not infinitely cheap, and developers attention span continues to decline.
 
 The title is the lesson: *Algorithms + Data Structures = Programs*. Not frameworks. Not libraries. Not language features. Algorithms and data structures. If you internalize this, you can work in any language an LLM generates for you. If you do not, you are at the mercy of whatever the model hallucinated.
 
