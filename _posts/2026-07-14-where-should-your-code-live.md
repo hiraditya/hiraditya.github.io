@@ -1,6 +1,6 @@
 ---
 title: "Where Should Your Code Live?"
-date: 2026-07-14 12:00:00 -0700
+date: 2026-07-13 12:00:00 -0700
 categories: [Systems, Infrastructure]
 tags: [git, code-hosting, open-source, infrastructure]
 ---
