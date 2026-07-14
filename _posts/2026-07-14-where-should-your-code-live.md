@@ -26,6 +26,8 @@ But there are reasons to think carefully about this default:
 
 None of these are reasons to leave GitHub in a panic. They are reasons to understand what you are trading for the convenience.
 
+It is also worth noting that any agreement you have with a hosting provider can develop loopholes over time. Emerging technologies create new categories of use that existing terms of service never anticipated. LLM training on hosted code is the current example, but it will not be the last. By the time a policy change is announced, your code may have already been ingested. GitHub publishes all DMCA takedown notices in a public repository[^11], which makes for instructive reading. The scale of enforcement is visible there: in March 2026, Anthropic filed a DMCA against a single repository and GitHub took down the entire fork network of 8,100 repositories in a single action[^12]. Whether or not the takedown was justified, the mechanism itself — one filing, 8,100 repos offline — is worth understanding if your project depends on the platform.
+
 ### GitLab.com
 
 GitLab is the most feature-complete alternative to GitHub. It offers repository hosting, issue tracking, merge requests, and a comprehensive DevOps platform. The self-managed edition (GitLab CE/EE) can be installed on your own infrastructure, which gives you full control over the data.
@@ -131,5 +133,7 @@ The underlying principle is straightforward: Git is a distributed version contro
 [^8]: **Microsoft completes acquisition of GitHub.** Microsoft News, October 2018. ([Link](https://news.microsoft.com/2018/10/26/microsoft-completes-acquisition-of-github/))
 [^9]: **Forgejo — beyond coding. We forge.** Forgejo's founding statement explaining the fork from Gitea after its domain and trademark were transferred to a for-profit entity. ([Link](https://forgejo.org/faq/))
 [^10]: **Submitting patches: the essential guide to getting your code into the kernel.** Linux kernel documentation on the email-based patch workflow. ([Link](https://www.kernel.org/doc/html/latest/process/submitting-patches.html))
+[^11]: **GitHub DMCA repository:** Public archive of all DMCA takedown notices and counter-notices received by GitHub. ([Link](https://github.com/github/dmca))
+[^12]: **Anthropic DMCA takedown notice (March 2026):** Anthropic filed a DMCA against a single repository; GitHub processed the takedown against the entire fork network of 8.1K repositories. ([Link](https://github.com/github/dmca/blob/master/2026/03/2026-03-31-anthropic.md))
 
 *Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
