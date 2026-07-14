@@ -100,6 +100,49 @@ The tradeoff is maturity. Radicle is functional but lacks the polish and feature
 
 Radicle is best suited for projects that prioritize censorship resistance above all else, or for developers who want to decouple their collaboration workflow from any platform provider entirely.
 
+## Encrypted Pushes: Staying on GitHub Without Trusting It
+
+There is a middle path for developers who want to keep GitHub's network effects and tooling but do not want the platform to have access to their plaintext source: encrypt before you push.
+
+Git supports this natively through **clean/smudge filters**[^15]. A clean filter runs when content is staged for commit (working directory → repository). A smudge filter runs when content is checked out (repository → working directory). By configuring a clean filter that encrypts and a smudge filter that decrypts, your local working copy remains plaintext while the blobs stored on GitHub are ciphertext. From GitHub's perspective, your repository contains opaque binary data.
+
+The practical tool for this is **git-crypt**[^16]. Setup looks roughly like this:
+
+```bash
+# Install git-crypt and initialize it in your repo
+git-crypt init
+
+# Specify which files to encrypt via .gitattributes
+echo "*.cpp filter=git-crypt diff=git-crypt" >> .gitattributes
+echo "*.h filter=git-crypt diff=git-crypt" >> .gitattributes
+
+# Export the symmetric key (back this up securely)
+git-crypt export-key /path/to/keyfile
+
+# Collaborators unlock with the key
+git-crypt unlock /path/to/keyfile
+```
+
+You can also do this with a custom script in `.gitconfig` if you prefer not to depend on `git-crypt`:
+
+```bash
+# .gitconfig
+[filter "encrypt"]
+    clean = openssl enc -aes-256-cbc -salt -pbkdf2 -pass file:$HOME/.git-encrypt-key
+    smudge = openssl enc -aes-256-cbc -d -salt -pbkdf2 -pass file:$HOME/.git-encrypt-key
+```
+
+Either approach works. The tradeoffs are real:
+
+- **No server-side diffs.** Pull requests on GitHub will show binary gibberish. Code review must happen locally or through a separate channel.
+- **No GitHub CI/CD.** GitHub Actions cannot read your source, so any CI pipelines must run on infrastructure you control. This is outside the scope of this post, but it is the most significant practical limitation.
+- **Key management.** Every collaborator needs the decryption key. Losing the key means losing access to the repository history. This is a hard operational requirement.
+- **Selective encryption.** You do not have to encrypt everything. `git-crypt` lets you specify patterns in `.gitattributes`, so you can encrypt source files while leaving `README.md`, `LICENSE`, and build scripts in plaintext.
+
+The result is a repository that appears on GitHub as a normal project — it has commits, branches, history — but the actual source code is unreadable to the platform, to Copilot, and to any model training pipeline. Your code lives on GitHub's infrastructure, but GitHub cannot read it.
+
+This is not a clean solution. It adds friction to collaboration, breaks web-based code review, and introduces key management overhead. But for developers or teams who need GitHub's ecosystem while treating the platform as an untrusted storage layer, it works.
+
 ## Comparison
 
 | | **GitHub** | **GitLab.com** | **Codeberg** | **SourceHut** | **Forgejo** (self-hosted) | **Radicle** |
@@ -160,5 +203,7 @@ The underlying principle is straightforward: Git is a distributed version contro
 [^12]: **Anthropic DMCA takedown notice (March 2026):** Anthropic filed a DMCA against a single repository; GitHub processed the takedown against the entire fork network of 8.1K repositories. ([Link](https://github.com/github/dmca/blob/master/2026/03/2026-03-31-anthropic.md))
 [^13]: **GitHub blocked developers in Iran, Syria, and Crimea.** TechMonitor, July 2019. GitHub restricted access to private repositories and paid features for developers in US-sanctioned countries. ([Link](https://www.techmonitor.ai/technology/software/github-blocked-developers-iran-syria-crimea))
 [^14]: **GitHub is now free for teams and available in Iran.** Developer Tech, January 2021. GitHub secured an OFAC license to restore full access for Iranian developers. ([Link](https://www.developer-tech.com/news/github-now-free-teams-available-iran/))
+[^15]: **Git attributes — clean/smudge filters.** Git documentation on configuring filters that transform content on checkout (smudge) and staging (clean). ([Link](https://git-scm.com/book/en/v2/Customizing-Git-Git-Attributes))
+[^16]: **git-crypt:** Transparent file encryption in Git using clean/smudge filters with GPG or symmetric key support. ([Link](https://github.com/AGWA/git-crypt))
 
 *Disclaimer: This post is for informational purposes only and does not constitute legal advice. Consult a qualified attorney for guidance on intellectual property, licensing, or jurisdictional matters. This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
