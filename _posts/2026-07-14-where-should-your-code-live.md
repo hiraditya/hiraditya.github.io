@@ -100,6 +100,26 @@ The tradeoff is maturity. Radicle is functional but lacks the polish and feature
 
 Radicle is best suited for projects that prioritize censorship resistance above all else, or for developers who want to decouple their collaboration workflow from any platform provider entirely.
 
+### Decentralized Storage: The Permanence Layer
+
+The platforms above handle the *workflow* of code collaboration — commits, patches, code review. A separate class of emerging protocols addresses a different problem: ensuring that code, once published, cannot be removed by any single entity.
+
+These are not Git forges. They are storage networks. You pay for availability, and in return you get data that no centralized actor can take down.
+
+**Walrus**[^17] is a decentralized storage protocol built on the Sui blockchain. It distributes data across a global network of independent storage nodes using a 2D erasure-coding scheme (RedStuff), which means the data can be reconstructed even if a significant fraction of nodes go offline. You interact with Walrus via a CLI or HTTP API to store and retrieve blobs. Storage is paid in WAL tokens. It also supports hosting fully decentralized static websites (Walrus Sites), which could serve as a censorship-resistant landing page for a project's documentation and release artifacts.
+
+**Arweave**[^18] takes a different approach: permanent storage with a one-time fee. When you store data on Arweave, it is written to an append-only structure (the "blockweave") and replicated across the network indefinitely. There is no recurring cost and no expiry. This makes Arweave well-suited for archiving snapshots of a repository — a periodic `git bundle` pushed to Arweave creates an immutable backup that survives regardless of what happens to your primary hosting.
+
+**IPFS and Filecoin**[^19] provide content-addressed storage. IPFS gives every piece of data a unique hash; anyone who has the hash can retrieve the data from any node that hosts it. The limitation is that data only stays available as long as at least one node "pins" it. Filecoin adds an incentive layer: storage providers are paid to keep data online, creating a market for reliable long-term hosting. You can push a bare Git repository to IPFS and distribute the hash. The repository becomes globally addressable and difficult to censor, though the workflow is not interactive — you cannot `git push` to IPFS directly.
+
+These protocols share a common tradeoff: you pay for availability (in tokens, fees, or operational complexity), and in return you get storage that no single entity — no corporation, no government, no DMCA filing — can remove. They are not replacements for a Git forge. They are a complementary layer for projects that need guarantees beyond what any server-based platform can offer.
+
+| Protocol | Model | Cost | Best For |
+| :--- | :--- | :--- | :--- |
+| **Walrus** | Erasure-coded blob storage (Sui) | WAL tokens | Live data, decentralized sites, API-accessible storage |
+| **Arweave** | Permanent append-only storage | One-time fee | Immutable archival snapshots, "permaweb" |
+| **IPFS + Filecoin** | Content-addressed + incentivized pinning | Filecoin tokens | Globally addressable backups, large dataset distribution |
+
 ## Encrypted Pushes: Staying on GitHub Without Trusting It
 
 There is a middle path for developers who want to keep GitHub's network effects and tooling but do not want the platform to have access to their plaintext source: encrypt before you push.
@@ -205,5 +225,8 @@ The underlying principle is straightforward: Git is a distributed version contro
 [^14]: **GitHub is now free for teams and available in Iran.** Developer Tech, January 2021. GitHub secured an OFAC license to restore full access for Iranian developers. ([Link](https://www.developer-tech.com/news/github-now-free-teams-available-iran/))
 [^15]: **Git attributes — clean/smudge filters.** Git documentation on configuring filters that transform content on checkout (smudge) and staging (clean). ([Link](https://git-scm.com/book/en/v2/Customizing-Git-Git-Attributes))
 [^16]: **git-crypt:** Transparent file encryption in Git using clean/smudge filters with GPG or symmetric key support. ([Link](https://github.com/AGWA/git-crypt))
+[^17]: **Walrus:** Decentralized storage and data availability protocol built on Sui, using erasure coding for resilient blob storage. ([Link](https://docs.wal.app))
+[^18]: **Arweave:** Permanent, decentralized data storage with a one-time fee. Data is written to an append-only "blockweave" and replicated indefinitely. ([Link](https://www.arweave.org/))
+[^19]: **IPFS and Filecoin:** Content-addressed storage (IPFS) with an incentivized pinning layer (Filecoin) for reliable long-term data availability. ([IPFS](https://ipfs.tech/), [Filecoin](https://filecoin.io/))
 
 *Disclaimer: This post is for informational purposes only and does not constitute legal advice. Consult a qualified attorney for guidance on intellectual property, licensing, or jurisdictional matters. This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
