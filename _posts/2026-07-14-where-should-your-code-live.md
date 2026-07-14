@@ -20,7 +20,7 @@ GitHub is the default. Most open-source projects live there. Most hiring manager
 But there are reasons to think carefully about this default:
 
 - **DMCA compliance.** GitHub is a US-based entity and complies aggressively with DMCA takedown requests. The `youtube-dl` takedown in 2020[^7] was the most visible example, but smaller projects get hit regularly. The process is automated and weighted toward the claimant. Your project can go offline before you have a chance to respond.
-- **AI training.** In April 2026, GitHub updated its policy to use interaction data from Copilot Free, Pro, and Pro+ users to train its AI models by default[^1]. This includes code snippets and surrounding context from files you are actively editing. Enterprise users are exempt. Individual developers are opted in unless they manually disable the setting. This is a meaningful policy distinction.
+- **AI training.** In April 2026, GitHub updated its policy to use interaction data from Copilot Free, Pro, and Pro+ users to train its AI models by default[^1]. This includes code snippets and surrounding context from files you are actively editing. Enterprise users are exempt[^20]. Individual developers are opted in unless they manually disable the setting. This is a meaningful policy distinction. A related class-action lawsuit (*Doe v. GitHub*) alleging that Copilot violates open-source licenses by reproducing code without attribution is currently before the Ninth Circuit[^21].
 - **Account suspension.** GitHub can suspend accounts for terms-of-service violations, and the appeals process is opaque. If your account is suspended, your repositories become inaccessible. For a solo developer, this can mean losing years of work history, issue discussions, and release artifacts in a single action.
 - **Microsoft ownership.** This is a matter of individual judgment. Some developers are comfortable with Microsoft stewardship[^8]. Others are not. The concern is not about today's policies but about the structural fact that a single corporation controls the platform where the majority of the world's open-source code lives.
 
@@ -42,13 +42,13 @@ On the code hosting side specifically:
 
 ### Bitbucket
 
-Owned by Atlassian. The natural choice if your team already uses Jira, Confluence, and the rest of the Atlassian stack. As a standalone code hosting platform, it has few distinguishing features over GitHub or GitLab. Atlassian has been deprioritizing Bitbucket's standalone offering in favor of tighter integration with its project management tools.
+Owned by Atlassian. The natural choice if your team already uses Jira, Confluence, and the rest of the Atlassian stack. As a standalone code hosting platform, it has few distinguishing features over GitHub or GitLab. Atlassian ended support for Bitbucket Server in February 2024[^22] and is sunsetting native Issues and Wikis in Bitbucket Cloud in favor of Jira and Confluence integration[^23].
 
 ## The Alternatives
 
 ### Codeberg
 
-Codeberg[^3] is a non-profit code hosting platform based in Germany, run by the Codeberg e.V. association. It is powered by Forgejo (see below) and is the closest thing to a "drop-in replacement" for GitHub in terms of user experience.
+Codeberg[^3] is a non-profit code hosting platform based in Germany, run by the Codeberg e.V. association[^24]. It is powered by Forgejo (see below) and is the closest thing to a "drop-in replacement" for GitHub in terms of user experience.
 
 Why it matters:
 
@@ -178,7 +178,7 @@ This is not a clean solution. It adds friction to collaboration, breaks web-base
 
 There is a dimension to code hosting that individual developers rarely think about but that matters at the institutional and national level: jurisdiction.
 
-GitHub, GitLab.com, and Bitbucket are all US-based entities subject to US trade sanctions enforced by the Office of Foreign Assets Control (OFAC). In July 2019, GitHub restricted access to private repositories, paid features, and the GitHub Marketplace for developers in Iran, Syria, Crimea, Cuba, and North Korea[^13]. Developers in those regions found themselves locked out of their own private repositories overnight. GitHub later secured a license from OFAC to restore full access for Iranian developers in January 2021[^14], but the precedent was set: a policy decision in Washington can make your codebase inaccessible regardless of what your terms of service say.
+GitHub, GitLab.com, and Bitbucket are all US-based entities subject to US trade sanctions enforced by the Office of Foreign Assets Control (OFAC)[^25]. In July 2019, GitHub restricted access to private repositories, paid features, and the GitHub Marketplace for developers in Iran, Syria, Crimea, Cuba, and North Korea[^13]. Developers in those regions found themselves locked out of their own private repositories overnight. GitHub later secured a license from OFAC to restore full access for Iranian developers in January 2021[^14], but the precedent was set: a policy decision in Washington can make your codebase inaccessible regardless of what your terms of service say.
 
 This is not a hypothetical concern for governments, universities, defense contractors, and companies in non-US jurisdictions. If your country's relationship with the US changes, your access to a US-hosted platform can change with it. The code is still there. You simply cannot reach it.
 
@@ -189,7 +189,7 @@ For entities that need to account for this risk, several providers operate outsi
 | **Codeberg** | Germany (EU) | Non-profit SaaS | GDPR-compliant, community-governed |
 | **Framagit** | France (EU) | Non-profit SaaS | Operated by Framasoft, focused on software freedom |
 | **GNU Savannah** | France (EU) | Non-profit SaaS | Exclusively for GNU and free software projects |
-| **Gitee** | China | Commercial SaaS | Domestic Chinese alternative to GitHub, government-backed |
+| **Gitee** | China | Commercial SaaS | Domestic Chinese alternative to GitHub, operated by Open Source China[^26] |
 | **Forgejo / GitLab CE** | Your choice | Self-hosted | Host on infrastructure in any jurisdiction you control |
 
 The self-hosted option is the most defensible for sovereign entities, but it is not absolute. A Forgejo or GitLab CE instance running on domestic infrastructure — a European VPS from Hetzner or Exoscale, or a government-operated data center — places the code under the legal framework of the hosting country, not the platform provider's country. No foreign platform can suspend your account or change the terms of service. However, self-hosting still has dependencies: your DNS registrar can suspend your domain, your cloud or VPS provider can terminate your account, and a country-level firewall can block your server's IP entirely. True sovereignty requires owning each layer of the stack — hardware, network, DNS — which is feasible for a government data center but not for a solo developer on a rented VPS.
@@ -228,5 +228,12 @@ The underlying principle is straightforward: Git is a distributed version contro
 [^17]: **Walrus:** Decentralized storage and data availability protocol built on Sui, using erasure coding for resilient blob storage. ([Link](https://docs.wal.app))
 [^18]: **Arweave:** Permanent, decentralized data storage with a one-time fee. Data is written to an append-only "blockweave" and replicated indefinitely. ([Link](https://www.arweave.org/))
 [^19]: **IPFS and Filecoin:** Content-addressed storage (IPFS) with an incentivized pinning layer (Filecoin) for reliable long-term data availability. ([IPFS](https://ipfs.tech/), [Filecoin](https://filecoin.io/))
+[^20]: **GitHub Copilot Trust Center:** Copilot Business and Enterprise customers are excluded from data training by default under existing contractual terms. ([Link](https://resources.github.com/copilot-trust-center/))
+[^21]: ***Doe v. GitHub, Inc.* (Copilot class-action lawsuit):** Filed November 2022, alleging GitHub Copilot violates open-source licenses by reproducing code without attribution. Oral arguments before the Ninth Circuit held February 2026. ([Link](https://githubcopilotlitigation.com/))
+[^22]: **Atlassian Server end of support:** Atlassian ended support for all Server products, including Bitbucket Server, on February 15, 2024. ([Link](https://www.atlassian.com/migration/assess/journey-to-cloud))
+[^23]: **Bitbucket Cloud: sunsetting Issues and Wikis.** Atlassian is removing native Issues and Wikis from Bitbucket Cloud in favor of Jira and Confluence integration. ([Link](https://bitbucket.org/blog/sunsetting-bitbucket-cloud-issues-and-wikis))
+[^24]: **Codeberg e.V.:** Registered non-profit association (*eingetragener Verein*) in Berlin, Germany, founded in 2018. ([Link](https://codeberg.org/Codeberg/org/src/branch/main/Imprint.md))
+[^25]: **GitHub and Trade Controls:** GitHub's official policy on US export control regulations and sanctions compliance. ([Link](https://docs.github.com/en/site-policy/other-site-policies/github-and-trade-controls))
+[^26]: **Gitee:** Git-based code hosting platform operated by Open Source China (OSChina), serving as China's primary domestic alternative to GitHub. ([Link](https://gitee.com/))
 
 *Disclaimer: This post is for informational purposes only and does not constitute legal advice. Consult a qualified attorney for guidance on intellectual property, licensing, or jurisdictional matters. This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
