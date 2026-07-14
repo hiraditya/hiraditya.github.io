@@ -109,6 +109,27 @@ Radicle is best suited for projects that prioritize censorship resistance above 
 | **Workflow** | Web-based PRs | Web-based MRs | Web-based PRs | Email patches | Web-based PRs | P2P/local |
 | **Cost** | Free / paid tiers | Free / paid tiers | Free (donations) | ~$5–15/mo | Server cost | Free |
 | **Self-hostable** | No | Yes (CE/EE) | Via Forgejo | Yes | Yes | Yes (node) |
+## Jurisdictional Risk
+
+There is a dimension to code hosting that individual developers rarely think about but that matters at the institutional and national level: jurisdiction.
+
+GitHub, GitLab.com, and Bitbucket are all US-based entities subject to US trade sanctions enforced by the Office of Foreign Assets Control (OFAC). In July 2019, GitHub restricted access to private repositories, paid features, and the GitHub Marketplace for developers in Iran, Syria, Crimea, Cuba, and North Korea[^13]. Developers in those regions found themselves locked out of their own private repositories overnight. GitHub later secured a license from OFAC to restore full access for Iranian developers in January 2021[^14], but the precedent was set: a policy decision in Washington can make your codebase inaccessible regardless of what your terms of service say.
+
+This is not a hypothetical concern for governments, universities, defense contractors, and companies in non-US jurisdictions. If your country's relationship with the US changes, your access to a US-hosted platform can change with it. The code is still there. You simply cannot reach it.
+
+For entities that need to account for this risk, several providers operate outside US jurisdiction:
+
+| Provider | Jurisdiction | Type | Notes |
+| :--- | :--- | :--- | :--- |
+| **Codeberg** | Germany (EU) | Non-profit SaaS | GDPR-compliant, community-governed |
+| **Framagit** | France (EU) | Non-profit SaaS | Operated by Framasoft, focused on software freedom |
+| **GNU Savannah** | France (EU) | Non-profit SaaS | Exclusively for GNU and free software projects |
+| **Gitee** | China | Commercial SaaS | Domestic Chinese alternative to GitHub, government-backed |
+| **Forgejo / GitLab CE** | Your choice | Self-hosted | Host on infrastructure in any jurisdiction you control |
+
+The self-hosted option remains the most defensible for sovereign entities. A Forgejo or GitLab CE instance running on domestic infrastructure — a European VPS from Hetzner or Exoscale, or a government-operated data center — places the code under the legal framework of the hosting country, not the platform provider's country. No foreign entity can issue a takedown or restrict access.
+
+For individual developers, jurisdictional risk may feel abstract. For a university research group, a defense contractor, or a national open-source initiative, it is a concrete operational concern. The question is not whether your current access will be disrupted. The question is whether your hosting strategy survives a change in geopolitical conditions that you cannot predict.
 
 ## A Practical Strategy
 
@@ -135,5 +156,7 @@ The underlying principle is straightforward: Git is a distributed version contro
 [^10]: **Submitting patches: the essential guide to getting your code into the kernel.** Linux kernel documentation on the email-based patch workflow. ([Link](https://www.kernel.org/doc/html/latest/process/submitting-patches.html))
 [^11]: **GitHub DMCA repository:** Public archive of all DMCA takedown notices and counter-notices received by GitHub. ([Link](https://github.com/github/dmca))
 [^12]: **Anthropic DMCA takedown notice (March 2026):** Anthropic filed a DMCA against a single repository; GitHub processed the takedown against the entire fork network of 8.1K repositories. ([Link](https://github.com/github/dmca/blob/master/2026/03/2026-03-31-anthropic.md))
+[^13]: **GitHub blocked developers in Iran, Syria, and Crimea.** TechMonitor, July 2019. GitHub restricted access to private repositories and paid features for developers in US-sanctioned countries. ([Link](https://www.techmonitor.ai/technology/software/github-blocked-developers-iran-syria-crimea))
+[^14]: **GitHub is now free for teams and available in Iran.** Developer Tech, January 2021. GitHub secured an OFAC license to restore full access for Iranian developers. ([Link](https://www.developer-tech.com/news/github-now-free-teams-available-iran/))
 
 *Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
