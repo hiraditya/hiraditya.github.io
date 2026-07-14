@@ -161,4 +161,4 @@ The underlying principle is straightforward: Git is a distributed version contro
 [^13]: **GitHub blocked developers in Iran, Syria, and Crimea.** TechMonitor, July 2019. GitHub restricted access to private repositories and paid features for developers in US-sanctioned countries. ([Link](https://www.techmonitor.ai/technology/software/github-blocked-developers-iran-syria-crimea))
 [^14]: **GitHub is now free for teams and available in Iran.** Developer Tech, January 2021. GitHub secured an OFAC license to restore full access for Iranian developers. ([Link](https://www.developer-tech.com/news/github-now-free-teams-available-iran/))
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
+*Disclaimer: This post is for informational purposes only and does not constitute legal advice. Consult a qualified attorney for guidance on intellectual property, licensing, or jurisdictional matters. This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
