@@ -19,10 +19,10 @@ GitHub is the default. Most open-source projects live there. Most hiring manager
 
 But there are reasons to think carefully about this default:
 
-- **DMCA compliance.** GitHub is a US-based entity and complies aggressively with DMCA takedown requests. The `youtube-dl` takedown in 2020 was the most visible example, but smaller projects get hit regularly. The process is automated and weighted toward the claimant. Your project can go offline before you have a chance to respond.
+- **DMCA compliance.** GitHub is a US-based entity and complies aggressively with DMCA takedown requests. The `youtube-dl` takedown in 2020[^7] was the most visible example, but smaller projects get hit regularly. The process is automated and weighted toward the claimant. Your project can go offline before you have a chance to respond.
 - **AI training.** In April 2026, GitHub updated its policy to use interaction data from Copilot Free, Pro, and Pro+ users to train its AI models by default[^1]. This includes code snippets and surrounding context from files you are actively editing. Enterprise users are exempt. Individual developers are opted in unless they manually disable the setting. This is a meaningful policy distinction.
 - **Account suspension.** GitHub can suspend accounts for terms-of-service violations, and the appeals process is opaque. If your account is suspended, your repositories become inaccessible. For a solo developer, this can mean losing years of work history, issue discussions, and release artifacts in a single action.
-- **Microsoft ownership.** This is a matter of individual judgment. Some developers are comfortable with Microsoft stewardship. Others are not. The concern is not about today's policies but about the structural fact that a single corporation controls the platform where the majority of the world's open-source code lives.
+- **Microsoft ownership.** This is a matter of individual judgment. Some developers are comfortable with Microsoft stewardship[^8]. Others are not. The concern is not about today's policies but about the structural fact that a single corporation controls the platform where the majority of the world's open-source code lives.
 
 None of these are reasons to leave GitHub in a panic. They are reasons to understand what you are trading for the convenience.
 
@@ -61,7 +61,7 @@ SourceHut[^4] (sr.ht) is the most opinionated platform on this list. Created by 
 
 The distinguishing characteristics:
 
-- **Email-native collaboration.** There are no pull requests. Contributors send patches via `git send-email` to the project's mailing list. Code review happens in email threads. This is how the Linux kernel and many other large projects have worked for decades. It is unfamiliar to developers raised on GitHub's web UI, but it is well-tested at scale.
+- **Email-native collaboration.** There are no pull requests. Contributors send patches via `git send-email` to the project's mailing list. Code review happens in email threads. This is how the Linux kernel[^10] and many other large projects have worked for decades. It is unfamiliar to developers raised on GitHub's web UI, but it is well-tested at scale.
 - **No JavaScript required.** The web interface is fast, lightweight, and works in any browser. No tracking, no analytics, no ads.
 - **Paid model.** SourceHut charges a subscription (approximately $5–$15/month, with financial aid available). This means you are the customer, not the product. The business model is not advertising or data monetization.
 - **CI/CD.** SourceHut has a built-in build system (`builds.sr.ht`) that supports multiple Linux distributions and BSDs natively.
@@ -70,7 +70,7 @@ The tradeoff is the learning curve. If your contributors are accustomed to click
 
 ### Forgejo and Gitea (Self-Hosted)
 
-Forgejo[^5] and Gitea are lightweight, self-hosted Git forges written in Go. Forgejo is a community-driven fork of Gitea that split off to ensure non-profit governance after concerns about Gitea's commercial direction.
+Forgejo[^5] and Gitea are lightweight, self-hosted Git forges written in Go. Forgejo is a community-driven fork of Gitea that split off in late 2022 to ensure non-profit governance after Gitea's domain and trademark were transferred to a for-profit company without community consultation[^9].
 
 Self-hosting gives you:
 
@@ -127,5 +127,9 @@ The underlying principle is straightforward: Git is a distributed version contro
 [^4]: **SourceHut:** Minimalist, privacy-focused code hosting with email-based workflows. ([Link](https://sourcehut.org/))
 [^5]: **Forgejo:** Community-driven, self-hosted Git forge (fork of Gitea). ([Link](https://forgejo.org/))
 [^6]: **Radicle:** Peer-to-peer code collaboration network. ([Link](https://radicle.xyz/))
+[^7]: **Standing up for developers: youtube-dl is back.** GitHub Blog, November 2020. GitHub reinstated the youtube-dl repository after the EFF filed a counter-notice to the RIAA's DMCA takedown. ([Link](https://github.blog/news-insights/policy-news-and-insights/standing-up-for-developers-youtube-dl-is-back/))
+[^8]: **Microsoft completes acquisition of GitHub.** Microsoft News, October 2018. ([Link](https://news.microsoft.com/2018/10/26/microsoft-completes-acquisition-of-github/))
+[^9]: **Forgejo — beyond coding. We forge.** Forgejo's founding statement explaining the fork from Gitea after its domain and trademark were transferred to a for-profit entity. ([Link](https://forgejo.org/faq/))
+[^10]: **Submitting patches: the essential guide to getting your code into the kernel.** Linux kernel documentation on the email-based patch workflow. ([Link](https://www.kernel.org/doc/html/latest/process/submitting-patches.html))
 
 *Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
