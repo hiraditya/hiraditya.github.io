@@ -37,7 +37,7 @@ GitLab is the most feature-complete alternative to GitHub. It offers repository 
 On the code hosting side specifically:
 
 - GitLab has publicly stated that it does not train AI models on customer code at any tier[^2].
-- DMCA handling follows standard legal compliance, but GitLab has historically been more responsive to due diligence than GitHub.
+- DMCA handling follows standard US legal compliance.
 - The interface is heavier than GitHub's. For pure code hosting, it can feel like overkill.
 
 ### Bitbucket
@@ -194,6 +194,7 @@ Licensing is not a silver bullet against AI training. It is a signal — one tha
 | **Workflow** | Web-based PRs | Web-based MRs | Web-based PRs | Email patches | Web-based PRs | P2P/local |
 | **Cost** | Free / paid tiers | Free / paid tiers | Free (donations) | ~$5–15/mo | Server cost | Free |
 | **Self-hostable** | No | Yes (CE/EE) | Via Forgejo | Yes | Yes | Yes (node) |
+
 ## Jurisdictional Risk
 
 There is a dimension to code hosting that individual developers rarely think about but that matters at the institutional and national level: jurisdiction.
