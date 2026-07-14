@@ -167,7 +167,7 @@ This is not a clean solution. It adds friction to collaboration, breaks web-base
 
 There is another lever available that does not require changing your hosting provider or encrypting your repositories: your choice of license.
 
-Strong copyleft licenses like **GPLv3**[^27] and **AGPL-3.0**[^28] create legal uncertainty for anyone who wants to use your code in a proprietary product. The copyleft clause requires that derivative works be released under the same license. If an LLM trained on GPLv3 code is considered a derivative work, the model weights would theoretically need to be released under GPLv3 as well. No major AI company wants that risk.
+Strong copyleft licenses like **GPLv3**[^27] and **AGPL-3.0**[^28] create legal uncertainty for anyone who wants to use your code in a proprietary product. The copyleft clause requires that derivative works be released under the same license. If an LLM trained on GPLv3 code is considered a derivative work, the model weights would theoretically need to be released under GPLv3 as well[^32]. No major AI company wants that risk.
 
 This is not a theoretical observation. Some AI coding tools have explicitly marketed the exclusion of GPL-licensed code from their training datasets to offer enterprise customers "license-clean" guarantees. The legal question of whether training constitutes creation of a derivative work remains unresolved — courts have not ruled definitively on GPL propagation to model weights[^21] — but the ambiguity itself acts as a deterrent. Risk-averse organizations avoid what they cannot confidently defend.
 
@@ -260,5 +260,6 @@ The underlying principle is straightforward: Git is a distributed version contro
 [^29]: **Fair use and AI training.** U.S. Copyright Office. The Copyright Office's ongoing study on copyright and AI examines whether training AI models on copyrighted works constitutes fair use under 17 U.S.C. § 107. ([Link](https://www.copyright.gov/ai/))
 [^30]: **EU Directive on Copyright in the Digital Single Market (DSM Directive).** Article 4 provides a text and data mining exception but requires that rights holders' machine-readable opt-outs be respected. ([Link](https://eur-lex.europa.eu/eli/dir/2019/790/oj))
 [^31]: **The Open Source Definition.** Open Source Initiative. Clause 6 prohibits discrimination against fields of endeavor, which means licenses that restrict AI training may not qualify as "open source." ([Link](https://opensource.org/osd))
+[^32]: **The Current State of the Theory that GPL Propagates to AI Models Trained on GPL Code.** Shuji Sado, November 2025. A detailed analysis of the legal arguments for and against GPL copyleft propagation to LLM weights, with references to ongoing litigation. ([Link](https://shujisado.org/2025/11/27/gpl-propagates-to-ai-models-trained-on-gpl-code/))
 
 *Disclaimer: This post is for informational purposes only and does not constitute legal advice. Consult a qualified attorney for guidance on intellectual property, licensing, or jurisdictional matters. This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
