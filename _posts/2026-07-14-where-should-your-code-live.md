@@ -163,6 +163,26 @@ The result is a repository that appears on GitHub as a normal project — it has
 
 This is not a clean solution. It adds friction to collaboration, breaks web-based code review, and introduces key management overhead. But for developers or teams who need GitHub's ecosystem while treating the platform as an untrusted storage layer, it works.
 
+## Licensing as a Deterrent
+
+There is another lever available that does not require changing your hosting provider or encrypting your repositories: your choice of license.
+
+Strong copyleft licenses like **GPLv3**[^27] and **AGPL-3.0**[^28] create legal uncertainty for anyone who wants to use your code in a proprietary product. The copyleft clause requires that derivative works be released under the same license. If an LLM trained on GPLv3 code is considered a derivative work, the model weights would theoretically need to be released under GPLv3 as well. No major AI company wants that risk.
+
+This is not a theoretical observation. Some AI coding tools have explicitly marketed the exclusion of GPL-licensed code from their training datasets to offer enterprise customers "license-clean" guarantees. The legal question of whether training constitutes creation of a derivative work remains unresolved — courts have not ruled definitively on GPL propagation to model weights[^21] — but the ambiguity itself acts as a deterrent. Risk-averse organizations avoid what they cannot confidently defend.
+
+The practical effect: if you license your project under GPLv3 or AGPL-3.0, there is a reasonable chance that commercial LLM training pipelines will filter it out. Not because the law compels them to, but because their legal teams advise against the exposure.
+
+The caveats are real:
+
+- **Adoption.** Strong copyleft licenses reduce adoption in commercial settings. Companies with blanket "no GPL" policies will not use your library, even for internal projects. If maximizing adoption matters to you, this is a direct tradeoff.
+- **Enforceability.** US courts have not yet ruled on whether LLM training on copyleft code triggers the derivative work clause. The "fair use" defense is the primary argument used by AI companies[^29]. Until a court rules, the legal protection is speculative.
+- **EU divergence.** The EU's DSM Directive requires AI providers to respect machine-readable opt-outs for text and data mining[^30]. This creates a regulatory framework that is more favorable to rights holders than US law. If your users are primarily in the EU, licensing signals carry more legal weight.
+- **Retroactivity.** Changing your license today does not un-train models that have already ingested your code under a previous license. The protection is forward-looking.
+- **Not "open source" if you add anti-AI clauses.** Adding custom "no AI training" clauses to a standard open-source license conflicts with the Open Source Definition[^31], which prohibits discrimination against fields of endeavor. Your project may no longer qualify as open source under standard definitions. Stick with established licenses (GPLv3, AGPL) rather than inventing custom restrictions.
+
+Licensing is not a silver bullet against AI training. It is a signal — one that risk-averse organizations tend to respect. For developers who want to keep their code publicly available but make it legally inconvenient to train on, a strong copyleft license is the lowest-friction option available.
+
 ## Comparison
 
 | | **GitHub** | **GitLab.com** | **Codeberg** | **SourceHut** | **Forgejo** (self-hosted) | **Radicle** |
@@ -235,5 +255,10 @@ The underlying principle is straightforward: Git is a distributed version contro
 [^24]: **Codeberg e.V.:** Registered non-profit association (*eingetragener Verein*) in Berlin, Germany, founded in 2018. ([Link](https://codeberg.org/Codeberg/org/src/branch/main/Imprint.md))
 [^25]: **GitHub and Trade Controls:** GitHub's official policy on US export control regulations and sanctions compliance. ([Link](https://docs.github.com/en/site-policy/other-site-policies/github-and-trade-controls))
 [^26]: **Gitee:** Git-based code hosting platform operated by Open Source China (OSChina), serving as China's primary domestic alternative to GitHub. ([Link](https://gitee.com/))
+[^27]: **GNU General Public License, version 3 (GPLv3).** Free Software Foundation. The copyleft clause requires derivative works to be distributed under the same license. ([Link](https://www.gnu.org/licenses/gpl-3.0.html))
+[^28]: **GNU Affero General Public License, version 3 (AGPL-3.0).** Free Software Foundation. Extends GPLv3 copyleft to network use: if you modify the software and let users interact with it over a network, you must release the source. ([Link](https://www.gnu.org/licenses/agpl-3.0.html))
+[^29]: **Fair use and AI training.** U.S. Copyright Office. The Copyright Office's ongoing study on copyright and AI examines whether training AI models on copyrighted works constitutes fair use under 17 U.S.C. § 107. ([Link](https://www.copyright.gov/ai/))
+[^30]: **EU Directive on Copyright in the Digital Single Market (DSM Directive).** Article 4 provides a text and data mining exception but requires that rights holders' machine-readable opt-outs be respected. ([Link](https://eur-lex.europa.eu/eli/dir/2019/790/oj))
+[^31]: **The Open Source Definition.** Open Source Initiative. Clause 6 prohibits discrimination against fields of endeavor, which means licenses that restrict AI training may not qualify as "open source." ([Link](https://opensource.org/osd))
 
 *Disclaimer: This post is for informational purposes only and does not constitute legal advice. Consult a qualified attorney for guidance on intellectual property, licensing, or jurisdictional matters. This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
