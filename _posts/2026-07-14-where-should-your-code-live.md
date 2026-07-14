@@ -70,7 +70,7 @@ The distinguishing characteristics:
 - **Paid model.** SourceHut charges a subscription (approximately $5–$15/month, with financial aid available). This means you are the customer, not the product. The business model is not advertising or data monetization.
 - **CI/CD.** SourceHut has a built-in build system (`builds.sr.ht`) that supports multiple Linux distributions and BSDs natively.
 
-The tradeoff is the learning curve. If your contributors are accustomed to clicking "Create Pull Request" on a web page, asking them to learn `git format-patch` and `git send-email` is a real barrier to contribution. This is a deliberate choice by the platform, not an oversight.
+The traditional tradeoff was the learning curve. If your contributors are accustomed to clicking "Create Pull Request" on a web page, asking them to learn `git format-patch` and `git send-email` felt like a real barrier. In practice, LLM-based coding tools have largely eliminated this friction — any AI assistant can generate a properly formatted patch and compose the email for you. What was once an arcane workflow is now a prompt away, even for newcomers.
 
 ### Forgejo and Gitea (Self-Hosted)
 
