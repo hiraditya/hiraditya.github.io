@@ -230,7 +230,7 @@ The underlying principle is straightforward: Git is a distributed version contro
 
 ## References
 
-[^1]: **GitHub Copilot data usage policy update (April 2026):** GitHub began using interaction data from Copilot Free/Pro/Pro+ users for AI model training by default. ([Link](https://github.blog/changelog/2025-04-24-copilot-will-use-interaction-data-for-model-training/))
+[^1]: **GitHub Copilot data usage policy update (April 2026):** GitHub began using interaction data from Copilot Free/Pro/Pro+ users for AI model training by default. ([Link](https://github.blog/news-insights/company-news/updates-to-github-copilot-interaction-data-usage-policy/))
 [^2]: **GitLab AI data policy:** GitLab does not train AI models on customer code at any tier. ([Link](https://about.gitlab.com/blog/2025/04/28/gitlab-does-not-train-ai-models-on-customer-code/))
 [^3]: **Codeberg:** Non-profit code hosting powered by Forgejo. ([Link](https://codeberg.org/))
 [^4]: **SourceHut:** Minimalist, privacy-focused code hosting with email-based workflows. ([Link](https://sourcehut.org/))
