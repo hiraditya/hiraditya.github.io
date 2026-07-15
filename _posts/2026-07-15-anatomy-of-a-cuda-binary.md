@@ -122,7 +122,7 @@ The format byte determines how the value is encoded:
 | `EIFMT_HVAL` | 3 | 16-bit inline value in bytes 2–3 (little-endian). |
 | `EIFMT_SVAL` | 4 | Bytes 2–3 are a 16-bit size N. N bytes of payload follow immediately. |
 
-This is a TLV (type-length-value) scheme, except the "length" is implicit for formats 1–3 (always 4 bytes total) and explicit only for format 4.
+This is a TLV (type-length-value)[^3] scheme, except the "length" is implicit for formats 1–3 (always 4 bytes total) and explicit only for format 4.
 
 ### Module-Level `.nv.info`
 
@@ -266,5 +266,9 @@ For most CUDA developers, the cubin is an opaque blob that `nvcc` produces and t
 
 [^1]: **ELF specification (Tool Interface Standard).** The base ELF64 format that cubins extend with NVIDIA-specific section types and symbol attributes. ([Link](https://refspecs.linuxfoundation.org/elf/elf.pdf))
 [^2]: **CUDA Binary Utilities.** NVIDIA's documentation for `cuobjdump` and `nvdisasm`, the tools that read cubins. ([Link](https://docs.nvidia.com/cuda/cuda-binary-utilities/))
+[^3]: **Type-length-value (TLV).** A standard binary encoding scheme where each data element is represented as a (type, length, value) triple. Widely used in network protocols (DHCP, IS-IS) and binary formats. ([Link](https://en.wikipedia.org/wiki/Type%E2%80%93length%E2%80%93value))
+[^4]: **CuAssembler.** An open-source, community-driven NVIDIA SASS assembler supporting Turing through Hopper architectures. The most widely used third-party tool for cubin-level binary editing and SASS instruction encoding research. ([Link](https://github.com/cloudcores/CuAssembler))
+[^5]: **MaxAs.** Scott Gray's reverse-engineered SASS assembler for the Maxwell architecture (2014). The pioneering project that demonstrated hand-written SASS could reach ~98% of peak throughput on SGEMM, motivating subsequent SASS reverse-engineering efforts. ([Link](https://github.com/NervanaSystems/maxas))
+[^6]: **Demystifying GPU Microarchitecture through Microbenchmarking.** Henry Wong et al., ISPASS 2010. Foundational work establishing microbenchmarking methodology for probing undocumented GPU pipeline characteristics. ([Link](https://ieeexplore.ieee.org/document/5452013))
 
 *Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
