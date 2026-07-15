@@ -60,6 +60,8 @@ Compiling this with `llc -march=sass -filetype=obj` produces a relocatable CUDA 
 
 The sections fall into four categories: the executable code, the kernel ABI metadata, driver compatibility notes, and the standard ELF bookkeeping.
 
+This is the minimal set. A real cubin produced by `ptxas` for a production kernel is larger — typically ~22 sections, 8 symbols, and 5 program headers. The additional sections include `.nv.shared.<kernel>` (shared memory allocation), `.nv.global` (global variable metadata), `.nv.constant2.<kernel>` (compiler-generated constant data), `.debug_*` sections (DWARF debug info when compiled with `-G`), and `.rel.*` relocation sections. The table above covers the sections that are structurally required for any kernel to load and execute.
+
 ## `.text.<kernel>` — The Machine Code
 
 The `.text.add` section contains the SASS instructions. Each instruction is a 128-bit (16-byte) word. The section flags are `SHF_ALLOC | SHF_EXECINSTR` — `SHF_ALLOC` means the section occupies memory at runtime (the driver must load it onto the GPU), and `SHF_EXECINSTR` marks it as containing executable machine instructions. The section is aligned to 128 bytes.
