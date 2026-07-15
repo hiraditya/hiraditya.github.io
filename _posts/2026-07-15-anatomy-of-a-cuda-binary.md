@@ -1,12 +1,10 @@
 ---
 title: "Anatomy of a CUDA Binary"
-date: 2026-07-15 12:00:00 -0700
+date: 2026-07-14 12:00:00 -0700
 categories: [Systems, GPU Architecture]
 tags: [gpu, cuda, elf, cubin, assembly]
 mermaid: true
 ---
-
-*What is inside a cubin, and why should you care*
 
 When you compile a CUDA kernel, the final artifact is a **cubin** — a CUDA binary. It is a standard ELF64 file with NVIDIA-specific sections that encode everything the CUDA driver needs to load and launch a kernel: the machine code, the parameter layout, register allocation metadata, and a collection of attributes that have no public documentation.
 
