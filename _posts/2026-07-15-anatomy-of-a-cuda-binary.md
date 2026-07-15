@@ -60,7 +60,7 @@ Compiling this with `llc -march=sass -filetype=obj` produces a relocatable CUDA 
 
 The sections fall into four categories: the executable code, the kernel ABI metadata, driver compatibility notes, and the standard ELF bookkeeping.
 
-This is the minimal set. A real cubin produced by `ptxas` for a production kernel is larger — typically ~22 sections, 8 symbols, and 5 program headers. The additional sections include `.nv.shared.<kernel>` (shared memory allocation), `.nv.global` (global variable metadata), `.nv.constant2.<kernel>` (compiler-generated constant data), `.debug_*` sections (DWARF debug info when compiled with `-G`), and `.rel.*` relocation sections. The table above covers the sections that are structurally required for any kernel to load and execute.
+This is the minimal set. A real cubin produced by `ptxas` for a production kernel is larger — typically ~22 sections, 8 symbols, and 5 program headers. One notable addition is `.nv.shared.reserved.0`, a `SHT_NOBITS` section (64 bytes) that reserves shared memory space. It comes with two weak symbols (`.nv.reservedSmem.offset0` and `__nv_reservedSMEM_offset_0_alias`) and its own `PT_LOAD` program header. Other additional sections include `.nv.shared.<kernel>` (shared memory allocation), `.nv.global` (global variable metadata), `.nv.constant2.<kernel>` (compiler-generated constant data), `.debug_*` sections (DWARF debug info when compiled with `-G`), and `.rel.*` relocation sections. The table above covers the sections that are structurally required for any kernel to load and execute.
 
 ## `.text.<kernel>` — The Machine Code
 
@@ -82,13 +82,15 @@ Kernel parameters are passed through constant bank 0. The section `.nv.constant0
 size = param_base + param_size
 ```
 
-The `param_base` is a CUDA-toolchain-determined offset — not a fixed ISA constant. It varies by SM architecture:
+The `param_base` is set by the CUDA toolkit — not a fixed ISA constant. The values observed on current toolkits are:
 
-| SM range | `param_base` |
+| SM range (current toolkit) | `param_base` |
 | :--- | :--- |
 | sm_70 – sm_89 (Volta through Ampere) | `0x160` (352 bytes) |
 | sm_90 (Hopper) | `0x210` (528 bytes) |
 | sm_100 – sm_12x (Blackwell) | `0x380` (896 bytes) |
+
+These values can shift across toolkit versions for the same architecture. We have observed a sibling slot in the constant bank (the memory-descriptor offset) move from `0x208` to `0x220` for sm_90 between CUDA 11 and CUDA 12, confirming that the layout is a toolkit convention, not an architectural invariant.
 
 The first `param_base` bytes are reserved for driver-managed metadata (grid dimensions, block dimensions, shared memory size, etc.). User-specified kernel parameters are laid out contiguously starting at `param_base`, each aligned to its ABI alignment.
 
@@ -172,7 +174,7 @@ param_size = 8          (two i32s)
 packed = (8 << 16) | 0x380 = 0x00080380
 ```
 
-**CBANK_PARAM_SIZE (0x19):** An `EIFMT_HVAL` with the parameter region size as a 16-bit value. Redundant with the high half of `PARAM_CBANK`, but both must be present.
+**CBANK_PARAM_SIZE (0x19):** An `EIFMT_HVAL` with the parameter region size as a 16-bit value. Redundant with the high half of `PARAM_CBANK`, but `ptxas` always emits both.
 
 **KPARAM_INFO (0x17):** One entry per kernel parameter, emitted in reverse ordinal order (highest ordinal first — this matches `ptxas` output). Each is `EIFMT_SVAL` with a 12-byte payload:
 
@@ -184,7 +186,7 @@ The `packed` field encodes `(size << 18) | 0x1f000`. The `0x1f000` constant carr
 
 **MAXREG_COUNT (0x1b):** An `EIFMT_HVAL` with the maximum register count hint (usually `0xff` = no limit).
 
-**EXIT_INSTR_OFFSETS (0x1c):** An `EIFMT_SVAL` listing the byte offsets of every `EXIT` instruction in the `.text` section. The driver needs these for pre-emption: it must know where the kernel can cleanly stop. Each offset is a `u32`. For a kernel whose `EXIT` is the 5th instruction (offset `4 * 16 = 0x40`):
+**EXIT_INSTR_OFFSETS (0x1c):** An `EIFMT_SVAL` listing the byte offsets of every `EXIT` instruction in the `.text` section. The driver likely uses these for pre-emption — knowing where a kernel can cleanly yield control — though the exact use is not documented. Each offset is a `u32`. For a kernel whose `EXIT` is the 5th instruction (offset `4 * 16 = 0x40`):
 
 ```
 04 1c 04 00   40 00 00 00
@@ -236,7 +238,7 @@ flowchart LR
     E --> F[".nv.info → regcount,<br/>params, exits"]
     E --> G[".nv.constant0 → allocate<br/>param bank"]
     E --> H[".text → load SASS<br/>to SM"]
-    F --> I["Compute occupancy,<br/>set up pre-emption"]
+    F --> I["Compute occupancy,<br/>register EXIT offsets"]
     G --> J["Copy launch args<br/>to param_base"]
     H --> K["Execute"]
 ```
@@ -249,7 +251,7 @@ The driver's loading sequence:
 4. Read `.nv.info.<kernel>`: extract parameter layout, constant bank descriptor, EXIT offsets.
 5. Allocate constant bank memory. Copy host-side launch arguments to `param_base` within it.
 6. Load `.text` into instruction memory on the target SM.
-7. Configure the warp scheduler with the register count (for occupancy) and EXIT offsets (for pre-emption).
+7. Configure the warp scheduler with the register count (for occupancy) and EXIT offsets.
 8. Launch.
 
 If any of these metadata sections are malformed or inconsistent, the behavior ranges from `CUDA_ERROR_INVALID_IMAGE` to silent wrong results — there is no "metadata validation" pass that checks cross-section consistency before launch.
@@ -262,7 +264,7 @@ For most CUDA developers, the cubin is an opaque blob that `nvcc` produces and t
 
 - **Debugging and performance analysis.** This is a crucial skill for both. When a kernel silently produces wrong results, the `.nv.info` stream is the authoritative record of what `ptxas` decided: how many registers, where the parameters live, which instructions are exits. When occupancy is lower than expected, the regcount in `.nv.info` tells you why. Reading these sections directly (rather than trusting `cuobjdump`'s summary) gives you the ground truth.
 
-- **Portability of compiled cubins.** The constant bank parameter base has changed silently across GPU generations: `0x160` on Volta through Ampere, `0x210` on Hopper, `0x380` on Blackwell. None of this is documented. A cubin compiled for one architecture cannot be loaded on another, because the code (LDC offsets), the `.nv.info` (PARAM_CBANK), and the `.nv.constant0` section size all encode the base independently. If they disagree, the driver copies launch arguments to one offset and the kernel reads from another.
+- **Portability of compiled cubins.** The constant bank parameter base has changed silently across toolkit versions: `0x160` on Volta through Ampere, `0x210` on Hopper, `0x380` on Blackwell (on current toolkits). None of this is documented, and the values are toolkit conventions that can shift even within a single architecture across CUDA releases. A cubin compiled with one toolkit version cannot be assumed portable to another, because the code (LDC offsets), the `.nv.info` (PARAM_CBANK), and the `.nv.constant0` section size all encode the base independently. If they disagree, the driver copies launch arguments to one offset and the kernel reads from another.
 
 ## References
 
