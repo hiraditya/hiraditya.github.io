@@ -6,15 +6,15 @@ tags: [triton, gpu, mlir, cuda, compilers]
 mermaid: true
 ---
 
-Triton is not a kernel library. It is not a Python framework. It is a compiler with a Python frontend. The `@triton.jit` decorator does not decorate — it intercepts the function's AST, feeds it through an MLIR-based compilation pipeline, and emits a GPU binary. The Python function never executes as Python.
+Triton is a compiler with a Python frontend. The `@triton.jit` decorator does not decorate a function. It parses the function's AST, runs it through an MLIR pipeline, and emits a GPU binary. The Python function never runs as Python.
 
-This distinction matters because it determines what Triton can and cannot do for you. It can automatically tile a GEMM, stage data through shared memory, map blocks to warps, and emit tensor core instructions — all without the programmer writing a single line of PTX or managing a thread index. What it cannot do is let you reach below the abstraction when the abstraction is wrong.
+This matters because it sets what Triton can and cannot do. It tiles a GEMM for you, stages data through shared memory, maps blocks to warps, and picks tensor core instructions. You never write a line of PTX or manage a thread index. But you also cannot reach past the abstraction when it gets in the way.
 
-This post walks through Triton's compilation pipeline, examines what the compiler decides on your behalf, identifies where the abstraction breaks down, and evaluates where Triton fits in the broader ML systems stack.
+This post walks through how Triton compiles code, what the compiler decides on your behalf, where the abstraction falls short, and where Triton fits in the ML systems stack.
 
 ## The Programming Model: Blocks, Not Threads
 
-CUDA's programming model is SIMT: you write code for one thread and rely on the hardware to execute it across thousands. Triton inverts this. You write code for one *block* — a tile of data — and the compiler figures out how to distribute it across threads.
+In CUDA you write code for one thread and the hardware runs it across thousands. Triton flips this. You write code for a *block* of data and the compiler splits it across threads.
 
 ```python
 import triton
@@ -31,11 +31,11 @@ def softmax_kernel(
     col_offsets = tl.arange(0, BLOCK_SIZE)
     mask = col_offsets < n_cols
 
-    # 2. Load an entire row as a block. The compiler decides
-    #    coalescing, vectorization width, and predication.
+    # 2. Load an entire row as a block. The compiler picks
+    #    coalescing, vector width, and predication.
     row = tl.load(input_ptr + row_idx * n_cols + col_offsets, mask=mask, other=-float('inf'))
 
-    # 3. Block-level reductions. The compiler lowers these to
+    # 3. Block-level reductions. The compiler turns these into
     #    warp shuffles and shared memory reductions.
     row_max = tl.max(row, axis=0)
     numerator = tl.exp(row - row_max)
@@ -47,16 +47,16 @@ def softmax_kernel(
 
 The key operations:
 
-- **`tl.load` / `tl.store`**: Tile-level memory access. The compiler lowers these to vectorized, coalesced global memory instructions with predication derived from the `mask` argument.
-- **`tl.dot`**: Block-level matrix multiply. The compiler recognizes this as a tensor core opportunity and emits `mma.sync` (Ampere), `wgmma` (Hopper), or `tcgen05.mma` (Blackwell) depending on the target architecture.
-- **`tl.max`, `tl.sum`**: Block-level reductions. Lowered to a tree of warp shuffles (`SHFL.BFLY`) or shared memory reductions depending on the block size.
-- **`tl.constexpr`**: Compile-time constants. `BLOCK_SIZE` is baked into the binary. Different values produce different kernels, which is why Triton has an autotuning step.
+- **`tl.load` / `tl.store`**: Tile-level memory access. The compiler turns these into coalesced global memory instructions with predication from the `mask` argument.
+- **`tl.dot`**: Block-level matrix multiply. The compiler emits `mma.sync` (Ampere), `wgmma` (Hopper), or `tcgen05.mma` (Blackwell) depending on the target.
+- **`tl.max`, `tl.sum`**: Block-level reductions. The compiler lowers these to warp shuffles (`SHFL.BFLY`) or shared memory reductions depending on block size.
+- **`tl.constexpr`**: Compile-time constants. `BLOCK_SIZE` gets baked into the binary. Different values produce different kernels — hence the autotuning step.
 
-The programmer never writes `threadIdx.x`. There is no `__syncthreads()`. There is no explicit shared memory allocation. The compiler handles all of it — and that is both the value proposition and the ceiling.
+You never write `threadIdx.x`. There is no `__syncthreads()`. There is no shared memory declaration. The compiler handles all of it. That is both the selling point and the ceiling.
 
 ## The Compilation Pipeline
 
-Triton's pipeline is a progressive lowering through four IRs:[^1]
+Triton lowers code through four IRs:[^1]
 
 ```mermaid
 graph LR
@@ -76,32 +76,32 @@ graph LR
 
 ### Stage 1: Python AST → Triton IR (TTIR)
 
-The `@triton.jit` decorator intercepts the function at definition time. On first invocation with concrete arguments, Triton parses the Python AST and traces it into TTIR — a hardware-independent MLIR dialect (`tt` namespace). At this stage, operations are still abstract: `tl.load` becomes a `tt.load` op, `tl.dot` becomes a `tt.dot` op. Standard compiler optimizations apply here: constant folding, common subexpression elimination, dead code elimination.
+On first call with concrete arguments, Triton parses the Python AST and traces it into TTIR — a hardware-independent MLIR dialect (`tt` namespace). Operations stay abstract here: `tl.load` becomes `tt.load`, `tl.dot` becomes `tt.dot`. Standard compiler passes run — constant folding, CSE, dead code removal.
 
-TTIR knows nothing about threads, warps, or shared memory. It operates on tensors with shapes determined by the `constexpr` parameters.
+TTIR knows nothing about threads, warps, or shared memory. It works on tensors whose shapes come from the `constexpr` parameters.
 
 ### Stage 2: Triton IR → Triton GPU IR (TTGIR)
 
-This is where the compiler makes its critical decisions. TTGIR introduces GPU-specific concepts:
+This is where the compiler makes its hard calls. TTGIR adds GPU-specific structure:
 
-- **Thread-to-data mapping.** The compiler decides how to distribute a block of data across threads. A `BLOCK_SIZE=128` vector might be distributed as 4 elements per thread across 32 threads (one warp), or 2 elements per thread across 64 threads (two warps).
-- **Shared memory allocation.** If a `tl.dot` operand is reused (e.g., in a GEMM's inner loop), TTGIR inserts shared memory allocation and `async_copy` operations to stage data from global memory.
-- **Layout propagation.** TTGIR tracks tensor layouts (blocked, shared, slice, dot-operand) and inserts layout conversion operations when an operation requires a different layout than its input provides. A `tl.dot` requires its operands in a specific "dot-operand" layout compatible with the hardware's MMA instruction.
-- **Software pipelining.** For loops with predictable iteration counts, TTGIR can overlap the memory loads of iteration N+1 with the computation of iteration N.
+- **Thread-to-data mapping.** The compiler decides how to spread a block across threads. A `BLOCK_SIZE=128` vector might become 4 elements per thread across 32 threads (one warp), or 2 per thread across 64 (two warps).
+- **Shared memory allocation.** When a `tl.dot` operand gets reused (say, in a GEMM inner loop), TTGIR inserts shared memory allocation and `async_copy` ops to stage data from global memory.
+- **Layout propagation.** TTGIR tracks tensor layouts — blocked, shared, slice, dot-operand — and inserts conversions when an op needs a layout its input does not provide. A `tl.dot` needs operands in a specific "dot-operand" layout that matches the hardware MMA instruction.
+- **Software pipelining.** For loops with known trip counts, TTGIR overlaps memory loads from iteration N+1 with compute from iteration N.
 
-This stage is where most of Triton's "magic" happens. It is also where most of Triton's performance bugs originate — a poor layout choice or a missed pipelining opportunity shows up as a 2–5x regression versus hand-tuned CUDA, and diagnosing it requires inspecting the TTGIR output.
+This stage is where most of Triton's value lives. It is also where most of its performance bugs come from. A bad layout choice or a missed pipeline opportunity shows up as a 2–5x slowdown versus hand-tuned CUDA. Diagnosing it means reading TTGIR dumps.
 
 ### Stage 3: TTGIR → LLVM IR
 
-The GPU-specific MLIR is lowered to standard LLVM IR. At this point, the abstract tile operations have been decomposed into scalar operations per thread. LLVM's optimization passes handle register allocation, instruction selection, and low-level scheduling. The output is standard LLVM IR targeting the `nvptx64` backend.
+The GPU-specific MLIR gets lowered to plain LLVM IR. By now the tile ops have been broken into per-thread scalar ops. LLVM handles register allocation, instruction selection, and scheduling. The target is `nvptx64`.
 
 ### Stage 4: LLVM IR → PTX → cubin
 
-LLVM's NVPTX backend emits PTX assembly. Triton then invokes `ptxas` (NVIDIA's PTX assembler) to produce the final cubin. The cubin is cached on disk, keyed by a hash of the kernel source, the `constexpr` parameters, and the target GPU architecture. Subsequent invocations with the same parameters skip the entire pipeline and load the cached binary.
+LLVM's NVPTX backend emits PTX. Triton then calls `ptxas` to produce the cubin. The binary gets cached on disk, keyed by a hash of the source, the `constexpr` values, and the target architecture. Later calls with the same inputs skip the whole pipeline and load the cached binary.
 
 ## What the Compiler Decides for You
 
-The value of Triton's abstraction is that the compiler handles decisions that consume most of a CUDA kernel author's time:
+The point of Triton's abstraction is that the compiler handles the decisions that eat most of a CUDA author's time:
 
 | Decision | CUDA Programmer | Triton Compiler |
 |:--- |:--- |:--- |
@@ -111,55 +111,55 @@ The value of Triton's abstraction is that the compiler handles decisions that co
 | Warp synchronization | Manual (`__syncwarp`, `__syncthreads`) | Automatic (barrier insertion in TTGIR) |
 | Tensor core instruction selection | Manual (`wmma` / `mma.sync` / PTX) | Automatic (`tl.dot` → MMA/WGMMA) |
 | Software pipelining | Manual (multi-stage buffering) | Automatic (TTGIR pipelining pass) |
-| Predication for boundary tiles | Manual (if/else on thread index) | Automatic (`mask` parameter on loads/stores) |
+| Boundary predication | Manual (if/else on thread index) | Automatic (`mask` on loads/stores) |
 
-For many workloads — fused elementwise ops, reductions, small-to-medium GEMMs, attention variants — these automatic decisions are good enough. "Good enough" here means within 10–20% of hand-tuned CUDA, at a fraction of the development time.
+For many workloads — fused elementwise ops, reductions, small-to-medium GEMMs, attention variants — these choices are good enough. "Good enough" here means within 10–20% of hand-tuned CUDA, at a fraction of the development time.
 
 ## Where Triton Wins
 
 ### Operator fusion
 
-This is Triton's strongest case. Consider a sequence like `GEMM → GeLU → Dropout → LayerNorm`. In CUDA, each of these is typically a separate kernel launch. Each launch reads from and writes to global memory — HBM bandwidth is the bottleneck, not compute.
+This is Triton's best case. Take a sequence like `GEMM → GeLU → Dropout → LayerNorm`. In CUDA, each step is usually a separate kernel launch. Each launch reads from and writes to HBM. Bandwidth is the bottleneck, not compute.
 
-A Triton kernel can fuse the entire sequence. The intermediate results live in registers or shared memory and never touch HBM. For bandwidth-bound workloads (which describes most LLM inference at small batch sizes), fusion often delivers 2–4x speedups over calling cuBLAS + separate elementwise kernels.
+A Triton kernel fuses the whole chain. Intermediate values stay in registers or shared memory and never touch HBM. For bandwidth-bound workloads — which covers most LLM inference at small batch sizes — fusion delivers 2–4x speedups over cuBLAS plus separate elementwise kernels.
 
-This is also why PyTorch's TorchInductor defaults to Triton as its codegen backend.[^2] When `torch.compile` traces a model graph, it identifies fusible subgraphs and emits Triton kernels for them.
+This is why PyTorch's TorchInductor uses Triton as its default codegen backend.[^2] When `torch.compile` traces a model graph, it finds groups of ops it can fuse and emits Triton kernels for them.
 
-### Rapid iteration
+### Fast iteration
 
-A Triton kernel is 30–50 lines of Python. The equivalent CUDA kernel is 200–500 lines of C++. When you are iterating on a custom attention variant or a quantized GEMM for a new model architecture, the iteration speed difference is the difference between trying an idea and not trying it.
+A Triton kernel runs 30–50 lines of Python. The same kernel in CUDA runs 200–500 lines of C++. When you are trying out a new attention variant or a quantized GEMM for a new model, that gap is the difference between trying an idea and skipping it.
 
 ### Multi-backend portability
 
-Triton's MLIR-based pipeline enables non-NVIDIA backends. The AMD ROCm backend lowers TTGIR to HIP and targets AMD's MFMA (Matrix Fused Multiply-Accumulate) instructions on MI300 hardware.[^3] The abstraction boundary at TTIR means the same kernel source can target both vendors — the hardware-specific decisions happen in the TTGIR lowering, not in user code.
+Because Triton's pipeline is MLIR-based, it supports non-NVIDIA targets. The AMD ROCm backend lowers TTGIR to HIP and targets AMD's MFMA instructions on MI300 hardware.[^3] The abstraction boundary at TTIR means the same kernel source can run on both vendors. The hardware-specific work happens in TTGIR lowering, not in user code.
 
 ## Where Triton Loses
 
 ### No warp-level control
 
-Triton does not expose warp primitives. You cannot call `__shfl_sync`, `__ballot_sync`, or `__match_any_sync`. You cannot specify which warp executes which code path. The compiler abstracts warps away entirely.
+Triton hides warps. You cannot call `__shfl_sync`, `__ballot_sync`, or `__match_any_sync`. You cannot assign work to specific warps.
 
-This matters for algorithms that need explicit inter-thread communication: warp-level sorting, custom reduction trees, cooperative groups patterns. If your kernel's performance depends on controlling the warp topology, Triton cannot express it.
+This hurts when your algorithm needs direct thread-to-thread communication: warp-level sorting, custom reduction trees, cooperative group patterns. If performance depends on controlling warp topology, Triton cannot express it.
 
 ### Irregular memory access
 
-Triton's shared memory allocation and layout propagation are tuned for regular, tiled access patterns. Scatter/gather workloads — graph neural networks, sparse attention, hash table lookups — produce memory access patterns that the compiler cannot predict at compile time. The result is either suboptimal shared memory usage (the compiler allocates conservatively) or outright performance regression versus CUDA.
+Triton's shared memory and layout passes are built for regular, tiled access. Scatter/gather workloads — graph neural networks, sparse attention, hash table lookups — have access patterns the compiler cannot predict at compile time. The result is either wasted shared memory (conservative allocation) or worse performance than plain CUDA.
 
 ### Debugging
 
-When a Triton kernel produces wrong results or runs slowly, the debugging experience is painful. The Python source maps poorly to the emitted PTX because three IR transformations sit between them. Layout mismatches — where TTGIR inserts an unexpected layout conversion that serializes an operation — are a common performance bug, and diagnosing them requires dumping intermediate IR with environment variables (`MLIR_ENABLE_DUMP=1`, `TRITON_KERNEL_DUMP=1`) and reading MLIR output that most kernel authors are unfamiliar with.
+When a Triton kernel gives wrong results or runs slow, debugging is hard. The Python source maps poorly to the final PTX because three IR transforms sit between them. Layout mismatches — where TTGIR adds an unexpected conversion that slows an operation — are a common performance bug. Finding them means dumping IR with environment variables (`MLIR_ENABLE_DUMP=1`, `TRITON_KERNEL_DUMP=1`) and reading MLIR output.
 
-Compare this with CUDA, where `cuda-gdb`, `compute-sanitizer`, and `ncu` (Nsight Compute) map directly to the source. Triton's tooling is improving, but the debugging story remains a real cost of the abstraction.
+In CUDA, `cuda-gdb`, `compute-sanitizer`, and `ncu` (Nsight Compute) map straight to the source. Triton's tooling is getting better, but the debugging gap is a real cost.
 
 ### The Hopper and Blackwell problem
 
-Each new GPU generation introduces hardware features that require *new abstractions*, not just new instruction selection:
+Each GPU generation ships features that need *new abstractions*, not just new instruction selection:
 
-- **Hopper** introduced TMA (Tensor Memory Accelerator) for async multi-dimensional memcpy, and WGMMA (Warp Group MMA) that requires 128-thread cooperative issue. Triton initially could not express either. Support has been added through experimental APIs and compiler heuristics that detect GEMM patterns and automatically insert TMA loads and WGMMA instructions. But the abstraction is leaky: block size choices that would be perfectly reasonable on Ampere can prevent the compiler from selecting the WGMMA path on Hopper.
+- **Hopper** added TMA for async multi-dimensional copies and WGMMA that needs 128 threads to issue cooperatively. Triton could not express either at launch. Support came later through experimental APIs and heuristics that detect GEMM patterns and insert TMA loads and WGMMA instructions. But the abstraction leaks: block size choices that work fine on Ampere can stop the compiler from picking the WGMMA path on Hopper.
 
-- **Blackwell** introduces TMEM (Tensor Memory), tcgen05 single-thread issue semantics, and FP4 microscaling. As discussed in the [tensor core history post]({% post_url 2026-07-20-tensor-core-instructions-history %}), the ISA interface changed fundamentally. Triton's compiler backend must be substantially rewritten to target these features, because the thread-to-data mapping assumptions in TTGIR were designed around the warp-level model that Blackwell's tensor core has moved past.
+- **Blackwell** adds TMEM, tcgen05 single-thread issue, and FP4 microscaling. As I covered in the [tensor core history post]({% post_url 2026-07-20-tensor-core-instructions-history %}), the ISA changed in ways that matter. Triton's backend needs a deep rework to target these features, because the thread-to-data mapping in TTGIR was built around the warp-level model that Blackwell has left behind.
 
-This is the fundamental tension in Triton's design: each hardware generation adds features that break the abstraction boundary the compiler is trying to maintain. The compiler team adds heuristics and special cases to recover performance, but the abstraction accretes complexity without getting simpler.
+This is the core tension in Triton's design. Each generation breaks the abstraction the compiler tries to hold together. The team adds heuristics and special cases to patch it, but the abstraction gains weight without getting cleaner.
 
 ## Triton's Place in the Stack
 
@@ -206,38 +206,38 @@ graph TD
     style HW fill:#fce4ec,color:#1a1a1a
 ```
 
-Triton occupies a specific niche: it is the code generation layer for *custom fused kernels*. It does not replace cuBLAS for dense GEMMs (cuBLAS is still faster for large square matrices). It does not replace CUTLASS for library-quality, hand-tuned template code. What it replaces is the practice of writing 500-line CUDA kernels every time you need a fused operator that cuBLAS does not provide.
+Triton fills a specific role: code generation for custom fused kernels. It does not replace cuBLAS for dense GEMMs (cuBLAS still wins for large square matrices). It does not replace CUTLASS for library-grade template code. What it replaces is writing 500-line CUDA kernels every time you need a fused op that cuBLAS does not ship.
 
-The production evidence supports this positioning:
+In production:
 
 - **TorchInductor** uses Triton for fused subgraphs and falls back to cuBLAS/cuDNN for standard ops.[^2]
-- **vLLM** uses Triton for PagedAttention, quantized GEMM kernels (AWQ, GPTQ), and custom activation functions.[^4]
-- **FlashAttention** has both CUDA and Triton implementations. The CUDA version is generally faster, but the Triton version enables rapid experimentation with attention variants (sliding window, block-sparse, grouped-query).
+- **vLLM** uses Triton for PagedAttention, quantized GEMM kernels (AWQ, GPTQ), and custom activations.[^4]
+- **FlashAttention** ships both CUDA and Triton versions. The CUDA one is faster. The Triton one lets you experiment with attention variants (sliding window, block-sparse, grouped-query) quickly.
 
-### Who should use what
+### Picking the right tool
 
 | Workload | Best tool | Why |
 |:--- |:--- |:--- |
-| Standard dense GEMM | cuBLAS | Hand-tuned by NVIDIA, autotuned per GPU |
+| Standard dense GEMM | cuBLAS | Tuned by NVIDIA, autotuned per GPU |
 | Custom fused operator | Triton | 10x faster to write, within 10–20% of CUDA |
-| Library-quality GEMM template | CUTLASS | Full control over tiling, pipelining, epilogue |
+| Library-grade GEMM template | CUTLASS | Full control over tiling, pipelining, epilogue |
 | Custom attention variant | Triton | Iterate in hours, not weeks |
-| Sparse / irregular kernel | CUDA | Triton's abstraction doesn't fit |
+| Sparse / irregular kernel | CUDA | Triton's model does not fit |
 | Multi-backend portability | Triton | Same source targets NVIDIA and AMD |
 
 ## The Abstraction Tax
 
-Every abstraction trades control for productivity. Triton's trade is explicit: you give up thread-level control and get block-level programming with automatic shared memory management and tensor core utilization. For the workloads that fit the abstraction, this is an excellent trade.
+You trade control for speed of development. Triton makes that trade clear: give up thread-level control, get block-level programming with automatic shared memory and tensor core use. For workloads that fit, this is a good deal.
 
-But the abstraction has a tax that compounds across hardware generations. Each new GPU ships features — TMA, WGMMA, TMEM, tcgen05 — that were designed for a lower level of control than Triton exposes. The compiler team adds backend support, but the latency between hardware availability and Triton support is typically 6–12 months. During that window, only CUDA and CUTLASS can target the new features.
+But the tax grows each hardware generation. Each new GPU ships features — TMA, WGMMA, TMEM, tcgen05 — built for a lower level of control than Triton offers. The compiler team adds support, but the lag between hardware launch and Triton readiness is typically 6–12 months. In that window, only CUDA and CUTLASS can use the new features.
 
-More fundamentally, Triton inherits a constraint from its position in the stack: it generates code for a single GPU. It has no concept of multi-GPU communication (NCCL), host-device data movement, or memory space distinctions. A `tl.load` reads from device memory. There is no `tl.load_from_host` or `tl.transfer`. The kernel's relationship to the rest of the system — where the data came from, which device it is running on, whether the pointer is valid on this device — is the caller's problem entirely.
+There is a deeper limit too. Triton generates code for a single GPU. It has no notion of multi-GPU communication (NCCL), host-device data movement, or memory spaces. A `tl.load` reads from device memory. There is no `tl.load_from_host` or `tl.transfer`. Where the data came from, which device runs the kernel, whether the pointer is even valid on this device — that is the caller's problem.
 
-For a single-GPU fused kernel, this is fine. For the heterogeneous, multi-device, multi-memory-space world that modern ML training actually lives in, it means Triton solves only the innermost loop. The orchestration — placement, data movement, memory space management — remains untyped, unchecked, and managed by Python-level framework code that the compiler cannot see or verify.[^5]
+For a single-GPU kernel, this is fine. For the multi-device world that real ML training lives in, Triton only covers the innermost loop. Placement, data movement, memory space management — all of that stays untyped, unchecked, and handled by Python framework code that no compiler can see or verify.[^5]
 
 ## References
 
-[^1]: **Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations.** Tillet, P., Kung, H. T., Cox, D. MAPL 2019 / PLDI 2019. The original paper introducing block-level GPU programming and the Triton compilation pipeline. ([Link](https://dl.acm.org/doi/10.1145/3315508.3329973))
+[^1]: **Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations.** Tillet, P., Kung, H. T., Cox, D. MAPL 2019 / PLDI 2019. The original paper on block-level GPU programming and the Triton compilation pipeline. ([Link](https://dl.acm.org/doi/10.1145/3315508.3329973))
 
 [^2]: **TorchInductor: A PyTorch-Native Compiler.** PyTorch team, 2022. TorchInductor uses Triton as its default GPU codegen backend for fused operator graphs. ([Link](https://dev-discuss.pytorch.org/t/torchinductor-a-pytorch-native-compiler-with-define-by-run-ir-and-target-backends/747))
 
@@ -245,7 +245,7 @@ For a single-GPU fused kernel, this is fine. For the heterogeneous, multi-device
 
 [^4]: **vLLM: Easy, Fast, and Cheap LLM Serving.** Kwon, W. et al. SOSP 2023. vLLM uses custom Triton kernels for PagedAttention and quantized serving. ([Link](https://arxiv.org/abs/2309.06180))
 
-[^5]: **MLIR: A Compiler Infrastructure for the End of Moore's Law.** Lattner, C. et al. 2020. The multi-level IR framework that Triton's compilation pipeline is built on. ([Link](https://arxiv.org/abs/2002.11054))
+[^5]: **MLIR: A Compiler Infrastructure for the End of Moore's Law.** Lattner, C. et al. 2020. The multi-level IR framework that Triton's pipeline is built on. ([Link](https://arxiv.org/abs/2002.11054))
 
 ---
 
