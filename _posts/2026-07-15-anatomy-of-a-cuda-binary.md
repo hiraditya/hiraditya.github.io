@@ -39,7 +39,7 @@ define i32 @add(i32 %a, i32 %b) {
 }
 ```
 
-Compiling this with `llc -march=sass -filetype=obj` produces a relocatable CUDA ELF. After finalization, the cubin contains these sections:
+After compiling this to a cubin binary (a relocatable CUDA ELF), it contains these sections:
 
 | # | Section | Type | Purpose |
 | :--- | :--- | :--- | :--- |
