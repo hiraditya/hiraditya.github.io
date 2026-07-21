@@ -1,6 +1,6 @@
 ---
 title: "Triton: The Compiler That Pretends to Be a Library"
-date: 2026-07-20 12:00:00 -0700
+date: 2026-07-19 12:00:00 -0700
 categories: [Compilers, ML-Systems]
 tags: [triton, gpu, mlir, cuda, compilers]
 mermaid: true
