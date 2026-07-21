@@ -157,7 +157,7 @@ Each GPU generation ships features that need *new abstractions*, not just new in
 
 - **Hopper** added TMA for async multi-dimensional copies and WGMMA that needs 128 threads to issue cooperatively. Triton could not express either at launch. Support came later through experimental APIs and heuristics that detect GEMM patterns and insert TMA loads and WGMMA instructions. But the abstraction leaks: block size choices that work fine on Ampere can stop the compiler from picking the WGMMA path on Hopper.
 
-- **Blackwell** adds TMEM, tcgen05 single-thread issue, and FP4 microscaling. As I covered in the [tensor core history post]({% post_url 2026-07-20-tensor-core-instructions-history %}), the ISA changed in ways that matter. Triton's backend needs a deep rework to target these features, because the thread-to-data mapping in TTGIR was built around the warp-level model that Blackwell has left behind.
+- **Blackwell** adds TMEM, tcgen05 single-thread issue, and FP4 microscaling. The ISA changed in ways that matter. Triton's backend needs a deep rework to target these features, because the thread-to-data mapping in TTGIR was built around the warp-level model that Blackwell has left behind.
 
 This is the core tension in Triton's design. Each generation breaks the abstraction the compiler tries to hold together. The team adds heuristics and special cases to patch it, but the abstraction gains weight without getting cleaner.
 
