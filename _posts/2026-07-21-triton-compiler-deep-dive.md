@@ -99,6 +99,76 @@ The GPU-specific MLIR gets lowered to plain LLVM IR. By now the tile ops have be
 
 LLVM's NVPTX backend emits PTX. Triton then calls `ptxas` to produce the cubin. The binary gets cached on disk, keyed by a hash of the source, the `constexpr` values, and the target architecture. Later calls with the same inputs skip the whole pipeline and load the cached binary.
 
+### What the IR actually looks like
+
+The pipeline description above is abstract. Here is what it looks like concretely. Take a simpler kernel — a vector add — and trace it through TTIR and TTGIR.
+
+The Python source:
+
+```python
+@triton.jit
+def add_kernel(x_ptr, y_ptr, out_ptr, n, BLOCK: tl.constexpr):
+    pid = tl.program_id(0)
+    offs = pid * BLOCK + tl.arange(0, BLOCK)
+    mask = offs < n
+    x = tl.load(x_ptr + offs, mask=mask)
+    y = tl.load(y_ptr + offs, mask=mask)
+    tl.store(out_ptr + offs, x + y, mask=mask)
+```
+
+**TTIR** (simplified, from `TRITON_KERNEL_DUMP=1`):
+
+```mlir
+// 1. Everything is tensor-typed. No threads, no warps.
+// 2. tt.load and tt.store operate on tensor<1024xf32> — the full block.
+// 3. The mask is a tensor<1024xi1>, not a scalar branch.
+module {
+  tt.func @add_kernel(%x: !tt.ptr<f32>, %y: !tt.ptr<f32>,
+                       %out: !tt.ptr<f32>, %n: i32) {
+    %pid  = tt.get_program_id {axis = 0} : i32
+    %offs = tt.make_range {start = 0, end = 1024} : tensor<1024xi32>
+    %base = tt.splat %pid : tensor<1024xi32>
+    %idx  = arith.addi %base, %offs : tensor<1024xi32>
+    %mask = arith.cmpi slt, %idx, %n_splat : tensor<1024xi1>
+    %xv   = tt.load %x_ptrs, %mask : tensor<1024xf32>   // ← block load
+    %yv   = tt.load %y_ptrs, %mask : tensor<1024xf32>
+    %sum  = arith.addf %xv, %yv : tensor<1024xf32>
+    tt.store %out_ptrs, %sum, %mask : tensor<1024xf32>   // ← block store
+    tt.return
+  }
+}
+```
+
+Notice: no shared memory, no thread indices, no layout annotations. TTIR is pure math on tensors.
+
+**TTGIR** (simplified):
+
+```mlir
+// 1. Tensors now carry layout attributes: #blocked<sizePerThread=[4],
+//    threadsPerWarp=[32], warpsPerCTA=[8]>.
+//    This means: 4 elements per thread, 32 threads per warp, 8 warps.
+//    Total = 4 × 32 × 8 = 1024 elements. That is the full BLOCK.
+// 2. tt.load becomes ttg.load — same op, but now the compiler knows
+//    which thread loads which 4 elements.
+// 3. No layout conversions needed here (element-wise add).
+//    For tl.dot, you would see ttg.convert_layout ops inserted
+//    to reshape data into the dot-operand layout.
+module {
+  ttg.func @add_kernel(%x: !tt.ptr<f32>, ...) {
+    // ... same index math, but tensors carry #blocked layout ...
+    %xv = ttg.load %x_ptrs, %mask
+           {layout = #blocked<sPerT=[4], tPerW=[32], wPerCTA=[8]>}
+           : tensor<1024xf32, #blocked>
+    %yv = ttg.load %y_ptrs, %mask ... : tensor<1024xf32, #blocked>
+    %sum = arith.addf %xv, %yv : tensor<1024xf32, #blocked>
+    ttg.store %out_ptrs, %sum, %mask : tensor<1024xf32, #blocked>
+    ttg.return
+  }
+}
+```
+
+The key difference: every tensor now has a layout. For this element-wise add, the layouts match throughout, so no conversions are needed. For a GEMM, TTGIR would insert `ttg.convert_layout` ops between the load layout (#blocked) and the dot-operand layout (#dot_op) — and those conversions go through shared memory. That is where bank conflicts and performance bugs hide.
+
 ## What the Compiler Decides for You
 
 The point of Triton's abstraction is that the compiler handles the decisions that eat most of a CUDA author's time:
@@ -121,7 +191,7 @@ For many workloads — fused elementwise ops, reductions, small-to-medium GEMMs,
 
 This is Triton's best case. Take a sequence like `GEMM → GeLU → Dropout → LayerNorm`. In CUDA, each step is usually a separate kernel launch. Each launch reads from and writes to HBM. Bandwidth is the bottleneck, not compute.
 
-A Triton kernel fuses the whole chain. Intermediate values stay in registers or shared memory and never touch HBM. For bandwidth-bound workloads — which covers most LLM inference at small batch sizes — fusion delivers 2–4x speedups over cuBLAS plus separate elementwise kernels.
+A Triton kernel fuses the whole chain. Intermediate values stay in registers or shared memory and never touch HBM. For bandwidth-bound workloads — which covers most LLM inference at small batch sizes — fusion delivers 2–4x speedups over cuBLAS plus separate elementwise kernels. The Triton tutorials repository includes benchmarks for fused softmax and matrix multiplication that show these gains on A100 hardware.[^6]
 
 This is why PyTorch's TorchInductor uses Triton as its default codegen backend.[^2] When `torch.compile` traces a model graph, it finds groups of ops it can fuse and emits Triton kernels for them.
 
@@ -132,6 +202,8 @@ A Triton kernel runs 30–50 lines of Python. The same kernel in CUDA runs 200�
 ### Multi-backend portability
 
 Because Triton's pipeline is MLIR-based, it supports non-NVIDIA targets. The AMD ROCm backend lowers TTGIR to HIP and targets AMD's MFMA instructions on MI300 hardware.[^3] The abstraction boundary at TTIR means the same kernel source can run on both vendors. The hardware-specific work happens in TTGIR lowering, not in user code.
+
+A caveat on maturity: the AMD backend works and is in production at several companies, but it is not at parity with NVIDIA. Some TTGIR passes (notably software pipelining and certain layout optimizations) are tuned for NVIDIA's memory hierarchy and warp size. On MI300, expect 10–30% lower performance than the same kernel on a comparable NVIDIA GPU for compute-bound workloads, though AMD is closing the gap with each ROCm release.
 
 ## Where Triton Loses
 
@@ -147,9 +219,28 @@ Triton's shared memory and layout passes are built for regular, tiled access. Sc
 
 ### Debugging
 
-When a Triton kernel gives wrong results or runs slow, debugging is hard. The Python source maps poorly to the final PTX because three IR transforms sit between them. Layout mismatches — where TTGIR adds an unexpected conversion that slows an operation — are a common performance bug. Finding them means dumping IR with environment variables (`MLIR_ENABLE_DUMP=1`, `TRITON_KERNEL_DUMP=1`) and reading MLIR output.
+When a Triton kernel gives wrong results or runs slow, debugging is hard. Three IR transforms sit between your Python and the final PTX, so the source mapping is loose at best.
 
-In CUDA, `cuda-gdb`, `compute-sanitizer`, and `ncu` (Nsight Compute) map straight to the source. Triton's tooling is getting better, but the debugging gap is a real cost.
+In CUDA, `cuda-gdb`, `compute-sanitizer`, and `ncu` (Nsight Compute) map straight to the source. Triton has no equivalent. Here is the workflow I use when something goes wrong:
+
+**Step 1: Dump the IR.** Set `TRITON_KERNEL_DUMP=1` to write the TTIR and TTGIR for every compiled kernel to `/tmp/triton_dump/`. For more detail, `MLIR_ENABLE_DUMP=1` prints every pass to stderr.
+
+**Step 2: Look for `convert_layout`.** In the TTGIR dump, search for `ttg.convert_layout` ops. Each one is a data reshape that usually goes through shared memory. If you see a `convert_layout` between two ops that should share a layout (e.g., two elementwise ops), something is forcing a layout change. That is your performance bug.
+
+```mlir
+// This is the red flag. A convert_layout between a load and an add
+// means the load produced #blocked but the add wants #blocked<different>.
+// The fix is usually adjusting BLOCK dimensions so the layouts agree.
+%xv = ttg.load ... : tensor<1024xf32, #blocked<sPerT=[4], ...>>
+%xv_cvt = ttg.convert_layout %xv : ... -> tensor<1024xf32, #blocked<sPerT=[8], ...>>
+%sum = arith.addf %xv_cvt, %yv : tensor<1024xf32, #blocked<sPerT=[8], ...>>
+```
+
+**Step 3: Check register pressure.** Run the compiled kernel through `ncu` (Nsight Compute). Look at the "Occupancy" section. If register count per thread is above 128, Triton allocated too many registers — often because a tile is too large or the compiler failed to pipeline a loop. Shrinking `BLOCK_SIZE` or splitting the kernel usually helps.
+
+**Step 4: Compare PTX.** For correctness bugs, dump the PTX (`TRITON_KERNEL_DUMP=1` writes it alongside the IR) and look for predication errors. A common mistake: the `mask` tensor has the wrong shape, so the compiler predicates the wrong lanes. The PTX will show `@!p0` guards on loads/stores — check that they match your intent.
+
+This workflow is not elegant. But it is the one that works today.
 
 ### The Hopper and Blackwell problem
 
@@ -160,6 +251,20 @@ Each GPU generation ships features that need *new abstractions*, not just new in
 - **Blackwell** adds TMEM, tcgen05 single-thread issue, and FP4 microscaling. The ISA changed in ways that matter. Triton's backend needs a deep rework to target these features, because the thread-to-data mapping in TTGIR was built around the warp-level model that Blackwell has left behind.
 
 This is the core tension in Triton's design. Each generation breaks the abstraction the compiler tries to hold together. The team adds heuristics and special cases to patch it, but the abstraction gains weight without getting cleaner.
+
+### Common pitfalls
+
+A few things that trip up most Triton authors:
+
+1. **Block sizes that are not powers of two.** Triton's layout math assumes power-of-two dimensions. Non-power-of-two BLOCK sizes compile but often produce poor vectorization. Use `triton.next_power_of_2()` and mask the excess.
+
+2. **Too-large tiles on Hopper.** A BLOCK_M=256, BLOCK_N=256 tile that runs well on A100 might miss the WGMMA path on H100 because the compiler cannot map it to a supported WGMMA shape. Stick to tiles that divide cleanly into 64×64 or 128×128 warp-group chunks.
+
+3. **Dynamic control flow inside the kernel.** `if/else` branches that depend on runtime values (not `constexpr`) cause warp divergence. Triton cannot optimize this away. Use `tl.where` for branchless selection instead.
+
+4. **Forgetting that autotuning is not optional.** Triton's performance is sensitive to `BLOCK_SIZE`, `num_warps`, and `num_stages`. A kernel that is 3x slower than CUDA might just need a `@triton.autotune` decorator with 5–10 configurations. The compiler does not pick good defaults for all shapes.
+
+5. **Assuming loads are free.** `tl.load` with a large block and a sparse mask still issues memory transactions for the entire block. The mask only controls which lanes write to registers. If your access is truly sparse, Triton is the wrong tool.
 
 ## Triton's Place in the Stack
 
@@ -246,6 +351,8 @@ For a single-GPU kernel, this is fine. For the multi-device world that real ML t
 [^4]: **vLLM: Easy, Fast, and Cheap LLM Serving.** Kwon, W. et al. SOSP 2023. vLLM uses custom Triton kernels for PagedAttention and quantized serving. ([Link](https://arxiv.org/abs/2309.06180))
 
 [^5]: **MLIR: A Compiler Infrastructure for the End of Moore's Law.** Lattner, C. et al. 2020. The multi-level IR framework that Triton's pipeline is built on. ([Link](https://arxiv.org/abs/2002.11054))
+
+[^6]: **Triton Tutorials: Fused Softmax and Matrix Multiplication.** Triton project. Includes benchmarks comparing Triton kernels against cuBLAS and PyTorch native ops on A100. ([Link](https://triton-lang.org/main/getting-started/tutorials/index.html))
 
 ---
 
