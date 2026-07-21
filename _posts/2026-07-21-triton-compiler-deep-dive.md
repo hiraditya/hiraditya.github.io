@@ -89,7 +89,13 @@ This is where the compiler makes its hard calls. TTGIR adds GPU-specific structu
 - **Layout propagation.** TTGIR tracks tensor layouts — blocked, shared, slice, dot-operand — and inserts conversions when an op needs a layout its input does not provide. A `tl.dot` needs operands in a specific "dot-operand" layout that matches the hardware MMA instruction.
 - **Software pipelining.** For loops with known trip counts, TTGIR overlaps memory loads from iteration N+1 with compute from iteration N.
 
-This stage is where most of Triton's value lives. It is also where most of its performance bugs come from. A bad layout choice or a missed pipeline opportunity shows up as a 2–5x slowdown versus hand-tuned CUDA. Diagnosing it means reading TTGIR dumps.
+This stage is where most of Triton's value lives. It is also where most of its performance bugs come from. A few real examples from the Triton issue tracker:
+
+- The `TritonGPUCoalesce` pass sometimes picks a default blocked layout that does not match the downstream `tl.dot` layout. The compiler then inserts a `convert_layout` inside the inner loop — each one going through shared memory — and the kernel slows down 2–5x. Manually forcing a better layout recovers the performance. ([#6206](https://github.com/triton-lang/triton/issues/6206))[^7]
+- A change to the `convert_layout` swizzling algorithm caused an 18% TFLOPs regression in `flex_attention` on B200 hardware. The fix: fold the layout conversion for TMEM stores so the swizzle does not introduce extra shared memory traffic. ([#8328](https://github.com/triton-lang/triton/issues/8328))
+- Layout propagation through `ReshapeOp` and `DotOp` has caused regressions in memory-bound kernels across multiple releases (v3.4–v3.6). The community is addressing this with a rewrite of the layout system using "linear layouts" — modeling tensor layouts as linear algebra over GF(2) — to replace the case-by-case heuristics that keep breaking. ([#9640](https://github.com/triton-lang/triton/issues/9640))
+
+The pattern is consistent: TTGIR layout decisions are the single biggest lever on Triton kernel performance, and the compiler does not always get them right. Diagnosing it means reading TTGIR dumps.
 
 ### Stage 3: TTGIR → LLVM IR
 
@@ -353,6 +359,8 @@ For a single-GPU kernel, this is fine. For the multi-device world that real ML t
 [^5]: **MLIR: A Compiler Infrastructure for the End of Moore's Law.** Lattner, C. et al. 2020. The multi-level IR framework that Triton's pipeline is built on. ([Link](https://arxiv.org/abs/2002.11054))
 
 [^6]: **Triton Tutorials: Fused Softmax and Matrix Multiplication.** Triton project. Includes benchmarks comparing Triton kernels against cuBLAS and PyTorch native ops on A100. ([Link](https://triton-lang.org/main/getting-started/tutorials/index.html))
+
+[^7]: **Triton Layout Conversion Issues.** The `TritonGPUCoalesce` pass and `convert_layout` mechanism are a recurring source of performance regressions. Issues [#6206](https://github.com/triton-lang/triton/issues/6206), [#8328](https://github.com/triton-lang/triton/issues/8328), and [#9640](https://github.com/triton-lang/triton/issues/9640) document the pattern across multiple releases.
 
 ---
 
