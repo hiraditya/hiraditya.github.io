@@ -3,7 +3,6 @@ title: "How torch.compile Actually Works"
 date: 2026-07-21 12:00:00 -0700
 categories: [Compilers, ML-Systems]
 tags: [pytorch, torch-compile, dynamo, inductor, compilers]
-mermaid: true
 ---
 
 Most PyTorch users think `torch.compile` is a compiler. It is not. Not in the way `gcc` or `nvcc` is a compiler.
@@ -24,29 +23,24 @@ Before walking through the pipeline, a word on what these tools are:
 
 ## The Pipeline
 
-```mermaid
-graph LR
-    PY["Python bytecode"] --> DY["TorchDynamo<br/>graph capture"]
-    DY --> FX["FX Graph<br/>(ATen ops)"]
-    FX --> AOT["AOTAutograd<br/>fwd + bwd tracing"]
-    AOT --> FWD["Forward graph"]
-    AOT --> BWD["Backward graph"]
-    FWD --> IND["TorchInductor"]
-    BWD --> IND
-    IND --> TRI["Triton kernels<br/>(GPU)"]
-    IND --> CPP["C++ code<br/>(CPU)"]
-    IND --> LIB["cuBLAS / cuDNN<br/>(vendor libs)"]
-
-    style PY fill:#fce4ec,color:#1a1a1a
-    style DY fill:#e8eaf6,color:#1a1a1a
-    style FX fill:#e0f2f1,color:#1a1a1a
-    style AOT fill:#fff3e0,color:#1a1a1a
-    style FWD fill:#f3e5f5,color:#1a1a1a
-    style BWD fill:#f3e5f5,color:#1a1a1a
-    style IND fill:#e8f5e9,color:#1a1a1a
-    style TRI fill:#fce4ec,color:#1a1a1a
-    style CPP fill:#e0f2f1,color:#1a1a1a
-    style LIB fill:#fff3e0,color:#1a1a1a
+```
+[Python Bytecode]
+     │
+     ▼
+[TorchDynamo: Graph Capture] ──(graph break)──▶ [Eager Python]
+     │
+     ▼
+[FX Graph (ATen ops)]
+     │
+     ▼
+[AOTAutograd: Tracing] ──▶ [Forward Graph] + [Backward Graph]
+     │
+     ▼
+[TorchInductor: Fusion & Code Gen]
+     │
+     ├──▶ [Triton Kernels] (GPU)
+     ├──▶ [C++ Code] (CPU)
+     └──▶ [cuBLAS / cuDNN] (vendor libs)
 ```
 
 When you call `torch.compile(model)`, nothing compiles yet. Compilation happens lazily on the first forward pass. Each stage feeds the next. The final output — Triton kernels, C++ code, or cuBLAS calls — gets cached on disk so the second run skips the whole pipeline.
