@@ -1,6 +1,6 @@
 ---
 title: "What torch.compile Sees, and What It's Blind To"
-date: 2026-07-22 12:00:00 -0700
+date: 2026-07-21 12:00:00 -0700
 categories: [Compilers, ML-Systems]
 tags: [pytorch, torch-compile, dynamo, inductor, compilers]
 ---
