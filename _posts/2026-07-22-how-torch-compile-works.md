@@ -53,9 +53,9 @@ When you call `torch.compile(model)`, nothing compiles yet. Compilation happens 
 
 ## Stage 1: TorchDynamo — Capturing a Graph from Live Python
 
-Dynamo does not parse Python source. It does not need type annotations or a restricted language subset. It hooks into CPython's frame evaluation API (PEP 523) and intercepts bytecode as it runs.[^1]
+Dynamo does not parse Python source. It does not need type annotations or a restricted language subset. It hooks into CPython's frame evaluation API — PEP 523 (a CPython extension point that lets external tools replace the default bytecode evaluator) — and intercepts bytecode as it runs.[^1]
 
-What that means in practice: when Python is about to execute a frame (a function call), Dynamo steps in before CPython's evaluator runs. It walks the bytecode one instruction at a time, executing it symbolically. PyTorch operations — `torch.add`, `nn.Linear`, tensor indexing — get recorded into an FX graph. Plain Python — list appends, `print` calls, C extension calls — gets traced through if possible. If not, Dynamo gives up.
+What that means in practice: when Python is about to execute a frame (a function call), Dynamo steps in before CPython's evaluator runs. It walks the bytecode one instruction at a time, executing it symbolically. PyTorch operations — `torch.add`, `nn.Linear`, tensor indexing — get recorded into an FX graph (PyTorch's Python-level IR for representing a DAG of operations). Plain Python — list appends, `print` calls, C extension calls — gets traced through if possible. If not, Dynamo gives up.
 
 "Giving up" is a **graph break**. Dynamo stops tracing, compiles what it has so far into a subgraph, and falls back to CPython for the unsupported instruction. Then it tries to resume tracing after the break.
 
@@ -95,7 +95,7 @@ Three things happen in this stage:
 
 ### Decomposition
 
-High-level PyTorch ops get broken into primitive ATen ops. `nn.Linear` becomes `mm` plus `add`. `nn.LayerNorm` becomes `mean`, `sub`, `pow`, `sqrt`, `div`. This cuts the number of ops Inductor needs to handle from thousands to a few hundred.
+High-level PyTorch ops get broken into primitive ATen ops ("A Tensor Library" — PyTorch's C++ operator kernel library). `nn.Linear` becomes `mm` plus `add`. `nn.LayerNorm` becomes `mean`, `sub`, `pow`, `sqrt`, `div`. This cuts the number of ops Inductor needs to handle from thousands to a few hundred.
 
 ### Functionalization
 
@@ -114,7 +114,7 @@ This step is not optional. If the op schema lies about what it mutates (a missin
 
 ### Partitioning
 
-The joint forward-backward graph gets split by a min-cut partitioner. It picks which forward activations to save for the backward pass and which to throw away and recompute later. This is activation checkpointing built into the compiler. It runs without any user annotation. The goal: minimize peak memory while keeping recomputation cost reasonable.[^5]
+The joint forward-backward graph gets split by a min-cut partitioner (a graph algorithm that finds the cheapest set of edges to cut so that saved-activation memory is minimized). It picks which forward activations to save for the backward pass and which to throw away and recompute later. This is activation checkpointing built into the compiler. It runs without any user annotation. The goal: minimize peak memory while keeping recomputation cost reasonable.[^5]
 
 ## Stage 3: TorchInductor — Fusion and Code Generation
 
