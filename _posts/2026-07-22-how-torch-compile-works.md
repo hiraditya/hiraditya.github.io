@@ -9,7 +9,25 @@ The first time I ran `torch.compile` on an LLM inference pipeline, it took nearl
 
 That outcome is standard. `torch.compile` is not a monolithic static compiler like `gcc` or `nvcc`. It does not ingest Python source and emit a standalone ELF binary. Instead, it operates as a runtime interception engine. It traces Python execution, extracts contiguous subgraphs of PyTorch tensor operations, compiles those subgraphs into kernel code, and leaves uncompilable Python to eager interpretation.
 
-If I were drawing this on a whiteboard, I'd sketch a top-to-bottom dataflow. At the top sits Python bytecode. Below it is TorchDynamo, acting as a bytecode interceptor. If Dynamo runs into unanalyzable Python or a side-effect, a dashed arrow branches off to the right labelled "Graph Break -> Eager CPython". Successful frame captures flow downward into an FX graph of ATen primitives. From there, the stream splits into AOTAutograd, which traces both forward and backward graphs ahead of time. Finally, TorchInductor ingests those graphs to emit Triton kernels for GPU, C++ for CPU, or vendor library calls like cuBLAS.
+```
+[Python Bytecode]
+     │
+     ▼
+[TorchDynamo: Graph Capture] ──(graph break)──▶ [Eager CPython]
+     │
+     ▼
+[FX Graph (ATen ops)]
+     │
+     ▼
+[AOTAutograd: Tracing] ──▶ [Forward Graph] + [Backward Graph]
+     │
+     ▼
+[TorchInductor: Codegen]
+     │
+     ├──▶ [Triton Kernels] (GPU)
+     ├──▶ [C++ Code] (CPU)
+     └──▶ [cuBLAS / cuDNN] (Vendor Libs)
+```
 
 The pipeline spans three sub-projects: TorchDynamo for bytecode capture, AOTAutograd for joint graph tracing, and TorchInductor for code generation. Wrapped models do not compile when `torch.compile(model)` is called. Tracing and lowering happen lazily during the first forward pass, with compiled artifacts cached locally.
 
@@ -23,7 +41,15 @@ At the C extension layer, Dynamo registers a frame evaluation handler via `PyInt
 
 Instead of delegating to CPython's `_PyEval_EvalFrameDefault`, Dynamo intercepts the frame. It walks the bytecode instructions sequentially using an internal symbolic evaluation engine called `InstructionTranslator`.
 
-On a whiteboard, picture two parallel columns. On the left is the CPython interpreter holding `PyFrameObject` fields. On the right is TorchDynamo's `InstructionTranslator`, maintaining a symbolic evaluation stack, a mapping of variable trackers, and an FX graph builder.
+```
+  CPython Interpreter                     TorchDynamo
+┌───────────────────────┐            ┌──────────────────────────────────┐
+│  PyFrameObject        │            │ InstructionTranslator            │
+│  - f_code (bytecode)  │──intercept─▶  - Symbolic Stack               │
+│  - f_locals           │ (PEP 523)  │  - VariableTracker Mapping       │
+└───────────────────────┘            │  - FX GraphBuilder               │
+                                     └──────────────────────────────────┘
+```
 
 Dynamo maps each CPython opcode to a symbolic handler:
 
@@ -99,7 +125,28 @@ Standard eager PyTorch builds an autograd tape on the fly during the forward pas
 
 AOTAutograd replaces this runtime tape construction by capturing both forward and backward execution graphs ahead of time via `__torch_dispatch__` hooks.[^2]
 
-If you visualize this comparison on a whiteboard, eager PyTorch appears as two sequential steps: a forward pass that executes operations and allocates heap tape nodes, followed by a backward pass that walks that tape to compute gradients. AOTAutograd replaces that with a pre-tracing pipeline: `__torch_dispatch__` captures a joint graph, passes it through functionalization and operator decomposition, and feeds it into a min-cut partitioner that produces separate forward and backward FX graphs.
+```
+       Eager PyTorch                              AOTAutograd
+┌──────────────────────────┐               ┌───────────────────────┐
+│ Forward Pass             │               │ Traces Joint Graph    │
+│  - Executes Ops          │               │ (__torch_dispatch__)  │
+│  - Builds Heap Tape      │               └───────────┬───────────┘
+└────────────┬─────────────┘                           │
+             │                                         ▼
+┌────────────▼─────────────┐               ┌───────────────────────┐
+│ Backward Pass            │               │ Functionalization &   │
+│  - Walks Tape            │               │ Decomposition Pass    │
+│  - Frees Allocations     │               └───────────┬───────────┘
+└──────────────────────────┘                           │
+                                                       ▼
+                                           ┌───────────────────────┐
+                                           │ Min-Cut Partitioner   │
+                                           └───────────┬───────────┘
+                                                       │
+                                            ┌──────────┴───────────┐
+                                            ▼                      ▼
+                                      Forward Graph         Backward Graph
+```
 
 The captured joint graph goes through three lowering transformations:
 
