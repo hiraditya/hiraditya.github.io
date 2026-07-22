@@ -20,7 +20,7 @@ Before walking through the pipeline, a word on what these tools are:
 
 - **AOTAutograd** is the autograd compiler. Standard PyTorch builds the backward pass on the fly during forward execution. AOTAutograd traces both passes ahead of time, so the backward pass can be compiled too.
 
-- **TorchInductor** is the code generator. It takes the graphs from AOTAutograd and turns them into fast code: Triton kernels for GPU, C++ for CPU, or calls to vendor libraries like cuBLAS.
+- **TorchInductor** is the code generator. It takes the graphs from AOTAutograd and turns them into fast code: Triton kernels for GPU, C++ for CPU, or calls to vendor libraries like cuBLAS. Inductor is the default backend, but Dynamo's design is pluggable — you can swap it for other backends like OpenXLA (for TPUs) or IPEX (for Intel GPUs) by passing `torch.compile(backend='openxla')`. In practice, most users stick with Inductor.
 
 ## The Pipeline
 
@@ -83,7 +83,7 @@ Guard failures are a common problem. A model that sees different input shapes on
 
 PyTorch used to ship TorchScript (`torch.jit.script`, `torch.jit.trace`) for ahead-of-time compilation. It required rewriting code into a restricted Python subset. It could not handle data-dependent control flow, dynamic types, or most third-party libraries. Few people used it because the rewriting cost was high and the error messages were bad.
 
-Dynamo takes the other approach: compile what you can, fall back for what you cannot. No rewriting. The tradeoff is partial compilation instead of whole-program, and you have to think about graph breaks. But the entry cost is one decorator.
+Dynamo takes the other approach: compile what you can, fall back for what you cannot. No rewriting. The tradeoff is partial compilation instead of whole-program, and you have to think about graph breaks. But the entry cost is one decorator. And the performance ceiling is higher — TorchScript could not fuse across Python control flow or trace through third-party libraries, so its compiled graphs were often small and fragmented in ways that limited the speedup.
 
 ## Stage 2: AOTAutograd — Tracing the Backward Pass
 
@@ -163,7 +163,7 @@ Graph breaks are the most common reason `torch.compile` does not help. Each brea
 - **C extensions.** Calls into C libraries that Dynamo cannot see through.
 - **Unsupported Python constructs.** Some `torch.autograd` functions, `__torch_function__` overrides, or unusual Python patterns.
 
-To debug, set `TORCH_LOGS='graph_breaks'`. The output tells you which bytecode caused the break. It talks in CPython bytecodes, not your source lines, so it takes some reading. But it is the only tool that works.
+To debug, set `TORCH_LOGS='graph_breaks'`. The output tells you which bytecode caused the break. It talks in CPython bytecodes, not your source lines, so it takes some reading. Two other tricks: `torch.compile(backend='eager')` runs Dynamo's tracing without actually compiling, so you can isolate whether a bug is in the tracing or the codegen. And `torch.profiler` can visualize which regions of a forward pass are compiled versus eager, which makes it easier to spot where graph breaks cost you the most.
 
 ### Dynamic shapes
 
