@@ -18,7 +18,7 @@ Three components do the work.
 [TorchDynamo: Graph Capture] ──(graph break)──▶ [Eager CPython]
      │
      ▼
-[FX Graph (ATen ops)]
+[FX Graph (torch ops)]
      │
      ▼
 [AOTAutograd: Joint Tracing] ──▶ [Forward Graph] + [Backward Graph]
@@ -41,7 +41,7 @@ I will make an argument up front: Dynamo is the only piece of this stack you nee
 
 Older approaches like TorchScript tried to solve capture by forcing you into a restricted Python subset: no data-dependent control flow, no third-party libraries, no exotic objects. It failed in production for the obvious reason. Real model code is full of exactly those things. Dynamo took the opposite bet. Instead of constraining the language, it hooks CPython's frame evaluation API — PEP 523, the extension point that lets an external tool replace the default bytecode evaluator — and intercepts frames as they execute.[^1]
 
-At the C layer, Dynamo installs its handler with `PyInterpreterState_SetEvalFrameFunc`. When CPython is about to run a Python function, it has already built a `PyFrameObject` holding the bytecode (`f_code`), the locals (`f_locals`), and the value stack. Rather than let `_PyEval_EvalFrameDefault` run that frame, Dynamo takes it and walks the bytecode itself, one instruction at a time, through a symbolic interpreter called `InstructionTranslator`.
+At the C layer, Dynamo installs its own frame evaluator through CPython's private hook — `_PyInterpreterState_SetEvalFrameFunc`, the setter for the `eval_frame` slot that PEP 523 added to the interpreter state. When CPython is about to run a Python function, it has already built a `PyFrameObject` holding the bytecode (`f_code`), the locals (`f_locals`), and the value stack. Rather than let `_PyEval_EvalFrameDefault` run that frame, Dynamo takes it and walks the bytecode itself, one instruction at a time, through a symbolic interpreter called `InstructionTranslator`.
 
 ```
   CPython Interpreter                     TorchDynamo
@@ -74,10 +74,13 @@ def f(x):
 Two subgraphs, one `print` between them. Each subgraph compiles and optimizes in isolation. You have lost every fusion opportunity that would have crossed the boundary, and you pay an extra handoff between compiled code and the interpreter on every call. `torch._dynamo.explain(f)(x)` will lay it out for you:
 
 ```text
-Graph Break 1:
-  Reason: builtin: print
-  User code: print(z.shape)
-Graphs generated: 2
+Graph Count: 2
+Graph Break Count: 1
+Op Count: 3
+Break Reasons:
+  Break Reason 1:
+    Reason: builtin: print
+    User Stack: <FrameSummary file f.py, line 4, in f>
 ```
 
 One `print` in a toy function is harmless. Dozens of breaks scattered through a real forward pass is the difference between 2x and no speedup at all, and they accumulate silently as a model grows. The single most useful command I know here is:
@@ -86,7 +89,7 @@ One `print` in a toy function is harmless. Dozens of breaks scattered through a 
 TORCH_LOGS="graph_breaks,recompiles" python train.py
 ```
 
-It prints every break and every recompilation with the bytecode that caused it. Be warned that it reports CPython bytecodes, not your source lines, so reading it fluently takes practice. The usual culprits are boring: logging and `print`, data-dependent branches, calls into C extensions Dynamo can't trace, and a few pathological `__torch_function__` overrides. Fix the boring ones first and most of your breaks disappear.
+It prints every break and every recompilation with the reason and the source location that triggered it — file, line, and the offending statement. (If you ever need the raw opcode stream under a break, that's a separate switch, `TORCH_LOGS="trace_bytecode"`, and reading it fluently takes practice.) The usual culprits are boring: logging and `print`, data-dependent branches, calls into C extensions Dynamo can't trace, and a few pathological `__torch_function__` overrides. Fix the boring ones first and most of your breaks disappear.
 
 ### Guards, recompilation, and the trap that burns people in production
 
@@ -97,9 +100,8 @@ TORCH_LOGS="guards" python train.py
 ```
 
 ```text
-[guards] TENSOR_MATCH: L['x'].shape == (32, 768)
-[guards] TENSOR_MATCH: L['x'].dtype == torch.float32
-[guards] TENSOR_MATCH: L['x'].device == device(type='cuda', index=0)
+# TORCH_LOGS="guards", abbreviated: one TENSOR_MATCH covering x's structure.
+TENSOR_MATCH: L['x']  dtype=torch.float32  device=cuda:0  size=(32, 768)
 ```
 
 Guards form a tree. On each call Dynamo runs the check; if it passes, the cached graph runs and you never touch the tracer. If it fails, Dynamo throws away the fast path, re-evaluates the frame, and compiles a new specialized variant.
@@ -145,7 +147,7 @@ Three transforms run on that joint graph, and only one of them is likely to ruin
 
 **Decomposition** rewrites high-level ops into primitives. `nn.LayerNorm` becomes `mean`, `sub`, `pow`, `sqrt`, `div`; `nn.Linear` becomes `mm` plus `add`. This shrinks the operator surface a backend has to support from thousands of ATen ops (ATen is PyTorch's C++ kernel library) down to a few hundred. It is plumbing, and it works.
 
-**Functionalization** removes in-place mutation. Model code is full of it — `x.add_(1)`, `y[:, 0] = 3`, views that alias storage. A compiler cannot safely reorder operations that write to shared memory, so functionalization rewrites every mutation into a pure, out-of-place form, tracking aliasing through `FunctionalTensorWrapper` and version counters.[^3]
+**Functionalization** removes in-place mutation. Model code is full of it — `x.add_(1)`, `y[:, 0] = 3`, views that alias storage. A compiler cannot safely reorder operations that write to shared memory, so functionalization rewrites every mutation into a pure, out-of-place form, tracking aliasing through `FunctionalTensorWrapper` and a per-storage mutation counter.[^3]
 
 ```python
 # What you wrote:
@@ -157,7 +159,7 @@ x_1 = torch.ops.aten.add.Tensor(x, 1)  # 3. pure: new tensor, no mutation
 y   = torch.ops.aten.view.default(x_1, [-1])  # 4. view of the new tensor
 ```
 
-This transform is also the source of the nastiest bug class in the entire stack, and it is worth being pedantic about. Functionalization trusts operator schemas. If a custom C++ op mutates a tensor in place but its schema forgets to declare that argument as `Tensor!`, functionalization never learns about the write. It doesn't bump the version counter, so the compiler is free to reorder a later read *ahead of* the write. The result is silent numerical corruption — no exception, no warning, just wrong numbers that look plausible enough to ship. I lost real time to exactly this on a custom kernel, and I wrote up the ABI and schema discipline that prevents it in [the vLLM custom-ops post]({% post_url 2026-06-22-vllm-custom-kernels-and-abi %}). If you register custom ops, get the mutation annotations right before you trust a single compiled number.
+This transform is also the source of the nastiest bug class in the entire stack, and it is worth being pedantic about. Functionalization trusts operator schemas. If a custom C++ op mutates a tensor in place but its schema forgets to declare that argument as mutable (`Tensor(a!)`), functionalization never learns about the write. It treats the op as pure, so downstream passes are free to reuse that buffer or hoist a later read *ahead of* the write. The result is silent numerical corruption — no exception, no warning, just wrong numbers that look plausible enough to ship. I lost real time to exactly this on a custom kernel, and I wrote up the ABI and schema discipline that prevents it in [the vLLM custom-ops post]({% post_url 2026-06-22-vllm-custom-kernels-and-abi %}). If you register custom ops, get the mutation annotations right before you trust a single compiled number.
 
 **Partitioning** is the clever one. The joint graph holds forward activations that the backward pass will need for gradients. Storing all of them costs memory; recomputing them costs FLOPs. AOTAutograd runs a min-cut algorithm (`min_cut_rematerialization_partition`) over a graph whose edges are weighted by save-cost versus recompute-cost, and cuts it where the total is cheapest.[^5] In practice, cheap pointwise ops like `relu` get thrown away and recomputed in the backward pass, while expensive `mm` outputs are saved. This is activation checkpointing that nobody had to annotate by hand, and on a memory-bound training run it is quietly one of the biggest wins in the pipeline.
 
@@ -202,11 +204,11 @@ Eager PyTorch would launch three kernels here and write two full intermediate te
 
 Inductor does not send everything through Triton, and this is a deliberate, sensible choice rather than a limitation. Dense square GEMMs go straight to cuBLAS; convolutions go to cuDNN; those libraries are hand-tuned and Triton rarely beats them. But for the tall-and-skinny GEMMs that dominate LLM decoding, cuBLAS tile sizes are tuned for the wrong regime, and Inductor's autotuner will generate candidate Triton GEMMs, benchmark them against the cuBLAS call on your actual hardware, and keep whichever is faster. Pointwise ops, reductions, and GEMM-plus-epilogue fusions go through Triton. The dispatch is per-shape and empirical, which is the right way to make this decision.
 
-One last pass worth naming: after kernel boundaries are fixed, Inductor plans static memory allocation. It computes lifetime intervals for every intermediate buffer, and if buffer A dies before buffer B is born, B reuses A's offset in a preallocated arena. That removes `cudaMalloc` calls from the hot path and pulls down peak VRAM — which, on a model you are trying to fit on the GPU you actually have, is the difference between running and OOM.
+One last pass worth naming: after kernel boundaries are fixed, Inductor plans static memory allocation. It computes lifetime intervals for every intermediate buffer, and when buffer A dies before buffer B is born, B reuses A's storage. That cuts the number of live allocations, and together with PyTorch's caching allocator it keeps `cudaMalloc` off the steady-state path and pulls down peak VRAM — which, on a model you are trying to fit on the GPU you actually have, is the difference between running and OOM.
 
 ## FlexAttention: the whole pipeline paying off at once
 
-Attention is where all of this stops being abstract. FlashAttention is a hand-written CUDA kernel, and for years any variation on it — a sliding window, ALiBi bias, a document-boundary mask — meant writing or forking CUDA. PyTorch 2.5's `flex_attention` lets you express the score modification in plain PyTorch and folds it into a compiled FlashAttention kernel with no graph break.[^6]
+Attention is where all of this stops being abstract. FlashAttention is a hand-written CUDA kernel, and for years any variation on it — a sliding window, ALiBi bias, a document-boundary mask — meant writing or forking CUDA. PyTorch 2.5 shipped `flex_attention` (a prototype API) to fix that: you write the score or mask modification in plain PyTorch and it folds into a compiled FlashAttention kernel with no graph break.[^6]
 
 ```python
 from torch.nn.attention.flex_attention import flex_attention
@@ -219,26 +221,29 @@ compiled_flex = torch.compile(flex_attention)
 out = compiled_flex(query, key, value, score_mod=causal_mask)
 ```
 
-Dynamo captures `causal_mask` into an FX subgraph, and Inductor injects that index arithmetic directly into the inner loop of a templated FlashAttention Triton kernel. You get a custom attention variant running at the memory-bandwidth limit of the hardware without leaving Python or touching a `.cu` file. This is the clearest argument for the whole design: capture in Python, lower to Triton, specialize per shape.
+Dynamo captures `causal_mask` into an FX subgraph, and Inductor injects that index arithmetic directly into the inner loop of a templated FlashAttention Triton kernel. You get a custom attention variant running at the memory-bandwidth limit of the hardware without leaving Python or touching a `.cu` file.
+
+One caveat, because it is a real performance trap. Expressing a *mask* as a `score_mod` that returns `-inf` is correct but leaves the sparsity on the table — the kernel still visits every masked block. For masking, use the separate `mask_mod` plus `create_block_mask` path, which lets the kernel skip fully-masked blocks; on a causal mask that is roughly a 2x difference. Keep `score_mod` for genuine score *transformations* like ALiBi bias or soft-capping, and reach for `mask_mod` when you are masking. Either way the design makes the same argument: capture in Python, lower to Triton, specialize per shape.
 
 ## Compilation time is the real tax, and how to isolate a failure
 
 The cold-start cost deserves its own paragraph because it is the practical obstacle people actually hit. A large model takes 30 to 120 seconds to compile on first run, split across Dynamo's tracing, AOTAutograd's graph work, and Inductor's codegen — which itself includes Triton's JIT. For a long-lived inference server you compile once and cache and never think about it again. For an interactive development loop the cold start is a genuine cost, and the standard mitigation is regional compilation: wrap the transformer block, not the whole model, so you compile one block and reuse it.
 
-When something goes wrong, the mistake is to read the Python traceback and try to reason about the whole stack at once. Don't. The single most valuable debugging move is to cut the pipeline in half:
+When something goes wrong, the mistake is to read the Python traceback and try to reason about the whole stack at once. Don't. The single most valuable debugging move is to bisect the pipeline with the `backend=` knob:
 
 ```python
-# Runs Dynamo capture + AOTAutograd, skips Inductor/Triton codegen entirely.
-torch.compile(model, backend="eager")
+# Dynamo capture + AOTAutograd (decomposition, functionalization, partitioner),
+# but no Inductor/Triton codegen — the graphs run in eager.
+torch.compile(model, backend="aot_eager")
 ```
 
-If the bug still reproduces under `backend="eager"`, it lives in graph capture or functionalization. If it vanishes, it lives in Inductor fusion or Triton codegen. That one bisection saves more time than any amount of staring. From there the logging flags each expose one layer: `TORCH_LOGS="graph_breaks,recompiles"` for capture problems, `TORCH_LOGS="output_code"` to read the generated kernels, and `TORCH_COMPILE_DEBUG=1` to dump the IR at every intermediate pass when you need to see exactly where a graph went sideways.
+Think of the backends as a three-rung ladder. `backend="eager"` runs Dynamo capture only, with no AOTAutograd. `backend="aot_eager"` adds AOTAutograd — decomposition, functionalization, the partitioner — but stops before Inductor. `backend="inductor"` is the whole thing. If a bug shows up under `aot_eager` but not `eager`, it lives in the joint trace or functionalization; if it only appears under `inductor`, it is in fusion or codegen. That bisection saves more time than any amount of staring at a traceback. From there the logging flags each expose one layer: `TORCH_LOGS="graph_breaks,recompiles"` for capture problems, `TORCH_LOGS="output_code"` to read the generated kernels, and `TORCH_COMPILE_DEBUG=1` to dump the IR at every intermediate pass when you need to see exactly where a graph went sideways.
 
 ## What the compiler cannot see
 
 Everything above operates inside a boundary that is easy to miss until it costs you. The pipeline sees op types, tensor shapes, dtypes, strides, device tags, and the full dataflow graph including the backward pass. That is enough to fuse, eliminate dead code, reorder memory access, and pick kernels. It is a well-scoped, well-solved problem.
 
-What it does not see is *where computation runs and where data lives*. A `cuda:0` tensor and a `cuda:1` tensor are indistinguishable in the IR. Host DRAM, device HBM, and pinned memory are all just tensors with a device tag; there is no type-level model of the memory hierarchy. An accidental `.cpu()` in a hot loop is a silent performance cliff, not a compile error. And NCCL collectives — `all_reduce`, `all_gather` — are opaque barriers to Inductor. It cannot fuse across them or reason about their cost.
+What it does not see is *where computation runs and where data lives*. A `cuda:0` tensor and a `cuda:1` tensor are indistinguishable in the IR. Host DRAM, device HBM, and pinned memory are all just tensors with a device tag; there is no type-level model of the memory hierarchy. An accidental `.cpu()` in a hot loop is a silent performance cliff, not a compile error. And NCCL collectives — `all_reduce`, `all_gather` — show up in the graph as scheduling barriers. By default Inductor will not fuse across them. There are opt-in passes that reorder compute and communication to overlap the two, and async tensor-parallel lowering that decomposes a collective to hide it behind matmuls — but none of that adds up to a model of *where the data actually lives*.
 
 This is intentional, and I think it is the correct call for what `torch.compile` set out to do. Compiling a single-device graph is a bounded problem with a clean cost model. Placement and routing across a cluster is a different kind of problem: the constraints are topological, the costs depend on the interconnect, and correctness cannot be read off a tensor's shape. So that layer still lives in hand-written, uncompiled Python — FSDP's sharding, DeepSpeed's pipeline scheduler, Megatron's tensor-parallel annotations — validated by running the model and watching whether the loss goes down.[^7] No compiler verifies any of it.
 
