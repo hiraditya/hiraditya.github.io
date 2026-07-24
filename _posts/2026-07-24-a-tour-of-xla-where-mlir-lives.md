@@ -1,35 +1,49 @@
 ---
-title: "A Tour of XLA: Where MLIR Lives (and Where It Doesn't)"
+title: "A Tour of XLA: The Compiler Beneath JAX, TensorFlow, and PyTorch"
 date: 2026-07-23 20:00:00 -0700
 categories: [Systems, Compilers]
-tags: [xla, mlir, stablehlo, shardy, triton, compilers]
+tags: [xla, compilers, hlo, stablehlo, gpu, tpu]
 mermaid: true
 ---
 
-XLA is the compiler under JAX, TensorFlow, and PyTorch/XLA, turning tensor programs into fast code for CPUs, GPUs, and TPUs. This is a tour of its architecture through one particular lens — where it uses MLIR, and where it doesn't — because XLA's structure is mixed, and the mix is the part worth understanding.
+If you train or serve models, XLA is probably compiling them, whether or not you have ever named it. It is the compiler behind JAX, behind TensorFlow, and — through PyTorch/XLA — behind much of PyTorch on TPUs. It takes the tensor program your framework produces and turns it into fast code for CPUs, GPUs, and TPUs. This is a tour of how it is built: the IR it works in, the optimizer at its center, how it generates code for three very different kinds of hardware, how it spreads a program across many chips, and where you can step outside it. The aim is to be able to read what XLA is actually doing to your model — and to see the shape of its design, where it is strong and where its assumptions start to bind. Everything below is derived from the `openxla/xla` source tree, with paths cited.
 
-XLA predates MLIR by several years, and its optimizer core is still its own representation: classic HLO, a hand-built C++ IR with its own passes, serialization, and text format. That core is not MLIR. MLIR appears, instead, at particular layers around it — the front door the frameworks target, the sharding system, and a growing share of code generation. So the useful question about XLA is not whether it "is an MLIR compiler" but which parts are and which parts aren't — and that turns out to be specific enough to map.
+```mermaid
+graph TD
+  FW["Framework: JAX / TF / PyTorch"]
+  FW -->|"emits StableHLO"| IMP["import + translate<br/>→ classic HLO"]
+  FW -.->|"Pallas / Helion kernel"| PAL["hand-written kernel<br/>(escape hatch)"]
+  IMP --> OPT["the optimizer<br/>simplify · layout · fuse · allocate · schedule"]
+  OPT --> CPU["CPU: LLVM → object"]
+  OPT --> GPU["GPU: LLVM/PTX + cuBLAS/cuDNN + Triton"]
+  OPT --> TPU["TPU: Mosaic → libtpu"]
+  PAL -.-> GPU
+  PAL -.-> TPU
 
-That map is the rest of this post, walked from the way in to the way out and grounded in the `openxla/xla` source tree with paths cited. It is a companion to [the tour of MLIR]({% post_url 2026-06-23-mlir-dialect-stack-for-ml %}), which covered MLIR as a general IR construction kit; here we look at one large, mature consumer of it and note how much shows up, and where.
+  classDef fe fill:#e8f5e9,stroke:#4a6a4a,color:#1a1a1a;
+  classDef core fill:#fff3cd,stroke:#7a6a00,color:#1a1a1a;
+  classDef tgt fill:#f3e5f5,stroke:#6a4a6a,color:#1a1a1a;
+  class FW,PAL fe;
+  class IMP,OPT core;
+  class CPU,GPU,TPU tgt;
+```
 
-## The two IRs
+## The IR: HLO
 
-The single most important architectural fact about XLA is that it has **two** intermediate representations, and only one of them is MLIR.
-
-The core is **classic HLO** — "High Level Operations." It is a set of hand-written C++ classes (`HloModule`, `HloComputation`, `HloInstruction`, in `xla/hlo/ir/`), with its own protobuf serialization, its own pass manager, and a text format that is *not* MLIR's.[^1] This is what the optimizer works on, and it reads like this — note the `f32[4,16]{1,0}` shape-and-layout notation, the `fusion(...)` ops, no `func.func`, no `tensor<>` types:
+XLA's intermediate representation is **HLO** — "High Level Operations" — an SSA graph of operations over statically-shaped tensors. It has a rich set of abstractions (`HloModule`, `HloComputation`, `HloInstruction`, in `xla/hlo/ir/`), with its own serialization and text format.[^1] The operation set is deliberately small — on the order of 150 opcodes[^2] — covering the primitives a tensor program reduces to: `dot` (general contraction), `convolution`, `reduce`, `dynamic-slice`, the collectives (`all-reduce`, `all-gather`), and an escape valve, `custom-call`. A fragment of optimized HLO reads like this — note the `f32[4,16]{1,0}` shape-and-layout notation and the `fusion` op:
 
 ```text
-%fused_computation.1 (param_0.2: f32[4,16], param_1.4: f32[16]) -> f32[4,16] {
-  %add.1 = f32[4,16]{1,0} broadcast(%param_1.4), dimensions={1}
-  %add.0 = f32[4,16]{1,0} add(%param_0.2, %add.1)
-  ROOT %max.0 = f32[4,16]{1,0} maximum(%add.0, %constant.0)
+%fused_computation.1 (param_0: f32[4,16], param_1: f32[16]) -> f32[4,16] {
+  %b   = f32[4,16]{1,0} broadcast(%param_1), dimensions={1}
+  %add = f32[4,16]{1,0} add(%param_0, %b)
+  ROOT %max = f32[4,16]{1,0} maximum(%add, %constant)
 }
 ENTRY %main {
-  %ynn_fusion = f32[4,16]{1,0} fusion(%x, %W), kind=kCustom, calls=%fused_computation
+  %f = f32[4,16]{1,0} fusion(%x, %W), kind=kCustom, calls=%fused_computation
 }
 ```
 
-The other IR is a family of **MLIR dialects**. XLA defines some in-tree — `MHLO` (the MLIR-native rendering of HLO) and the `IFRT`/`VIFRT` dialects for its multi-device runtime interchange[^2] — and depends on others, chiefly **StableHLO** and its higher-level sibling **CHLO**. A `jit`-ed `relu(x @ W + b)`, straight from JAX's `lower()`, comes out as StableHLO, and it is unmistakably MLIR — `func.func`, SSA `%` values, `tensor<...>` types, dialect-prefixed ops:
+HLO predates MLIR but these days frameworks (like JAX) do not hand XLA this C++ HLO directly. They emit **StableHLO**, a portable, versioned interchange that XLA imports and translates into HLO (`xla/hlo/translate/`).[^3] StableHLO is the well designed contract between a framework and the compiler — the thing JAX's `lower()` produces — and the same `relu(x @ W + b)` comes out of it looking like this:
 
 ```mlir
 func.func public @main(%arg0: tensor<4x8xf32>, %arg1: tensor<8x16xf32>,
@@ -43,132 +57,112 @@ func.func public @main(%arg0: tensor<4x8xf32>, %arg1: tensor<8x16xf32>,
 }
 ```
 
-Same computation, two worlds. And critically, there is a translation layer, `xla/hlo/translate/`, whose whole job is to move programs across the seam: `stablehlo_to_hlo`, `hlo_to_mhlo`, `mhlo_to_hlo`.[^3] So the life of a program is: a framework hands XLA **StableHLO** (MLIR), XLA translates it *down into classic HLO*, optimizes it *as classic HLO*, and then translates *back into MLIR* to generate code. MLIR bookends the classic-HLO core — and, as we will see, there is a second entry path that skips the core entirely.
+StableHLO is an MLIR dialect — which is why it reads with `func.func`, SSA `%` values, and `tensor<...>` types, and why its specification notes the syntax is "heavily inspired by MLIR."[^4] It is also the public face of a small family of related MLIR dialects that live under `xla/mlir_hlo/`, and the three are worth telling apart:
 
-```mermaid
-graph TD
-  FW["JAX / TF / PyTorch"]
-  FW -->|"lower()"| SHLO["StableHLO / CHLO<br/>(MLIR dialects)"]
-  FW -.->|"Pallas kernel<br/>(escape hatch)"| PAL["Pallas"]
-  HEL["Helion<br/>(PyTorch kernel DSL)"] -.->|"compiles to"| PAL
-  SHLO -->|"xla/hlo/translate"| HLO["classic HLO<br/>(C++ HloModule — NOT MLIR)"]
-  HLO -->|"optimizer:<br/>algsimp · fusion · layout · buffers"| HLO2["optimized HLO"]
-  HLO2 -->|"pointwise/reduction<br/>emitters"| EM["MLIR emitters<br/>arith · scf · vector → llvm"]
-  HLO2 -->|"GEMM · conv (GPU)"| LIB["cuBLAS / cuDNN<br/>(library custom-calls)"]
-  HLO2 -->|"matmul/softmax<br/>fusions (GPU)"| TRIT["Triton (tt dialect)"]
-  HLO2 -->|"TPU"| MOS["Mosaic"]
-  PAL -->|"GPU"| TRIT
-  PAL -->|"GPU / TPU"| MOS
-  EM --> OUT["LLVM IR → obj / PTX"]
-  TRIT --> OUT
-  MOS -.->|"TPU"| LLO["LLO → libtpu"]
+- **CHLO** ("client HLO") is the highest-level and most permissive. It carries the conveniences a frontend wants — implicit broadcasting (`chlo.broadcast_add` and its siblings) and a handful of composite ops — and is meant to be *decomposed* into the level below rather than compiled directly.[^chlo]
+- **MHLO** is the MLIR-native rendering of HLO's operation set: the same semantics as classic HLO, expressed as MLIR ops, used while a program is on the MLIR side of the fence.
+- **StableHLO** is MHLO plus a stability contract — a versioned, backward- and forward-compatible serialization — which is what makes it safe as the durable interchange a framework commits to.
 
-  classDef mlir fill:#e1f5ff,stroke:#4a6572,color:#1a1a1a;
-  classDef classic fill:#fff3cd,stroke:#7a6a00,color:#1a1a1a;
-  classDef lib fill:#f3e5f5,stroke:#6a4a6a,color:#1a1a1a;
-  class SHLO,PAL,EM,TRIT,MOS mlir;
-  class HLO,HLO2 classic;
-  class LIB,LLO,OUT lib;
-```
+So the front-end path is: a framework lowers its own graph to StableHLO (with CHLO's conveniences already expanded away), and XLA's translation layer — `xla/hlo/translate/`, with `stablehlo_to_hlo`, `hlo_to_mhlo`, and `mhlo_to_hlo` — carries it across the seam into the classic C++ HLO the optimizer runs on.[^3] The architectural point to hold onto: XLA has a stable, portable front-end IR (StableHLO, with CHLO above it and MHLO alongside), and a separate internal IR (classic HLO) that the optimizer works on, with an explicit translation step between them.
 
-The blue is MLIR; the yellow, in the middle, is not; the purple is the vendor libraries and the final targets. The rest of this post walks the blue, roughly left to right.
+## The optimizer
 
-## The front door: CHLO, MHLO, StableHLO
+The optimizer is the center of XLA and the reason it exists. Between importing HLO and generating code, XLA runs a long pipeline of passes — dump it and there are dozens of stages — and the spine of that pipeline is worth knowing, because it is where your model actually gets faster.
 
-The way into XLA is MLIR, and it is a small stack of related dialects under `xla/mlir_hlo/`.[^4] From high to low: **CHLO** ("client HLO") is the most permissive — implicit broadcasting, a few composite ops, the conveniences a frontend wants — and lowers to MHLO (`map_chlo_to_hlo_op.h`). **MHLO** is the MLIR-native form of HLO's operation set. **StableHLO** is MHLO with a stability contract — versioning, backward/forward compatibility — so it can be the portable interchange *between* frameworks and compilers. This is what `jit(...).lower()` emits and what a framework commits to.[^5]
-
-Here is a detail worth noting about the interchange itself: **StableHLO's syntax is MLIR's.** The StableHLO specification says so in as many words — *"StableHLO syntax is heavily inspired by MLIR, which is not necessarily the most ergonomic alternative, but is arguably the best fit for StableHLO's goal of creating more interoperability between ML frameworks and ML compilers."*[^6] The op grammar is MLIR's op grammar (`OpName ::= '"' 'stablehlo' '.' OpMnemonic '"'`), and the function-signature form is, per the spec, "deliberately part of StableHLO syntax for compatibility with MLIR." You can see it in an op that carries a region — a reduction-style op whose body is a nested block, written exactly as MLIR writes regions and blocks:
-
-```mlir
-%result = "stablehlo.select_and_scatter"(%operand, %source, %init_value) ({
-  ^bb0(%arg0: tensor<i32>, %arg1: tensor<i32>):
-    %0 = "stablehlo.compare"(%arg0, %arg1) {
-      comparison_direction = #stablehlo<comparison_direction GE>
-    } : (tensor<i32>, tensor<i32>) -> tensor<i1>
-    "stablehlo.return"(%0) : (tensor<i1>) -> ()
-}) : ...
-```
-
-The `^bb0` block, the region in `({ ... })`, the `#stablehlo<...>` attribute, the trailing type signature — none of that is XLA-specific; it is MLIR's generic op syntax. So StableHLO uses not just MLIR as a library but MLIR's textual and structural conventions as its on-disk interchange format. This is the front door the frameworks emit, and the one XLA translates through to reach its classic-HLO core.
-
-## The sharding layer: Shardy
-
-Off to the side of the optimizer sits an entire MLIR-based subsystem for distribution: **Shardy**, dialect `sdy`, integrated under `xla/service/spmd/shardy/`.[^7] It is the newer, MLIR-native partitioner superseding GSPMD, propagating shardings and inserting collectives. What is worth showing here is that it is a *real dialect*, with its own attribute syntax for meshes and shardings:
-
-```mlir
-// a named device mesh, and a value sharded across its axes
-sdy.mesh @mesh_xyz = <["x"=2, "y"=2, "z"=2]>
-%arg0 : tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh_xyz, [{"x"}]>}
-```
-
-That `#sdy.sharding<@mesh, [{"x"}, {"y"}]>` attribute is exactly the kind of thing MLIR's extensibility is *for*: a domain that needs a first-class, verifiable representation of something the built-in dialects do not model — here, how a tensor's dimensions map onto a device mesh. Architecturally, the giveaway of how Shardy is wired in is that its directory is full of *round-trip* pipelines — `stablehlo_round_trip`, `sdy_round_trip` — because sharding information has to be carried back and forth between the `sdy` MLIR world and the StableHLO/HLO the rest of XLA speaks.[^7] XLA reached for MLIR here precisely because sharding annotations are gnarly enough to deserve a dedicated dialect with real verification, and it pays a round-tripping tax to bridge back to the classic core.
-
-## The way out: emitters, cuBLAS/cuDNN, Triton, and Mosaic
-
-Code generation is where MLIR does the most work in modern XLA, and where the "vote for MLIR" is most visible. But the GPU way out is not one path — it is a fan-out, and only some of the branches are MLIR.
-
-**The emitters framework (MLIR).** The old code generator was a hand-written `IrEmitter` that walked HLO and called the LLVM `IRBuilder` directly. It is being replaced by an **emitters framework** built on MLIR, now used by *both* the CPU and GPU backends (`xla/codegen/emitters/`, `xla/backends/cpu/codegen/emitters/cpu_fusion_emitter.cc`, `xla/backends/gpu/codegen/emitters/`).[^8] The path is textbook progressive lowering: a fusion's HLO is converted to MLIR by `elemental_hlo_to_mlir`, producing a mix of standard dialects — the emitters pull in `arith`, `math`, `scf`, `affine`, `vector`, `tensor`, `gpu`, and `mhlo` — and that is lowered, through the emitters' own transform passes (`vectorize_loads_stores`, then `lower_to_llvm_gpu` / `lower_to_llvm_common`), down to the **`llvm` dialect** and out to LLVM IR.[^8] This is exactly the `linalg`/`scf`/`vector` → `llvm` story from the MLIR tour, happening inside XLA.
-
-**cuBLAS and cuDNN (not MLIR — vendor libraries).** For the operations that vendors have already tuned to the metal, XLA does not generate code at all; it calls the library. Dedicated rewriter passes turn matmuls and convolutions into `custom-call`s targeting the NVIDIA libraries — the targets are spelled out in `xla/service/gpu/cublas_cudnn.h`: `"__cublas$gemm"`, `"__cublas$lt$matmul"` (and F8/MX variants), `"__cudnn$convForward"`, `"__cudnn$convBiasActivationForward"`, and more.[^9] Disable the Triton GEMM path and a matmul falls back to exactly one of these:
+**Simplification.** First come the classic optimizing-compiler passes: algebraic simplification, common-subexpression elimination, dead-code elimination.[^5] These are strong enough that XLA will prove a whole expression is the identity. Hand it `(x + 0) * 1` followed by a double transpose and the entire computation collapses to a single copy:
 
 ```text
-%custom-call = (f32[4096,4096]{1,0}, s8[4194304]{0}) custom-call(%a, %b),
-               custom_call_target="__cublas$lt$matmul"
-```
-
-This is a real and important branch of the "way out": a large fraction of a model's FLOPs, on GPU, never touch MLIR or LLVM at all — they are a `custom-call` into a closed vendor library. MLIR owns the *fusions around* the GEMMs, not usually the GEMMs themselves.
-
-**Triton (MLIR).** For matmul-and-softmax-shaped fusions on GPU, XLA emits the `tt` (Triton) dialect (`xla/backends/gpu/codegen/triton/`), which the Triton compiler — itself MLIR — takes to LLVM and PTX.[^10] The kernel XLA emits is ordinary Triton IR:
-
-```mlir
-tt.func @triton_fn(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>) {
-  %r  = tt.make_range {end = 1024 : i32, start = 0 : i32} : tensor<1024xi32>
-  %p  = tt.addptr %base, %off : tensor<1024x!tt.ptr<f32>>, tensor<1024xi32>
-  %x  = tt.load %p : tensor<1024x!tt.ptr<f32>>
-  ...
-  tt.store %q, %y : tensor<1024x!tt.ptr<f32>>
-  tt.return
+ENTRY %main (x: f32[128,128]) -> f32[128,128] {
+  %x = f32[128,128]{1,0} parameter(0)
+  ROOT %copy = f32[128,128]{1,0} copy(%x)
 }
 ```
 
-**Mosaic (MLIR).** On TPU, the codegen dialect is **Mosaic**, another MLIR dialect (with its own TPU memory spaces, vector layout, and systolic-array ops). So there is not one MLIR codegen path but three — the general emitters, Triton, and Mosaic — chosen by target and fusion shape, plus the non-MLIR cuBLAS/cuDNN library path alongside them.
+**Layout assignment.** Every array gets a physical layout — the `{1,0}` is the minor-to-major dimension order, and on TPU the layouts are tiled to match the hardware. XLA chooses layouts to make consuming ops efficient, and when a consumer demands a layout the producer did not provide, it inserts a copy.[^6] These copies are invisible in your source and are a frequent, quiet cost in a profile.
 
-## The other door: Pallas
+**Fusion.** This is the optimization that matters most. On modern accelerators, moving bytes to and from memory costs far more than arithmetic, so XLA fuses chains of operations into a single kernel to keep intermediates in registers instead of streaming them through memory. It distinguishes fusion *kinds* — loop, input, output, custom.[^7] A chain like `tanh(exp(x) * 2 + 1)` becomes one kernel:
 
-Everything so far is the main road: framework → StableHLO → classic-HLO optimizer → codegen. There is a second entrance that skips the optimizer almost entirely. **Pallas** is JAX's kernel language, and a Pallas kernel does not go through HLO fusion and layout assignment — it is compiled straight to a device kernel and dropped into the surrounding program as a `custom-call`.[^11] The architectural point here is that Pallas is a *second producer of the MLIR codegen dialects*, reaching them without the classic-HLO core:
+```text
+%fused (param_0: f32[1024]) -> f32[1024] {
+  %e = f32[1024] exponential(%param_0)
+  %m = f32[1024] multiply(%e, broadcast(2))
+  %a = f32[1024] add(%m, broadcast(1))
+  ROOT %t = f32[1024] tanh(%a)
+}
+ENTRY %main { ROOT %fusion = f32[1024] fusion(%x), kind=kLoop, calls=%fused }
+```
 
-- On GPU, `JAX → Pallas → Triton (tt) → LLVM → PTX`. (In recent JAX, Pallas-Triton even has its own compilation pipeline rather than delegating PTX generation to XLA.[^11])
-- On TPU, `JAX → Pallas → Mosaic → LLO → libtpu`.
+Four operations, one kernel, one pass over memory. The decision of what to fuse comes from a cost model inside the fusion passes; you generally do not control it directly, which is a point I will return to at the end.
 
-From XLA's perspective the whole kernel is one opaque `custom-call` — `@__gpu$xla.gpu.triton` for the Triton path — with its launch grid attached; XLA schedules around it but does not look inside. So the dotted arrow in the diagram is not a detail: Pallas is a deliberate hole punched through the classic-HLO core so that a hand-written kernel can reach the same MLIR codegen backends (Triton, Mosaic) that XLA's own emitters use. The same MLIR dialects, two producers.
+**Buffer assignment.** Because XLA sees the whole program and every shape is known, it plans memory statically: it computes buffer lifetimes and assigns every value a concrete offset in a preplanned allocation, reusing space between values whose lifetimes do not overlap, before the program ever runs.[^8] The dump is explicit about it — allocations, offsets, and reuse:
 
-And the door has become a doorway others walk through. PyTorch, working with Google, shipped a TPU backend for **Helion** — its high-level kernel-authoring DSL — that "compiles Helion kernels to Pallas."[^13] So a PyTorch author writing a single Helion kernel reaches XLA's Mosaic TPU backend *through* JAX's Pallas — `Helion → Pallas → Mosaic → TPU` — with the explicit aim of keeping "the same set of kernels across TPU and GPU." The escape hatch is now a convergence point: two frameworks and two kernel DSLs reaching one shared set of MLIR codegen backends. Triton and Mosaic are, in other words, not only XLA's internal codegen path but a common target reached from several directions.
+```text
+allocation 1: size 64, output, maybe-live-out:
+   value: eigh{1}                 (offset 0)
+   value: broadcast_select_fusion (offset 0)   <- same buffer, reused
+allocation 2: size 1092, preallocated-temp:
+   value: multiply_copy_fusion    (offset 64)
+```
 
-To collect the blue regions in one place:
+No `malloc` on the execution path, peak memory known at compile time. This pairs with *donation* — aliasing an input buffer to an output so an update happens in place — which is how optimizer state and KV caches avoid doubling in size. For a static-shape program this is close to optimal, and it is one of the cleanest things XLA does.
 
-| Where | MLIR piece | Role |
-| :--- | :--- | :--- |
-| **Front door** | CHLO / MHLO / **StableHLO** | portable interchange; syntax *is* MLIR's[^5][^6] |
-| **Sharding** | **Shardy** (`sdy`) | dialect for mesh/sharding; round-trips to HLO[^7] |
-| **CPU/GPU codegen** | **emitters** (`arith`/`scf`/`vector`/`llvm`) | HLO → MLIR → LLVM IR[^8] |
-| **GPU GEMM/conv** | *none — cuBLAS/cuDNN* | library `custom-call`s[^9] |
-| **GPU fusions** | **Triton** (`tt`) | matmul/softmax → PTX[^10] |
-| **TPU / Pallas** | **Mosaic** | kernels → TPU[^11] |
-| **Runtime interchange** | **IFRT / VIFRT** | multi-device array IR[^2] |
-| **The optimizer core** | *none — classic C++ HLO* | algsimp, fusion, layout, buffers[^1] |
+If you come to XLA from MLIR, this stage is the analogue of *bufferization*: the moment value-semantic tensors become physical buffers with addresses and lifetimes — MLIR's `tensor` → `memref` transition. XLA's buffer assignment is doing the job the `memref` world does — deciding where each value physically lives, which buffers can share storage, and what is updated in place — just inside its own HLO representation rather than as an MLIR pass.
 
-## What XLA depends on
+**Scheduling.** Finally the instructions are ordered — to hide latency, and in the distributed case to overlap collective communication with compute.[^9]
 
-Read as a dependency graph, XLA is downstream of a lot of shared infrastructure. Its Bazel `third_party/` pulls in the whole `llvm-project` monorepo (where MLIR itself lives), plus the `openxla` satellites and Triton, each of which is *itself* MLIR-based.[^12]
+If you want to watch any of this, XLA ships a tool, `hlo-opt`, that runs the pipeline (or a single named pass) on a hand-written HLO module and prints the result — the examples above came out of it. Being able to run one pass in isolation is the fastest way to answer "which pass did this to my program?"
+
+## Code generation: three backends
+
+Optimized HLO then becomes machine code, and the way out differs sharply by target.
+
+**CPU and GPU** go through LLVM. The modern path is an *emitters* framework that lowers a fusion's HLO down to LLVM IR and then to a CPU object file or GPU PTX.[^10] But on GPU, codegen is a fan-out, not a single path:
+
+- **cuBLAS and cuDNN.** For dense matmuls and convolutions — where NVIDIA's libraries are already tuned to the metal — XLA does not generate code at all. Rewriter passes turn those ops into `custom-call`s targeting the libraries (`__cublas$gemm`, `__cublas$lt$matmul`, `__cudnn$convForward`, and friends).[^11] A large fraction of a model's GPU FLOPs are these library calls:
+
+  ```text
+  %custom-call = (f32[4096,4096]{1,0}, s8[4194304]{0}) custom-call(%a, %b),
+                 custom_call_target="__cublas$lt$matmul"
+  ```
+
+- **Triton.** For matmul-and-softmax-shaped fusions, XLA generates Triton, which compiles the rest of the way to PTX.[^12] This is the path that lets XLA fuse an epilogue onto a GEMM, or generate a fast softmax, without a hand-written kernel.
+
+**TPU** goes to XLA's TPU backend, which is closed-source; the generation and hardware specifics live in `libtpu`, and the kernel-level dialect that Pallas targets on TPU is **Mosaic**.[^13] Which GPU branch a given op takes — library call, Triton, or emitters — is decided per shape, and with autotuning XLA will benchmark candidates on the actual device and keep the fastest, which is a real part of why first-compile can be slow.
+
+## Across many chips: sharding
+
+A single-device program is only half the story. When a computation spans a mesh of devices, XLA relies on **GSPMD**, and increasingly its successor **Shardy** (`sdy`), integrated under `xla/service/spmd/`.[^14] You annotate *where* arrays live — a named device mesh and a per-dimension mapping — and the partitioner propagates a consistent sharding through the graph and inserts the collectives required to keep the math correct. Shard the contracting dimension of a matmul across two devices, run the partitioner, and it synthesizes the all-reduce for you:
+
+```text
+ROOT %all-reduce = f32[256,1024]{1,0} all-reduce(%dot), ...,
+     frontend_attributes={is_spmd_generated="true"}
+```
+
+The parameters come back with per-device shapes and a `sharding=` attribute recording the layout across the mesh. The important architectural fact is that this is a *separate* concern from the single-device optimizer: placement is expressed as annotations that a dedicated partitioning stage consumes, not as part of the ops the optimizer fuses and schedules.
+
+## Stepping outside: Pallas and Helion
+
+Sometimes the optimizer's automatic choices are not enough — the canonical case is an attention kernel that cannot be expressed as a good fusion at HLO granularity. For that, JAX provides **Pallas**, a kernel language whose kernels bypass HLO fusion and layout assignment entirely: a Pallas kernel is compiled straight to a device kernel (Triton on GPU, Mosaic on TPU) and dropped into the surrounding program as an opaque `custom-call`.[^15] From the optimizer's point of view it is a black box with a launch grid attached.
+
+This escape hatch has become a small convergence point. PyTorch, with Google, built a TPU backend for **Helion** — its high-level kernel DSL — that "compiles Helion kernels to Pallas," so a PyTorch author can write one kernel and target TPU through the same path (`Helion → Pallas → Mosaic → TPU`), with the stated goal of keeping "the same set of kernels across TPU and GPU."[^16] The kernel backends, in other words, are reachable from more than one framework.
+
+## Running it: PJRT and the compilation cache
+
+Compilation produces an *executable*, but something has to hold that executable, feed it inputs that already live on devices, run it, and return the outputs. That layer is **PJRT**, XLA's hardware-agnostic device-runtime API (`xla/pjrt/`).[^pjrt] A PJRT *client* represents a backend — CPU, a set of GPUs, a TPU slice — and exposes the handful of things a runtime must do: enumerate devices (`PjRtDevice`), move data on and off them (`PjRtBuffer`), and run compiled programs (`PjRtLoadedExecutable`). The point of PJRT is that the same compile-and-run flow works across backends behind one interface, which is why JAX — and, increasingly, PyTorch/XLA and others — can target CPU, GPU, and TPU without a bespoke runtime for each. The in-tree `IFRT`/`VIFRT` dialects are the multi-host generalization of the same idea: PJRT is the single-client view, IFRT the sharded-array view across a whole cluster.
+
+The runtime is also where XLA earns back its compile cost, which is not small — the optimizer pipeline plus, on accelerators, autotuning that benchmarks kernels on the real device. XLA avoids paying it twice in two ways. In-process, a compiled executable is cached and keyed on the program together with the *shapes and dtypes* of its inputs, so calling the same `jit`-ted function again with the same shapes reuses the executable and goes straight to execution — and feeding it a new shape compiles a fresh one, which is exactly the per-shape recompilation cost noted earlier. Across processes, XLA has a **persistent compilation cache** that writes compiled executables to disk, so a restarted server or a resumed training job can skip compilation entirely.[^cache] The intended pattern falls out of both: compile once per shape, cache it, amortize over many executions.
+
+## What XLA is built on
+
+Read as a dependency graph, XLA sits on a stack of shared infrastructure. Its Bazel `third_party/` pulls in the `llvm-project` monorepo — LLVM for code generation, and MLIR, which is the framework StableHLO, Shardy, and Triton are all built on — plus those satellite repositories themselves.[^17]
 
 ```mermaid
 graph TD
-  LLVM["llvm-project<br/>(LLVM + MLIR core)"]
-  XLA["XLA<br/>classic-HLO core + MLIR edges"]
-  SHLO["stablehlo repo"]
-  SHARDY["shardy repo"]
-  TRITON["triton repo"]
-
+  LLVM["llvm-project (LLVM + MLIR)"]
+  XLA["XLA"]
+  SHLO["stablehlo"]
+  SHARDY["shardy"]
+  TRITON["triton"]
   LLVM --> XLA
   LLVM --> SHLO
   LLVM --> SHARDY
@@ -176,59 +170,67 @@ graph TD
   SHLO --> XLA
   SHARDY --> XLA
   TRITON --> XLA
-
   classDef core fill:#e1f5ff,stroke:#4a6572,color:#1a1a1a;
   classDef leaf fill:#f3e5f5,stroke:#6a4a6a,color:#1a1a1a;
-  class LLVM core;
-  class XLA,SHLO,SHARDY,TRITON leaf;
+  class LLVM core; class XLA,SHLO,SHARDY,TRITON leaf;
 ```
 
-MLIR is not a dependency XLA could take or leave — it arrives through `llvm-project` and again through every satellite (StableHLO, Shardy, and Triton are all MLIR-based). The one part of XLA that owes nothing to that ecosystem is the classic-HLO core, which is exactly why it is the part that has not been rewritten: it works, it is mature, and MLIR arrived after it was already load-bearing.
+It is worth noting how much of the periphery — the StableHLO front door, the Shardy partitioner, the Triton and Mosaic codegen — is built on MLIR, while the classic-HLO optimizer at the center is its own older representation. XLA predates MLIR by years, and that ordering shows in the architecture: MLIR sits at the interfaces that were built or rebuilt more recently, and the mature core has stayed as it was.
 
-## Why the hybrid, and what it costs
+## The design, and where it binds
 
-The honest description of XLA today is a mature pre-MLIR optimizer with MLIR bolted to its inputs, outputs, and sharding, plus a Pallas side-door to the MLIR backends, migrating inward at the rate a heavily-used production compiler can tolerate. That is what incremental adoption looks like when a rewrite is off the table. It has costs worth stating plainly.
+Step back and the shape of XLA is coherent, and its strengths all come from the same few commitments. It compiles the whole program ahead of time, on known static shapes, which is what lets it fuse globally, assign layouts, and — the defining move — allocate every buffer statically with no allocator on the hot path. It optimizes a single-device graph as a clean, bounded problem, and treats distribution as a separate layer of annotations on top. These are good decisions, and together they are why XLA produces code that saturates real hardware.
 
-**Two IRs means translation, and translation means round-trips.** The `xla/hlo/translate/` layer and Shardy's `*_round_trip` pipelines exist solely to shuttle programs across the classic-HLO/MLIR seam. Every round-trip is code to maintain and a place for information to be lost or subtly changed.
+They are also exactly where it binds. Static shapes are load-bearing, so genuinely dynamic ones are awkward: XLA pads bounded-dynamic tensors up to a static bound and slices back at the end (`PadToStatic` / `SliceToDynamic`), and it rejects computations whose output shape depends on the data.[^18] Because it specializes on shape, a new shape means a recompile, and compile time — dominated by autotuning on accelerators — is a real operational cost. And placement lives outside the type system: a tensor's sharding, or the memory space of a kernel buffer, is an *annotation* a pass checks, not a property the compiler can prove at the point you wrote the program. A bad sharding is a runtime error, not a compile-time type error; an accidental host round-trip is a silent performance cliff, not a diagnostic.
 
-**The optimizer cannot use MLIR's machinery.** The pattern rewriter, the dialect-conversion driver, PDL/DRR declarative rewrites — the reusable transformation infrastructure the MLIR tour praised — none of it is available to the classic-HLO passes, because they operate on C++ HLO objects, not MLIR ops. XLA maintains its own pass manager and rewriting for HLO in parallel with the MLIR one it uses in the emitters. Two of everything.
+None of that is a flaw in XLA so much as the edge of its design — the frontier where a static-shape, single-device-plus-annotations compiler stops being the natural fit. It is a very good compiler for the problem it chose. Where its assumptions run out — dynamic structure, and hardware placement as a first-class, checkable property rather than an annotation resolved late — is the interesting country, and it is a subject I will keep coming back to.
 
-**"Built on MLIR" means different things for different parts.** The interchange and the codegen are MLIR; the optimizer is not. That distinction predicts what you can and cannot do: you can retarget the front door with StableHLO and write kernels that reach the same MLIR backends through Pallas, but you cannot express an HLO optimization as an MLIR pattern.
-
-## Where it stops
-
-What MLIR provides XLA is concrete and easy to list: a portable, versioned front door whose syntax the ecosystem shares, a dialect for the hard problem of sharding, a reusable progressive-lowering path to LLVM, and a set of codegen backends (Triton, Mosaic) that a hand-written Pallas kernel can reach too. It is what lets XLA retarget, and share codegen rather than hand-write it. But it is worth ending where the MLIR tour did. MLIR is plumbing: it gives XLA the machinery to *represent* StableHLO, `sdy` shardings, and TPU memory spaces, and to lower them. It does not decide that a tensor should live on a particular device, or in VMEM rather than HBM, and it does not put any of that in the *type* of the value. Those remain, in XLA as everywhere, annotations and dialect attributes checked by passes — the `sdy` sharding on an op, the memory space on a Mosaic `Ref` — rather than properties the type system enforces where you wrote the program. That gap is the one I keep coming back to.
-
-The map, in one line: StableHLO in, Shardy to the side, emitters and Triton and Mosaic (and cuBLAS/cuDNN) out, Pallas and Helion as side-doors to the same backends — and a mature C++ HLO optimizer still in the middle, where most of the compiling happens. That is the shape of XLA today: a pre-MLIR optimizer at the center, MLIR at the interfaces around it — inbound interchange, sharding, and code generation — with the classic HLO core the one place MLIR has not reached. How much MLIR is in XLA, in the end, depends on which layer you are standing in.
+For the practical takeaway: the next time you read an HLO dump or wonder why your model recompiled, you now have the map. StableHLO in, a classic-HLO optimizer doing the fusing and allocating in the middle, three quite different backends out, a separate sharding layer for the mesh, and a side door when you need to write the kernel yourself.
 
 ---
 
 ## References
 
-[^1]: **Classic HLO — the C++ core.** `HloModule`/`HloComputation`/`HloInstruction` and the optimizer that runs on them; not MLIR. ([xla/hlo/ir](https://github.com/openxla/xla/tree/main/xla/hlo/ir), [XLA architecture](https://openxla.org/xla/architecture))
+[^1]: **HLO — XLA's IR.** `HloModule`/`HloComputation`/`HloInstruction` and the optimizer that runs on them. ([xla/hlo/ir](https://github.com/openxla/xla/tree/main/xla/hlo/ir), [XLA architecture](https://openxla.org/xla/architecture))
 
-[^2]: **In-tree MLIR dialects: MHLO, IFRT, VIFRT.** MHLO is the MLIR rendering of HLO; IFRT/VIFRT are the multi-device runtime interchange dialects. ([xla/mlir_hlo](https://github.com/openxla/xla/tree/main/xla/mlir_hlo), [xla/python/ifrt](https://github.com/openxla/xla/tree/main/xla/python/ifrt))
+[^2]: **The HLO opcode set.** `hlo_opcode.h` enumerates the operations (`kDot`, `kConvolution`, `kReduce`, `kDynamicSlice`, `kAllReduce`, `kCustomCall`, …), on the order of 150. ([hlo_opcode.h](https://github.com/openxla/xla/blob/main/xla/hlo/ir/hlo_opcode.h), [operation semantics](https://openxla.org/xla/operation_semantics))
 
-[^3]: **The translation layer.** `xla/hlo/translate/` bridges StableHLO ↔ MHLO ↔ classic HLO (`stablehlo_to_hlo`, `hlo_to_mhlo`, `mhlo_to_hlo`). ([xla/hlo/translate](https://github.com/openxla/xla/tree/main/xla/hlo/translate))
+[^3]: **StableHLO and the translation layer.** `xla/hlo/translate/` imports StableHLO into classic HLO (`stablehlo_to_hlo`, `hlo_to_mhlo`, `mhlo_to_hlo`). ([xla/hlo/translate](https://github.com/openxla/xla/tree/main/xla/hlo/translate), [StableHLO](https://openxla.org/stablehlo))
 
-[^4]: **CHLO / MHLO under `xla/mlir_hlo`.** The MLIR-HLO dialect family and its passes (`map_chlo_to_hlo_op.h`, `mhlo` transforms). ([xla/mlir_hlo](https://github.com/openxla/xla/tree/main/xla/mlir_hlo))
+[^4]: **StableHLO syntax.** The spec: "StableHLO syntax is heavily inspired by MLIR … the best fit for StableHLO's goal of creating more interoperability between ML frameworks and ML compilers." ([StableHLO spec, Operations](https://github.com/openxla/stablehlo/blob/main/docs/spec.md#operations))
 
-[^5]: **StableHLO.** The portable, versioned MLIR interchange dialect; what JAX `lower()` emits and XLA imports. ([openxla.org/stablehlo](https://openxla.org/stablehlo))
+[^chlo]: **The MLIR-HLO dialect family.** CHLO (client-level, implicit broadcasting) legalizes into MHLO/StableHLO; see `xla/mlir_hlo/` (`map_chlo_to_hlo_op.h`, `chlo_legalize_to_hlo`). ([xla/mlir_hlo](https://github.com/openxla/xla/tree/main/xla/mlir_hlo))
 
-[^6]: **StableHLO syntax is inspired by MLIR.** "StableHLO syntax is heavily inspired by MLIR … arguably the best fit for StableHLO's goal of creating more interoperability between ML frameworks and ML compilers"; the op grammar and function-signature form are MLIR's. ([StableHLO spec, Operations](https://github.com/openxla/stablehlo/blob/main/docs/spec.md#operations))
+[^5]: **Simplification passes.** `algebraic_simplifier`, `hlo_cse`, `hlo_dce`. ([algsimp](https://github.com/openxla/xla/blob/main/xla/hlo/transforms/simplifiers/algebraic_simplifier.cc), [dce](https://github.com/openxla/xla/blob/main/xla/hlo/transforms/simplifiers/hlo_dce.cc))
 
-[^7]: **Shardy (`sdy`).** MLIR-based partitioner integrated under `xla/service/spmd/shardy/`, with StableHLO/HLO round-trip pipelines; `#sdy.sharding<@mesh, [...]>` attributes and `sdy.mesh`. ([Repo](https://github.com/openxla/shardy), [sdy dialect](https://github.com/openxla/shardy/blob/main/docs/sdy_dialect.md), [in XLA](https://github.com/openxla/xla/tree/main/xla/service/spmd/shardy))
+[^6]: **Layout assignment.** Assigns minor-to-major layouts and inserts copies to satisfy operand layout constraints. ([layout_assignment.cc](https://github.com/openxla/xla/blob/main/xla/service/layout_assignment.cc), [shapes & layout](https://openxla.org/xla/shapes))
 
-[^8]: **The emitters framework.** MLIR-based CPU/GPU codegen replacing the hand-written `IrEmitter`: `elemental_hlo_to_mlir` → `arith`/`scf`/`vector`/`affine`/`gpu`/`mhlo`, lowered via `lower_to_llvm_*` to the `llvm` dialect. ([xla/codegen/emitters](https://github.com/openxla/xla/tree/main/xla/codegen/emitters))
+[^7]: **Fusion.** `FusionKind` is `{kLoop, kInput, kOutput, kCustom}`; `instruction_fusion` fuses producers into consumers, and the GPU `priority_fusion` uses a cost model (`priority = time_unfused - time_fused`). ([hlo_instruction.h](https://github.com/openxla/xla/blob/main/xla/hlo/ir/hlo_instruction.h), [priority_fusion](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.h))
 
-[^9]: **cuBLAS/cuDNN as `custom-call`s.** Target names in `cublas_cudnn.h` (`__cublas$gemm`, `__cublas$lt$matmul`, `__cudnn$convForward`, …); `gemm_rewriter`/`conv_rewriter` lower matmul/convolution to them. ([cublas_cudnn.h](https://github.com/openxla/xla/blob/main/xla/service/gpu/cublas_cudnn.h), [GPU architecture](https://openxla.org/xla/gpu_architecture))
+[^8]: **Buffer assignment.** Whole-program static allocation with buffer reuse across disjoint lifetimes; donation via `HloInputOutputAliasConfig`. ([buffer_assignment.h](https://github.com/openxla/xla/blob/main/xla/service/buffer_assignment.h))
 
-[^10]: **XLA:GPU and Triton.** The GPU backend emits the Triton (`tt`) dialect for matmul/softmax fusions. ([xla/backends/gpu/codegen/triton](https://github.com/openxla/xla/tree/main/xla/backends/gpu/codegen/triton), [gpu architecture](https://openxla.org/xla/gpu_architecture))
+[^9]: **Scheduling.** `latency_hiding_scheduler` orders instructions and overlaps collectives with compute. ([latency_hiding_scheduler.h](https://github.com/openxla/xla/blob/main/xla/service/latency_hiding_scheduler.h))
 
-[^11]: **Pallas — the escape hatch.** JAX kernels compiled via Triton (GPU) or Mosaic (TPU) and embedded as a `custom-call`, bypassing HLO fusion/layout. ([Pallas design](https://docs.jax.dev/en/latest/pallas/design/design.html), [Mosaic/Triton lowering](https://docs.jax.dev/en/latest/pallas/index.html))
+[^10]: **The emitters framework.** MLIR-based CPU/GPU codegen (`elemental_hlo_to_mlir` → `arith`/`scf`/`vector` → the `llvm` dialect), replacing the hand-written `IrEmitter`. ([xla/codegen/emitters](https://github.com/openxla/xla/tree/main/xla/codegen/emitters))
 
-[^12]: **External dependencies.** XLA's `third_party/` pulls `llvm-project` (LLVM + MLIR), and the `stablehlo`, `shardy`, and `triton` repos — each itself MLIR-based. ([xla/third_party](https://github.com/openxla/xla/tree/main/third_party))
+[^11]: **cuBLAS/cuDNN as `custom-call`s.** Target names in `cublas_cudnn.h`; `gemm_rewriter`/`conv_rewriter` lower matmul/convolution to them. ([cublas_cudnn.h](https://github.com/openxla/xla/blob/main/xla/service/gpu/cublas_cudnn.h), [GPU architecture](https://openxla.org/xla/gpu_architecture))
 
-[^13]: **Helion on TPU.** PyTorch's high-level kernel DSL; its TPU backend "compiles Helion kernels to Pallas," aiming to keep the same kernels across TPU and GPU. ([PyTorch blog](https://pytorch.org/blog/helion-on-tpu-towards-hardware-heterogeneous-kernel-authoring/))
+[^12]: **XLA:GPU and Triton.** The GPU backend emits Triton for matmul/softmax fusions. ([xla/backends/gpu/codegen/triton](https://github.com/openxla/xla/tree/main/xla/backends/gpu/codegen/triton))
+
+[^13]: **TPU backend.** XLA:TPU is closed-source (built into `libtpu`); Pallas targets the Mosaic dialect on TPU. ([openxla/xla#11599](https://github.com/openxla/xla/issues/11599), [Mosaic dialect](https://github.com/jax-ml/jax/tree/main/jaxlib/mosaic/dialect/tpu))
+
+[^14]: **GSPMD and Shardy.** Sharding propagation + collective insertion; the SPMD partitioner and the newer MLIR-based Shardy under `xla/service/spmd/`. ([GSPMD paper](https://arxiv.org/abs/2105.04663), [Shardy](https://github.com/openxla/shardy), [in XLA](https://github.com/openxla/xla/tree/main/xla/service/spmd/shardy))
+
+[^15]: **Pallas.** JAX's kernel language; kernels compile via Triton (GPU) or Mosaic (TPU) and embed as a `custom-call`, bypassing HLO fusion/layout. ([Pallas design](https://docs.jax.dev/en/latest/pallas/design/design.html))
+
+[^16]: **Helion on TPU.** PyTorch's high-level kernel DSL; its TPU backend "compiles Helion kernels to Pallas," aiming to keep the same kernels across TPU and GPU. ([PyTorch blog](https://pytorch.org/blog/helion-on-tpu-towards-hardware-heterogeneous-kernel-authoring/))
+
+[^pjrt]: **PJRT.** XLA's device-runtime API — `PjRtClient`/`PjRtDevice`/`PjRtBuffer`/`PjRtLoadedExecutable` in `xla/pjrt/`, with a C API for out-of-tree backends. ([xla/pjrt](https://github.com/openxla/xla/tree/main/xla/pjrt))
+
+[^cache]: **Compilation caching.** Compiled executables are cached in-process keyed on input shape/dtype; XLA/JAX also provide an optional on-disk persistent compilation cache across runs. ([JAX persistent cache](https://docs.jax.dev/en/latest/persistent_compilation_cache.html))
+
+[^17]: **Dependencies.** XLA's `third_party/` pulls `llvm-project` (LLVM + MLIR) and the `stablehlo`, `shardy`, and `triton` repos. ([xla/third_party](https://github.com/openxla/xla/tree/main/third_party))
+
+[^18]: **Dynamic shapes.** Bounded dynamism via `PadToStatic`/`SliceToDynamic`; data-dependent output shapes are rejected under `jit`. ([StableHLO dynamism](https://openxla.org/stablehlo/dynamism), [jax#26265](https://github.com/jax-ml/jax/issues/26265))
 
 *Disclaimer: This article was generated using the Claude Opus 4.8 model.*
