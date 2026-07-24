@@ -29,7 +29,7 @@ github:
   username: hiraditya # change to your GitHub username
 
 twitter:
-  username: hiraditya # change to your Twitter username
+  username: adityazero_
 
 social:
   # Change to your full name.
@@ -39,11 +39,9 @@ social:
   fediverse_handle: # fill in your fediverse handle. E.g. "@username@domain.com"
   links:
     # The first element serves as the copyright owner's link
-    - https://twitter.com/username # change to your Twitter homepage
-    - https://github.com/username # change to your GitHub homepage
-    # Uncomment below to add more social links
-    # - https://www.facebook.com/username
-    # - https://www.linkedin.com/in/username
+    - https://x.com/adityazero_
+    - https://github.com/hiraditya
+    - https://www.linkedin.com/in/adityazero/
 
 # Site Verification Settings
 webmaster_verifications:
