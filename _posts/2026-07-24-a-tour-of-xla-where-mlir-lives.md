@@ -1,12 +1,12 @@
 ---
 title: "A Tour of XLA: Where MLIR Lives (and Where It Doesn't)"
-date: 2026-07-24 20:00:00 -0700
+date: 2026-07-23 20:00:00 -0700
 categories: [Systems, Compilers]
 tags: [xla, mlir, stablehlo, shardy, triton, compilers]
 mermaid: true
 ---
 
-XLA is a very mature compiler, and it predates MLIR by years. It has always had its own complete intermediate representation — HLO, a hand-built C++ IR with its own optimizer, its own serialization, and its own text format — and it was turning models into fast TPU and GPU code before MLIR existed. A compiler in that position owes a newer infrastructure nothing; it already had a working one of its own.
+XLA is a very mature compiler, and it predates MLIR by years. It has always had its own complete intermediate representation — HLO, a hand-built C++ IR with its own optimizer, its own serialization, and its own text format — and it was turning models into fast TPU code before MLIR existed. A compiler in that position usually evolves in parallel with emerging technologies.
 
 And yet XLA has steadily taken up MLIR anyway — at its front door, in its sharding layer, and increasingly in its code generation — while keeping that original HLO optimizer at its core. That is the fact worth dwelling on. When a mature, self-sufficient production compiler with a working IR of its own chooses to build parts of itself on shared infrastructure it did not have to, it is about the strongest statement there is about what that infrastructure offers. This post is a tour of *where* MLIR entered XLA and *what it offered at each point* — each entry point a small case study in the pull of MLIR's ecosystem.
 
