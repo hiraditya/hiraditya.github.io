@@ -1,5 +1,5 @@
 ---
-title: "XLA Up Close: What It Optimizes, and What It Won't"
+title: "XLA Up Close: The Performance Bargain and Its Rigid Price"
 date: 2026-07-25 12:00:00 -0700
 categories: [Compilers, ML-Systems]
 tags: [jax, xla, hlo, stablehlo, compilers, tpu]
