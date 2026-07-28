@@ -1,6 +1,6 @@
 ---
 title: "Programming the TPU: What Its Open-Source Compiler Already Tells You"
-date: 2026-07-28 00:00:00 -0700
+date: 2026-07-27 00:00:00 -0700
 categories: [Compilers, ML-Systems]
 tags: [tpu, xla, mosaic, jax, hardware]
 ---
