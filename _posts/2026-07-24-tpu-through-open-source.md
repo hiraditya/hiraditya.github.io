@@ -11,7 +11,7 @@ This post is a reading of that material for practitioners. For each part of the 
 
 I noted in [my review of XLA]({% post_url 2026-07-23-xla-review-and-critique %}) that XLA:TPU is the one backend that is closed — a maintainer's own words are that "the TPU dependent optimizations are mostly not open source." That is true of the *optimizations*. It is much less true of the *machine model*, and this post is about the difference.
 
-One honest note on scope. The compiler keeps the exact *numbers* — precise lane counts, memory sizes, latencies — in the closed `libtpu.so`, and the open dialect is deliberately parameterized rather than hardcoded: the layout-inference entry point takes a `hardware_generation` and a `target_shape` as arguments.[^3] That is a useful signal in itself. It tells you which quantities are stable enough to design around (the *structure*: spaces, tilings, op set) and which you should let the compiler pick (the *constants*). The structure is documented; the constants are supplied per generation.
+The exact *numbers* — lane counts, memory sizes, latencies — stay in the closed `libtpu.so`. The dialect is parameterized rather than hardcoded: the layout-inference entry point takes a `hardware_generation` and a `target_shape` as arguments.[^3] That split is itself informative. The structure — spaces, tilings, op set — is stable enough to design around. The constants are the compiler's job, supplied per generation.
 
 ## Eight memory spaces, and why your `Ref`'s space is the first thing to get right
 
@@ -98,7 +98,7 @@ Two enums sharpen the picture. `ReductionKind` is `sum`, `max`, `min`, `arg_max`
 
 Low precision gets a notably general treatment. Beyond the standard types, the dialect defines `Float8EXMY`, described as an "EXMY type in a 8 bit container" and parameterized by an underlying float type, with meaningful bits aligned to the LSB and higher bits ignored — citing arXiv 2405.13938 for the format family.[^11] That is a *container* for a range of 8-bit float layouts rather than a commitment to one, which tells you the hardware and compiler are set up to move between fp8 variants.
 
-**How this helps you write better TPU code.** This is a catalog of cheap operations. When a computation can be expressed as a sublane shuffle, a rotate, or an in-VMEM indexed gather, it is a single hardware primitive rather than something you should hand-roll with loops. Several are worth calling out. `stochastic_convert` means stochastic rounding is a datapath operation, so low-precision training that relies on it is not paying a software tax. `prng_random_bits` being on-core is the hardware reason JAX threads explicit PRNG keys — randomness is generated where the compute is, deterministically. `find_first_set` as a reduction kind is the kind of thing that turns a masked-search loop into one op. And the two-member `RoundingMode` is a portability warning: if your numerics depend on a rounding mode outside those two, you are going to emulate it.
+**How this helps you write better TPU code.** This is a catalog of cheap operations. When a computation can be expressed as a sublane shuffle, a rotate, or an in-VMEM indexed gather, it is a single hardware primitive rather than something you should hand-roll with loops. `stochastic_convert` means stochastic rounding is a datapath operation, so low-precision training that relies on it is not paying a software tax. `prng_random_bits` being on-core is the hardware reason JAX threads explicit PRNG keys — randomness is generated where the compute is, deterministically. `find_first_set` as a reduction kind is the kind of thing that turns a masked-search loop into one op. And the two-member `RoundingMode` is a portability warning: if your numerics depend on a rounding mode outside those two, you are going to emulate it.
 
 ## The matrix unit is a FIFO you feed
 
@@ -112,7 +112,7 @@ matmul_lhs_fifo     LHS FIFO staging
 matmul_pop_fifo     pop, with an `mxu_index` attribute
 ```
 
-Three facts fall out. The interface is weight-stationary: you load the stationary operand once, then stream the moving operand through. `mxu_index` means there is more than one MXU per core. And the accumulator is fixed-width regardless of your inputs — the verifier requires `"Expected matmul acc to be 32-bit"`, while `ContractPrecision` lets the contraction itself be `bf16` or `fp32`.[^4][^8]
+Three things follow. The interface is weight-stationary: you load the stationary operand once, then stream the moving operand through. `mxu_index` means there is more than one MXU per core. And the accumulator is fixed-width regardless of your inputs — the verifier requires `"Expected matmul acc to be 32-bit"`, while `ContractPrecision` lets the contraction itself be `bf16` or `fp32`.[^4][^8]
 
 **How this helps you write better TPU code.** Weight-stationary is a scheduling hint you can act on: once weights are pushed, streaming many activation rows through amortizes that load, which is the hardware reason larger batch (or longer sequence) dimensions improve MXU utilization, and why tiny matmuls waste it. Multiple MXUs (`mxu_index`) means there is parallelism across matrix units to keep fed — structure work so more than one can run. And the 32-bit accumulator is the most actionable of the three: "bf16 inputs, fp32 accumulation" is not a vague mixed-precision gesture, it is the only shape the unit offers. You do not get a bf16 accumulator, so you do not need to fear one.
 
@@ -151,7 +151,7 @@ Its implementation runs an `analyzeCrossChipCommunication` walk and returns whet
 
 ## You can `printf` from a TPU kernel, and time regions of it
 
-This is the section I wish someone had shown me first, because the ops are right there and they are easy to miss. Debugging and profiling are dialect operations:[^8]
+Debugging and profiling are dialect operations, and they are easy to miss:[^8]
 
 ```text
 log            a tag string + variadic values, with a `formatted` flag
@@ -163,7 +163,7 @@ delay          stall for N nanoseconds
 
 `tpu.log` takes a `StrAttr` tag, a variadic list of inputs, and a `formatted` boolean.[^8] That is `printf`, on device, from inside a kernel.
 
-One more is worth knowing because its name gives nothing away. `tpu.weird` takes an F32 and returns an I1, and the verifier enforces exactly that.[^8] What is it? JAX's lowering answers: `lax.is_finite` lowers to the negation of it.[^13]
+One op's name gives nothing away. `tpu.weird` takes an F32 and returns an I1, and the verifier enforces exactly that.[^8] What is it? JAX's lowering answers: `lax.is_finite` lowers to the negation of it.[^13]
 
 ```python
 @register_lowering_rule(lax.is_finite_p)
@@ -199,13 +199,13 @@ get_iteration_bound   the current grid bound
 
 The open C API enumerates the lineage — `TpuVersionEnum` runs `kTpuV2, kTpuV3, kTpuV4, kTpuV5`[^9] — and the layout machinery takes a `hardware_generation` and a `target_shape` rather than baking in constants.[^3]
 
-There is a second stability mechanism worth noting: the Mosaic dialect is *versioned and serialized*. The serde pass reads and writes a `stable_mosaic.version` attribute and tracks a highest supported version.[^14] The op list itself carries evidence of that versioning in the open — `wait_dma` and `wait_dma2` coexist, which is what an evolving interface with a compatibility story looks like.
+There is a second stability mechanism: the Mosaic dialect is *versioned and serialized*. The serde pass reads and writes a `stable_mosaic.version` attribute and tracks a highest supported version.[^14] The op list itself carries evidence of that versioning in the open — `wait_dma` and `wait_dma2` coexist, which is what an evolving interface with a compatibility story looks like.
 
 **How this helps you write better TPU code.** It is a portability instruction. Because the exact vreg geometry and memory sizes are supplied per generation, kernels that hardcode a specific tile size or buffer capacity are brittle across v4/v5/newer; kernels written in terms of the compiler's parameters — let Pallas and Mosaic pick the tiling for the target, express sizes relative to the block, avoid magic numbers — move forward without a rewrite. The parameterization is the compiler telling you which knobs are its job, not yours. And the versioned serialization means a compiled Mosaic kernel is a versioned artifact, not an opaque blob tied to one toolchain build, which is the property you want if you are shipping kernels rather than just running them.
 
 ## What this is good for
 
-None of the above requires a leaked document — it is Google's own public code, describing Google's own hardware, because a compiler that emits TPU code has to. Read as intended, it is a practical manual:
+Taken together, it reads as a practical manual:
 
 - the **memory spaces** are the menu for your `Ref` tags, and `vmem_limit_bytes` is the knob when you exhaust VMEM;
 - the **two core types** have different register geometries, so TensorCore intuitions do not transfer to SparseCore;
@@ -216,11 +216,11 @@ None of the above requires a leaked document — it is Google's own public code,
 - the **DMA/semaphore model** is why double-buffering is the whole game;
 - and the **log and trace ops** mean you can debug in place instead of bisecting blind.
 
-There is a broader observation I will keep brief. The TPU has a genuinely rich, explicit structure — a typed memory hierarchy, heterogeneous cores with different register shapes, a 2D register geometry, an async data-movement model, a visible chip boundary — and the Mosaic compiler tracks all of it as MLIR enums and attributes on ops, checked by its verifier. That structure is real and worth programming to. That it lives *beside* the type system, as annotations rather than as types, is a separate and interesting question: nothing in a Pallas kernel's Python signature records that a `Ref` must be in VMEM, or that a grid axis is parallel, and so those facts are discovered at lowering time rather than guaranteed at authoring time. For the working TPU programmer, though, the immediately useful thing is that the structure is documented, and you can design to it.
+One broader point. The TPU has a genuinely rich, explicit structure — a typed memory hierarchy, heterogeneous cores with different register shapes, a 2D register geometry, an async data-movement model, a visible chip boundary — and the Mosaic compiler tracks all of it as MLIR enums and attributes on ops, checked by its verifier. That structure is real and worth programming to. That it lives *beside* the type system, as annotations rather than as types, is a separate and interesting question: nothing in a Pallas kernel's Python signature records that a `Ref` must be in VMEM, or that a grid axis is parallel, and so those facts are discovered at lowering time rather than guaranteed at authoring time. For the working TPU programmer, though, the immediately useful thing is that the structure is documented, and you can design to it.
 
 ## Sourcing
 
-Everything here is from public, Apache-2.0 code, read at `jax-ml/jax` commit `6079305` and `openxla/xla` commit `5617432`. The Mosaic TPU dialect (`jaxlib/mosaic/dialect/tpu/`) in `jax-ml/jax` is the primary source; the XLA:TPU C API (`xla/tpu/`) in `openxla/xla` supplies the generation and SparseCore details. Where I quote a constraint, it is a verifier message or an enum case, not an inference.
+Read at `jax-ml/jax` commit `6079305` and `openxla/xla` commit `5617432`. The Mosaic TPU dialect (`jaxlib/mosaic/dialect/tpu/`) is the primary source; the XLA:TPU C API (`xla/tpu/`) supplies the generation and SparseCore details. Where I quote a constraint, it is a verifier message or an enum case, not an inference.
 
 ## References
 
@@ -254,4 +254,4 @@ Everything here is from public, Apache-2.0 code, read at `jax-ml/jax` commit `60
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 4.8 and Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. All cited source is public, Apache-2.0 licensed code.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 4.8 and Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*
