@@ -213,4 +213,4 @@ Loop unrolling is no longer just a neat trick to save a few cycles on a branch i
 [^10]: AWS. *AWS Trainium and Inferentia Architecture*. (Overview of Amazon's custom machine learning accelerators, which utilize spatial dataflow engines and heavily rely on loop unrolling to maximize utilization during LLM inference and training). ([Link](https://aws.amazon.com/machine-learning/inferentia/))
 [^11]: Intel Corporation. *Intel Gaudi AI Accelerator Architecture*. (Details Intel's purpose-built deep learning processors, which employ Matrix Multiplication Engines (MMEs) and spatial execution models that benefit from aggressive compiler-level unrolling). ([Link](https://habana.ai/))
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

@@ -73,4 +73,4 @@ The full PDF of the 2004 Oberon edition is available from ETH Zurich[^2].
 [^1]: **Algorithms + Data Structures = Programs:** Niklaus Wirth, Prentice-Hall, 1976. ([Wikipedia](https://en.wikipedia.org/wiki/Algorithms_%2B_Data_Structures_%3D_Programs))
 [^2]: **Algorithms and Data Structures (2004 Oberon Edition):** Niklaus Wirth, ETH Zurich. Free PDF. ([Link](https://people.inf.ethz.ch/wirth/AD.pdf))
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro, Claude Opus 4.8). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

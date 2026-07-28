@@ -273,4 +273,4 @@ For most CUDA developers, the cubin is an opaque blob that `nvcc` produces and t
 [^5]: **MaxAs.** Scott Gray's reverse-engineered SASS assembler for the Maxwell architecture (2014). The pioneering project that demonstrated hand-written SASS could reach ~98% of peak throughput on SGEMM, motivating subsequent SASS reverse-engineering efforts. ([Link](https://github.com/NervanaSystems/maxas))
 [^6]: **Demystifying GPU Microarchitecture through Microbenchmarking.** Henry Wong et al., ISPASS 2010. Foundational work establishing microbenchmarking methodology for probing undocumented GPU pipeline characteristics. ([Link](https://ieeexplore.ieee.org/document/5452013))
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro, Claude Opus 4.8). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

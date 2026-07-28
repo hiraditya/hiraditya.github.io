@@ -301,4 +301,4 @@ By systematically building a registry of targeted, minimal hardware hazards and 
 [^5]: **Analyzing Modern NVIDIA GPU Cores:** Rodrigo Huerta et al., arXiv:2503.20481, 2025. Demonstrates that modern NVIDIA GPUs use software-based (compiler-driven) dependence management rather than traditional hardware scoreboards. ([Link](https://arxiv.org/abs/2503.20481))
 [^6]: **Benchmarking and Dissecting the Nvidia Hopper GPU Architecture:** Weile Luo et al., IPDPS 2024 / arXiv:2402.13499. Multi-level microarchitectural analysis of the H100, including instruction latencies and memory hierarchy. ([Link](https://arxiv.org/abs/2402.13499))
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro, Claude Opus 4.8). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

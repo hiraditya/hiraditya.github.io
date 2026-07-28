@@ -207,4 +207,4 @@ If attackers are now pivoting to overwrite application-level function pointers i
 
 ---
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

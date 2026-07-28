@@ -215,4 +215,4 @@ If you're building anything that has to host both a compiler and a kernel zoo, `
 [^13]: vLLM Source. `vllm/ir/tolerances.py`. (Default per-dtype numerical tolerances).
 [^14]: vLLM Source. `vllm/ir/util.py`. (`hash_source` / `weak_cache`, used for impl uuids and cache invalidation).
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

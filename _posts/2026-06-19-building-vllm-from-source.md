@@ -572,4 +572,4 @@ changed, you're re-doing the whole CUDA/toolkit alignment, not just a rebuild.
 
 [^1]: vLLM Project. *vLLM Repository*. ([Link](https://github.com/vllm-project/vllm))
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

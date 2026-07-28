@@ -281,4 +281,4 @@ Checklist for reviewers / PL auditors:
 
 ---
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro, Claude Opus 4.8). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

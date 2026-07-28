@@ -341,4 +341,4 @@ That is worth internalizing before you reach for it. XLA shows how much performa
 
 ---
 
-*Disclaimer: This article was generated using the Claude Opus 4.8 model.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 4.8). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

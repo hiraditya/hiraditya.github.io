@@ -220,4 +220,4 @@ For now, the takeaway is narrower: the stack you already use is an MLIR stack. K
 
 [^11]: **MLIR Users** — The published list of projects building on MLIR, a proxy for the breadth of in-tree and out-of-tree dialects. ([mlir.llvm.org/users](https://mlir.llvm.org/users/))
 
-*Disclaimer: This article was generated using the Claude Opus 4.8 model.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 4.8). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

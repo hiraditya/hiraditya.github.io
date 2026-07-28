@@ -233,4 +233,4 @@ For the practical takeaway: the next time you read an HLO dump or wonder why you
 
 [^18]: **Dynamic shapes.** Bounded dynamism via `PadToStatic`/`SliceToDynamic`; data-dependent output shapes are rejected under `jit`. ([StableHLO dynamism](https://openxla.org/stablehlo/dynamism), [jax#26265](https://github.com/jax-ml/jax/issues/26265))
 
-*Disclaimer: This article was generated using the Claude Opus 4.8 model.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 4.8). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

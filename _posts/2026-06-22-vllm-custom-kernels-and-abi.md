@@ -290,4 +290,4 @@ vLLM's performance is not only the algorithmic win of PagedAttention; it is the 
 
 [^10]: **Introduction to `torch.compile` and How It Works with vLLM** — vLLM blog on compiled regions and custom-op fusion. ([vLLM blog](https://blog.vllm.ai/2025/08/20/torch-compile.html))
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro, Claude Opus 4.8). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

@@ -278,4 +278,4 @@ For those who want to dive directly into the source code to see how these abstra
 [^5]: **Apple Objective-C Runtime:** The open-source implementations of Apple's Objective-C runtime, showcasing how `dyld` triggers `+load` methods during early process initialization. ([Source Code](https://github.com/apple-oss-distributions/objc4))
 [^6]: **Rust `std::rt` Module:** The Rust standard library source code detailing how `lang_start` bridges the C-ABI `main` to the Rust `fn main()` and configures panic handlers. ([Source Code](https://github.com/rust-lang/rust/blob/master/library/std/src/rt.rs))
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro model.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

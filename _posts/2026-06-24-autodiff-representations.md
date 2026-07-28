@@ -230,4 +230,4 @@ Tape, trace, and source transform are three answers to the same question: the ch
 
 [^9]: **A Mathematical Model for Automatic Differentiation in Machine Learning** — Bolte, J., Pauwels, E. *NeurIPS 2020*. What AD actually computes on nonsmooth functions (kinks, piecewise control flow), and why it returns valid subgradients almost everywhere. ([arXiv:2006.02080](https://arxiv.org/abs/2006.02080))
 
-*Disclaimer: This article was generated using the Gemini 3.1 Pro and Claude Opus 4.8 models.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro, Claude Opus 4.8). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*

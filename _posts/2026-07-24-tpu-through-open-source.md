@@ -254,4 +254,4 @@ Everything here is from public, Apache-2.0 code, read at `jax-ml/jax` commit `60
 
 ---
 
-*Disclaimer: This article was generated using Claude Opus 4.8 and Claude Opus 5 models. All cited source is public, Apache-2.0 licensed code.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 4.8 and Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. All cited source is public, Apache-2.0 licensed code.*
