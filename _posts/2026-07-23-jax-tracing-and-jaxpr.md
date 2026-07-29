@@ -5,11 +5,23 @@ categories: [Compilers, ML-Systems]
 tags: [jax, xla, jaxpr, tracing, autodiff, compilers]
 ---
 
-Coming from PyTorch, the first thing JAX does is offend you. You write an honest little function with an `if` in it, wrap it in `jax.jit`, call it, and instead of running it throws `TracerBoolConversionError`. No graceful fallback, no partial compile — a hard stop on a line of Python that would have run fine a second ago. `torch.compile` would have shrugged, taken a graph break, and moved on. JAX refuses.
+Coming from PyTorch, the first thing JAX does is offend you.
 
-That refusal is the most important thing to understand about JAX, and once it clicks the whole system falls into place. JAX is not a framework with a compiler attached. It is a **tracing machine**. Every headline feature — `jit`, `grad`, `vmap`, `shard_map` — is the same move applied over and over: run a pure Python function once with stand-in values, record the sequence of primitive operations into a small typed IR called a *jaxpr*, and then transform or compile that IR. Understanding JAX means understanding the trace boundary — what the machine can see when your function runs, and what it is structurally blind to.
+You write a simple function with an `if` statement, wrap it in `jax.jit`, and call it. Instead of running, it throws a `TracerBoolConversionError`. No graceful fallback. No partial compile. Just a hard stop on a line of Python that would have run fine a second ago.
 
-Everything below runs on JAX 0.11.0, CPU backend, and every jaxpr and every number is copied from a session rather than written from memory.[^1] Line numbers refer to that release. This is the front end: how Python becomes a jaxpr, why control flow is special, why every transformation is a rewrite of the same object, and — the part that has changed most in the last year — what the type of a traced value has quietly grown to include.
+`torch.compile` would have shrugged, taken a graph break, and moved on. JAX refuses.
+
+That refusal is the most important thing to understand about JAX.
+
+Once you accept that JAX is not a framework with a compiler attached — but a **tracing machine** — the whole system falls into place. Every headline feature (`jit`, `grad`, `vmap`, `shard_map`) is the same move applied repeatedly:
+
+1. Run your pure Python function once with stand-in values.
+2. Record the sequence of primitive operations into a small, typed Intermediate Representation (IR) called a *jaxpr*.
+3. Transform or compile that IR.
+
+Understanding JAX means understanding the trace boundary: what the machine can see when your function runs, and what it is structurally blind to.
+
+In this post, we'll explore why JAX refuses data-dependent control flow, how randomness becomes a pure function, and how the abstract value (`aval`) has quietly evolved to include sharding and memory space. Every example below is verified against JAX 0.11.0.[^1]
 
 ## The jaxpr is the whole point
 
