@@ -254,6 +254,18 @@ Three operands in, one out. The grid decodes exactly: `grid_x = 4` is the sequen
 
 That is the payoff of the layer. The pattern XLA could not fuse at HLO granularity becomes a single kernel once you write it yourself, tiled the way the algorithm needs.
 
+### The TPU story is different, and it is a good cautionary tale
+
+On GPU there is one shipped attention kernel and it is the one I used. On TPU there are two, and the sizes tell you which one is load-bearing: `pallas/ops/tpu/flash_attention.py` is a single 1,715-line file, while `pallas/ops/tpu/splash_attention/` is a package — a 2,643-line kernel, a 560-line mask module, and a mask-info module besides. Its docstring gives the name away: *"Implementation of Sparse Flash Attention, a.k.a. 'Splash' attention."* The mask machinery is the difference. Splash treats sparsity in the attention mask as a first-class input rather than something you multiply in afterwards, which is what causal and segment masks need.
+
+Neither is deprecated, and I have run neither. But there is a long thread on the Equinox tracker that is worth reading in full, because the way it resolves is more instructive than its conclusion.[^7] Someone benchmarks naive attention against the TPU Pallas flash kernel and gets a 3× speedup. They tighten the benchmark — `vmap` inside `jit`, a warmup call, `block_until_ready` — and the gap vanishes; the Pallas kernel comes out slightly *slower* than naive. The reasonable inference, and the one drawn in the thread, is that XLA must already be pattern-matching attention into something fused.
+
+Nearly a year later another practitioner training LLMs on TPU v4+ reports that this is wrong, and says how they know: they read the profiles, and the HLO still contains full QK<sup>T</sup> blocks. No fusion, no memory saved. They also rank the options — splash fastest, the TPU Pallas *flash* kernel slowest — and conclude splash is the path that works.
+
+I am reporting that ranking, not standing behind it. I have no TPU, those are one person's measurements on their models, and the benchmark history in that same thread is a demonstration of how easily attention microbenchmarks mislead. What survives without a TPU is the part that matters: a plausible story about the compiler fusing your attention held for a year in a public thread, between competent people, and what finally settled it was opening the HLO and finding the matrix multiply still sitting there.
+
+One qualifier, because the thread is about TPU and this post is mostly about GPU. On GPU there *is* a fused path — `jax.nn.dot_product_attention` takes an `implementation` argument of `'xla'` or `'cudnn'`, and the cuDNN route emits fused multi-head-attention custom calls rather than a materialized QK<sup>T</sup>.[^8] That is a different mechanism from anything above: not XLA recognizing your attention and fusing it, but a hand-written library kernel you opt into by name. Which is the same bargain as Pallas — someone else's opaque call instead of your own — and it is the reason "does the compiler fuse attention for me" has no single answer across backends. Check your own HLO.
+
 ## What four levels of this stack actually did
 
 I started this series expecting to end on a clean complaint, and I want to state plainly that it did not survive contact with the code.
@@ -293,6 +305,10 @@ Whether the last step is worth taking on purpose — making memory space and har
 [^5]: **Mosaic TPU dialect.** The MLIR dialect Pallas TPU kernels lower to, defining the TPU memory spaces and the vector-unit ops. This is the source of every TPU claim in this post; none of it was executed. ([Link](https://github.com/jax-ml/jax/tree/main/jaxlib/mosaic/dialect/tpu))
 
 [^6]: **Pallas flash attention.** The reference multi-head attention kernel in `jax.experimental.pallas.ops.gpu.attention`, including the `BlockSizes` defaults quoted above. ([Link](https://github.com/jax-ml/jax/blob/main/jax/experimental/pallas/ops/gpu/attention.py))
+
+[^7]: **Equinox issue #732, "Flash Attention".** The thread covering whether XLA fuses attention on its own. The corrected benchmark showing the TPU Pallas flash kernel at parity with (slightly slower than) naive attention is from 2024-05-22; the profile-based report that the HLO still contains full QK^T blocks, together with the splash > jax.nn > equinox > pallas-flash ranking on TPU v4+, is from 2025-03-12. Both are practitioner reports, not measurements of mine. Kernel line counts and the "Sparse Flash Attention" docstring are from `jax-ml/jax` at commit `607930531` (2026-07-27). ([Thread](https://github.com/patrick-kidger/equinox/issues/732#issuecomment-2717988915), [splash kernel](https://github.com/jax-ml/jax/tree/main/jax/experimental/pallas/ops/tpu/splash_attention))
+
+[^8]: **`jax.nn.dot_product_attention` and the cuDNN fused path.** The function takes `implementation: Literal['xla', 'cudnn'] | None`; the cuDNN route is implemented in `jax/_src/cudnn/fused_attention_stablehlo.py`, which builds a `cudnn_fmha_backend_config` and emits fused multi-head-attention custom calls. The docstring notes the practical difference for masking: the `xla` path "will generate a mask tensor and apply it", while `cudnn` "will avoid computing the non-causal regions". Read from JAX 0.11.0; I have not benchmarked either path. ([Link](https://docs.jax.dev/en/latest/_autosummary/jax.nn.dot_product_attention.html))
 
 ---
 
