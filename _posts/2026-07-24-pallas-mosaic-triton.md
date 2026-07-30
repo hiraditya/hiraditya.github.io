@@ -125,7 +125,9 @@ On a machine with a working, CUDA-enabled `jax` that reports `[CudaDevice(id=0)]
 "NVIDIA H100 80GB HBM3"  -> NVIDIA H100
 ```
 
-The allowlist contains `NVIDIA A10`. The device reports `NVIDIA A10G`. The pattern is anchored with `\b`, and the `G` is a word character, so the boundary fails and the A10G matches nothing. The A100 and H100 match fine because what follows their names is a `-` or a space. This is not a capability judgement about the hardware — an A10G runs Triton kernels perfectly well through Triton directly. It is one letter falling on the wrong side of a word boundary in a device-name allowlist, on one of the most widely deployed cloud GPUs there is.
+The allowlist contains `NVIDIA A10`. The device reports `NVIDIA A10G`. The pattern is anchored with `\b`, and the `G` is a word character, so the boundary fails and the A10G matches nothing. The A100 and H100 match fine because what follows their names is a `-` or a space.
+
+Nothing about this is a judgement on the hardware, and the reason is visible in the order of operations. The `get_gpu_info()` call that raises sits *above* `lower_jaxpr_to_triton_module` in the same function — the name lookup fails and the exception propagates before Triton is handed the kernel at all.[^4] No Triton compilation was attempted, so nothing was concluded about what the chip can do. It is one letter falling on the wrong side of a word boundary in a device-name table, on one of the most widely deployed cloud GPUs there is.
 
 The error message names the way out, and it is a genuinely good one: `AbstractDevice` lets you lower for a GPU you do not have.
 
@@ -220,7 +222,7 @@ Whether the last step is worth taking on purpose — making memory space and har
 
 [^3]: **Pallas GPU backends.** The Triton backend and the newer Mosaic-GPU backend, and backend selection via `jax_pallas_use_mosaic_gpu`. ([Link](https://docs.jax.dev/en/latest/pallas/gpu/index.html))
 
-[^4]: **The Pallas Triton device allowlist.** `jax/_src/pallas/triton/gpu_info.py` in JAX 0.11.0 resolves hardware by matching `device_kind` against a regex of nineteen names — `NVIDIA A10|A30|A100|H100|H200|GH200|B200|GB200|B300|GB300|GB10|L4|L40|Tesla T4|GeForce RTX 4090|RTX PRO 4500|RTX PRO 5000|RTX PRO 6000|Thor` — anchored with `\b` at both ends, with an empty fallback `registry` dict. A non-matching name raises from `pallas_call_registration.py:107`. ([Link](https://github.com/jax-ml/jax/tree/main/jax/_src/pallas/triton))
+[^4]: **The Pallas Triton device allowlist.** `jax/_src/pallas/triton/gpu_info.py` in JAX 0.11.0 resolves hardware by matching `device_kind` against a regex of nineteen names — `NVIDIA A10|A30|A100|H100|H200|GH200|B200|GB200|B300|GB300|GB10|L4|L40|Tesla T4|GeForce RTX 4090|RTX PRO 4500|RTX PRO 5000|RTX PRO 6000|Thor` — anchored with `\b` at both ends, with an empty fallback `registry` dict. A non-matching name raises from `pallas_call_registration.py:107`. In that same function the `try: gpu_info = gpu_info_lib.get_gpu_info()` block precedes the `lower_jaxpr_to_triton_module(...)` call, so the lookup failure short-circuits before any Triton lowering is attempted. ([Link](https://github.com/jax-ml/jax/tree/main/jax/_src/pallas/triton))
 
 [^5]: **Mosaic TPU dialect.** The MLIR dialect Pallas TPU kernels lower to, defining the TPU memory spaces and the vector-unit ops. This is the source of every TPU claim in this post; none of it was executed. ([Link](https://github.com/jax-ml/jax/tree/main/jaxlib/mosaic/dialect/tpu))
 
