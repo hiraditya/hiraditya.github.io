@@ -3,6 +3,7 @@ title: "When XLA Isn't Enough: Pallas, Mosaic, and Triton"
 date: 2026-07-29 06:00:00 -0700
 categories: [Compilers, ML-Systems]
 tags: [jax, pallas, mosaic, triton, tpu, gpu]
+mermaid: true
 ---
 
 This is the last post on the JAX/XLA stack. We went from Python to a jaxpr, from a jaxpr to optimized single-device HLO, and from single-device HLO to a [mesh of devices]({% post_url 2026-07-24-how-jax-shards-a-computation %}). One door left, and it is the one you take when the compiler's automatic decisions are not good enough: writing the kernel yourself. In JAX that door is **Pallas**, and it lowers through two very different backends — Triton on GPU and Mosaic on TPU.[^1]
@@ -73,7 +74,37 @@ When you `jit` a Pallas kernel, XLA does not see inside it:
 
 The target is `__gpu$xla.gpu.triton`, with the launch grid, warp count, and pipeline depth as attributes. And that `ir = "ML\EFR\0D..."` field is the interesting part: the entire Triton module is carried inside the custom call as **serialized MLIR bytecode**. For this four-line kernel it is 2,141 escaped characters; for the flash-attention kernel later in this post it is 10,000.
 
-That blob is the mechanism behind the optimization barrier I flagged in the review. XLA cannot fuse across the call or optimize inside it, not because of a policy decision but because what it holds is an opaque byte string destined for a different compiler. You get total control of the kernel body, and in exchange XLA treats it as a black box. Reach for Pallas when a kernel is worth more hand-optimized than auto-fused with its neighbours, and not before.
+That blob is the mechanism behind the optimization barrier I flagged in the review. XLA cannot fuse across the call or optimize inside it, not because of a policy decision but because what it holds is an opaque byte string destined for a different compiler.
+
+```mermaid
+graph TD
+  PY["Pallas kernel<br/>(Python, imperative)"]
+  JX["jaxpr<br/>Ref&lt;space&gt; binders + GridMapping"]
+  TT["Triton module<br/>tt dialect"]
+  MO["Mosaic module<br/>tpu dialect"]
+  BC["serialized MLIR bytecode"]
+  CC["stablehlo.custom_call<br/>+ grid, num_warps, num_stages"]
+  XLA["XLA optimizer<br/>cannot fuse in or across"]
+  BIN["Triton compiler → PTX<br/>/ libtpu"]
+
+  PY --> JX
+  JX -->|GPU| TT
+  JX -->|TPU| MO
+  TT --> BC
+  MO --> BC
+  BC --> CC
+  CC --> XLA
+  CC -.->|"handed off at run time"| BIN
+
+  classDef fe fill:#e8f5e9,stroke:#4a6a4a,color:#1a1a1a;
+  classDef mid fill:#fff3cd,stroke:#7a6a00,color:#1a1a1a;
+  classDef opaque fill:#f3e5f5,stroke:#6a4a6a,color:#1a1a1a;
+  class PY,JX fe;
+  class TT,MO,BIN mid;
+  class BC,CC,XLA opaque;
+```
+
+The two backends converge on the same shape: whatever dialect your kernel became, it leaves as bytes. You get total control of the kernel body, and in exchange XLA treats it as a black box. Reach for Pallas when a kernel is worth more hand-optimized than auto-fused with its neighbours, and not before.
 
 ## The GPU backend: Triton
 
@@ -100,7 +131,42 @@ Now find `%28`. It loads from `%27` — the *output* pointer — immediately bef
 
 ## Getting this to run at all
 
-Here is where the hardware choice stopped being incidental. On an A10G — the GPU in every AWS `g5` instance — that kernel does not run. Both backends refuse it, for two unrelated reasons.
+Here is where the hardware choice stopped being incidental. On an A10G — the GPU in every AWS `g5` instance — that kernel does not run. Both backends refuse it, for two unrelated reasons, and the shape of the dispatch is worth having in front of you:
+
+```mermaid
+graph TD
+  K["pallas_call(...)"]
+  Q{"jax_pallas_use_mosaic_gpu"}
+  MG["Mosaic-GPU backend"]
+  HOP{"Hopper or newer?"}
+  F1["NotImplementedError<br/>arrive_expect_tx is only<br/>supported on Hopper+"]
+  OK1["lower to Mosaic-GPU"]
+  TR["Triton backend"]
+  NAME{"device_kind matches the<br/>19-name regex?"}
+  F2["RuntimeError<br/>No supported GPU devices found"]
+  OK2["lower_jaxpr_to_triton_module"]
+  AD["AbstractDevice names<br/>a supported target"]
+
+  K --> Q
+  Q -->|"true (default)"| MG
+  Q -->|"false"| TR
+  MG --> HOP
+  HOP -->|no| F1
+  HOP -->|yes| OK1
+  TR --> NAME
+  NAME -->|no| F2
+  NAME -->|yes| OK2
+  F2 -.-> AD -.-> OK2
+
+  classDef ok fill:#e8f5e9,stroke:#4a6a4a,color:#1a1a1a;
+  classDef bad fill:#ffe0e0,stroke:#8a4a4a,color:#1a1a1a;
+  classDef q fill:#fff3cd,stroke:#7a6a00,color:#1a1a1a;
+  class OK1,OK2,AD ok;
+  class F1,F2 bad;
+  class Q,HOP,NAME q;
+```
+
+An A10G takes the left branch to `F1`, then the right branch to `F2`. Both failures, two different subsystems, neither of them about what the silicon can do.
 
 The default GPU backend in current JAX is not Triton, it is Mosaic-GPU, and Mosaic-GPU targets Hopper:[^3]
 
