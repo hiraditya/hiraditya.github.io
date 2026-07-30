@@ -215,6 +215,10 @@ Two entries on that list, `NVIDIA A10` and `NVIDIA L40`, each have a real produc
 
 This is worth separating from ordinary gaps in coverage. An A40 or an RTX 5090 also fails, but those names are simply absent from the list — nobody claimed to support them. The A10G and the L40S are different: the hardware *is* on the list, and a regex boundary is the only thing standing between it and a working kernel.
 
+The narrowness underneath it is not a Pallas problem, though. Going through OpenXLA's public CI for the [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}), every runner pool in `.github/workflows/` resolved to CPU except two NVIDIA ones: a single L4 attached to the presubmit gate, and an eight-way H100 pool that runs on a midnight cron and gates nothing. Both of those chips are on Pallas's allowlist. The A10G and the L40S are on neither — not exercised upstream, not reachable from Pallas.
+
+So the tested surface and the supported surface agree with each other, and both are centred on datacenter parts. Which is defensible for a compiler team with finite runners, and is also why the H100 in this post is doing double duty: it is the modern part, and it is one of the two NVIDIA chips this stack is actually tested on.
+
 Nothing about this is a judgement on the hardware, and the reason is visible in the order of operations. The `get_gpu_info()` call that raises sits *above* `lower_jaxpr_to_triton_module` in the same function — the name lookup fails and the exception propagates before Triton is handed the kernel at all.[^4] No Triton compilation was attempted, so nothing was concluded about what the chip can do. It is one letter falling on the wrong side of a word boundary in a device-name table, on one of the most widely deployed cloud GPUs there is.
 
 The error message names the way out, and it is a genuinely good one: `AbstractDevice` lets you lower for a GPU you do not have.
