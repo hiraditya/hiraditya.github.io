@@ -10,7 +10,7 @@ This is the last post on the JAX/XLA stack. We went from Python to a jaxpr, from
 
 The motivation is concrete and I raised it in the [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}): XLA fuses at the granularity of HLO ops using a cost model you do not control, and some kernels — flash attention is the canonical one — cannot be expressed as a good fusion at that granularity. When you hit that wall you stop describing *what* to compute and start describing *how*.
 
-Everything below is captured from JAX 0.11.0 on an NVIDIA A10G. That hardware choice turned out to matter more than I expected, and the reason is a section of its own.[^2]
+Everything below is captured from JAX 0.11.0 on two machines: an NVIDIA A10G, and an H100 PCIe. It took two, and why it took two is a section of its own.[^2]
 
 ## You write to references, not values
 
@@ -168,6 +168,15 @@ graph TD
 
 An A10G takes the left branch to `F1`, then the right branch to `F2`. Both failures, two different subsystems, neither of them about what the silicon can do.
 
+For contrast, here is the same code on an H100 PCIe, which reports a name the allowlist accepts:
+
+```text
+default (mosaic-gpu)   -> RAN, correct=True, first4=[1. 3. 5. 7.]
+triton                 -> RAN, correct=True, first4=[1. 3. 5. 7.]
+```
+
+Both backends, same kernel, same correct answer. Mosaic-GPU really does want Hopper and really is fine once it has it, and the Triton path was never the problem — it just could not get past the name.
+
 The default GPU backend in current JAX is not Triton, it is Mosaic-GPU, and Mosaic-GPU targets Hopper:[^3]
 
 ```text
@@ -191,7 +200,20 @@ On a machine with a working, CUDA-enabled `jax` that reports `[CudaDevice(id=0)]
 "NVIDIA H100 80GB HBM3"  -> NVIDIA H100
 ```
 
-The allowlist contains `NVIDIA A10`. The device reports `NVIDIA A10G`. The pattern is anchored with `\b`, and the `G` is a word character, so the boundary fails and the A10G matches nothing. The A100 and H100 match fine because what follows their names is a `-` or a space.
+The allowlist contains `NVIDIA A10`. The device reports `NVIDIA A10G`. The pattern is anchored with `\b`, and `G` is a word character, so the boundary fails and the A10G matches nothing. The A100 and H100 match fine because what follows their names is a `-` or a space.
+
+It is not a one-off. Feed the same pattern the names of GPUs people actually rent:
+
+```text
+NVIDIA A10G            -> NO MATCH        NVIDIA H100 PCIe       -> NVIDIA H100
+NVIDIA L40S            -> NO MATCH        NVIDIA H100 NVL        -> NVIDIA H100
+NVIDIA A10             -> NVIDIA A10      NVIDIA A100-SXM4-40GB  -> NVIDIA A100
+NVIDIA L40             -> NVIDIA L40      Tesla T4               -> Tesla T4
+```
+
+Two entries on that list, `NVIDIA A10` and `NVIDIA L40`, each have a real product whose name is theirs plus one trailing letter, and both of those products fail. The A10G is the GPU in AWS `g5`; the L40S is the GPU in `g6e` and a default option on most GPU clouds. Every H100 SKU passes, because whatever follows `H100` is a space.
+
+This is worth separating from ordinary gaps in coverage. An A40 or an RTX 5090 also fails, but those names are simply absent from the list — nobody claimed to support them. The A10G and the L40S are different: the hardware *is* on the list, and a regex boundary is the only thing standing between it and a working kernel.
 
 Nothing about this is a judgement on the hardware, and the reason is visible in the order of operations. The `get_gpu_info()` call that raises sits *above* `lower_jaxpr_to_triton_module` in the same function — the name lookup fails and the exception propagates before Triton is handed the kernel at all.[^4] No Triton compilation was attempted, so nothing was concluded about what the chip can do. It is one letter falling on the wrong side of a word boundary in a device-name table, on one of the most widely deployed cloud GPUs there is.
 
@@ -204,7 +226,9 @@ with use_abstract_mesh(AbstractMesh((1,), ("d",), abstract_device=dev)):
     print(jax.jit(f).lower(x).as_text())
 ```
 
-Every Triton excerpt in this post came out of that, lowered for an H100 on Ampere silicon. Which is a fair thing to do for reading IR and an unfair thing to do for claiming performance, so I have not claimed any.
+That is how I first read the IR in this post — lowered for an H100 while sitting on an Ampere card. It is a fair thing to do for reading IR and an unfair thing to do for claiming performance, so I later rented an actual H100 and re-captured everything.
+
+The abstract lowering turned out to be exactly right. The Triton module from the real H100 is identical to the one lowered for a device that was not there — same `%12 = tt.load %11`, same `%28` dead read of the output pointer, same everything. Which makes sense once you look at what the lowering is handed: after the device-name gate passes, it receives a compute capability, not a device. `AbstractDevice` supplies the same 9.0 the real card reports.
 
 ## Developing without the hardware
 
@@ -254,17 +278,47 @@ Three operands in, one out. The grid decodes exactly: `grid_x = 4` is the sequen
 
 That is the payoff of the layer. The pattern XLA could not fuse at HLO granularity becomes a single kernel once you write it yourself, tiled the way the algorithm needs.
 
-### The TPU story is different, and it is a good cautionary tale
+### Does the compiler fuse attention for you? No.
 
-On GPU there is one shipped attention kernel and it is the one I used. On TPU there are two, and the sizes tell you which one is load-bearing: `pallas/ops/tpu/flash_attention.py` is a single 1,715-line file, while `pallas/ops/tpu/splash_attention/` is a package — a 2,643-line kernel, a 560-line mask module, and a mask-info module besides. Its docstring gives the name away: *"Implementation of Sparse Flash Attention, a.k.a. 'Splash' attention."* The mask machinery is the difference. Splash treats sparsity in the attention mask as a first-class input rather than something you multiply in afterwards, which is what causal and segment masks need.
+The belief that XLA quietly rewrites attention into a fused kernel is widespread, and I held a soft version of it myself. It is checkable in about a minute, so I checked it on the H100. Four ways to ask for attention on `(4, 1024, 8, 64)` FP16, compiled, then grep the HLO for a materialized score matrix and for cuDNN fused-attention calls:
 
-Neither is deprecated, and I have run neither. But there is a long thread on the Equinox tracker that is worth reading in full, because the way it resolves is more instructive than its conclusion.[^7] Someone benchmarks naive attention against the TPU Pallas flash kernel and gets a 3× speedup. They tighten the benchmark — `vmap` inside `jit`, a warmup call, `block_until_ready` — and the gap vanishes; the Pallas kernel comes out slightly *slower* than naive. The reasonable inference, and the one drawn in the thread, is that XLA must already be pattern-matching attention into something fused.
+| how you wrote it | `__cudnn$fmha*` calls | `[4,8,1024,1024]` tensors in HLO |
+|---|---|---|
+| hand-written einsum + softmax | 0 | yes |
+| `dot_product_attention()` (default) | 0 | yes |
+| `dot_product_attention(implementation='xla')` | 0 | yes |
+| `dot_product_attention(implementation='cudnn')` | **1** | **none** |
 
-Nearly a year later another practitioner training LLMs on TPU v4+ reports that this is wrong, and says how they know: they read the profiles, and the HLO still contains full QK<sup>T</sup> blocks. No fusion, no memory saved. They also rank the options — splash fastest, the TPU Pallas *flash* kernel slowest — and conclude splash is the path that works.
+The first three materialize the full 1024×1024 score matrix for all 32 (batch, head) pairs — 128 MiB in fp32, written to HBM and read back — because a `dot` produced it and nothing fused it away. That includes `jax.nn.dot_product_attention` with default arguments, which is the call most people reach for and reasonably assume is the fast path.
 
-I am reporting that ranking, not standing behind it. I have no TPU, those are one person's measurements on their models, and the benchmark history in that same thread is a demonstration of how easily attention microbenchmarks mislead. What survives without a TPU is the part that matters: a plausible story about the compiler fusing your attention held for a year in a public thread, between competent people, and what finally settled it was opening the HLO and finding the matrix multiply still sitting there.
+Only the last one fuses, and it does so by leaving XLA entirely:
 
-One qualifier, because the thread is about TPU and this post is mostly about GPU. On GPU there *is* a fused path — `jax.nn.dot_product_attention` takes an `implementation` argument of `'xla'` or `'cudnn'`, and the cuDNN route emits fused multi-head-attention custom calls rather than a materialized QK<sup>T</sup>.[^8] That is a different mechanism from anything above: not XLA recognizing your attention and fusing it, but a hand-written library kernel you opt into by name. Which is the same bargain as Pallas — someone else's opaque call instead of your own — and it is the reason "does the compiler fuse attention for me" has no single answer across backends. Check your own HLO.
+```text
+%dot_product_attention_fwd.4 = (f16[4,8,1024,64], u8[256]) custom-call(
+    %q.1, %k.1, %v.1), custom_call_target="__cudnn$fmhaSoftmax"
+```
+
+Three operands in, the attention output and a scratch buffer out, and not a 1024×1024 tensor in sight. That is cuDNN's hand-written flash attention, reached because you typed its name.[^7] It is the same bargain as Pallas — an opaque custom call XLA cannot see into — with someone else's kernel inside instead of yours.
+
+And Pallas holds up on its own terms. The shipped `mha` kernel against my hand-written reference, same inputs, same H100:
+
+```text
+max abs diff  0.0
+naive        0.204 ms
+pallas mha   0.131 ms      1.55x
+```
+
+Bit-identical output, 1.55× faster, at grid `8 x 4 x 8` — sequence 1024 over `block_q` 128, batch 4, heads 8.
+
+### The same question on TPU, and how long it took to settle
+
+I cannot run the TPU side, but there is a thread on the Equinox tracker that arrives at the same place by a much longer road, and the road is the instructive part.[^8]
+
+Someone benchmarks naive attention against the TPU Pallas flash kernel and gets a 3× speedup. They tighten the benchmark — `vmap` inside `jit`, a warmup call, `block_until_ready` — and the gap vanishes; the Pallas kernel comes out slightly *slower*. The reasonable inference, and the one drawn in the thread, is that XLA must already be fusing attention on its own. That stands for about ten months. Then another practitioner training LLMs on TPU v4+ says it is wrong, and says how they know: they read the profiles, and the HLO still contains full QK<sup>T</sup> blocks. No fusion, no memory saved.
+
+Which is exactly what the table above shows on a GPU. A plausible story about the compiler doing your optimization survived a year in a public thread between competent people, and what settled it in both cases was opening the HLO and finding the matrix multiply still sitting there.
+
+The same thread reports that on TPU the kernel to use is *splash* attention, not the flash one — splash fastest, TPU Pallas flash slowest. I am passing that along, not standing behind it: no TPU was involved on my side, those are one person's measurements on their models, and that thread's own history is a demonstration of how easily attention microbenchmarks mislead. What I can confirm from the source is that both ship and which one is load-bearing. `pallas/ops/tpu/flash_attention.py` is a single 1,715-line file; `pallas/ops/tpu/splash_attention/` is a package — a 2,643-line kernel, a 560-line mask module, and a mask-info module besides. Its docstring gives the name away: *"Implementation of Sparse Flash Attention, a.k.a. 'Splash' attention."* The mask machinery is the difference. Splash treats sparsity in the attention mask as a first-class input rather than something you multiply in afterwards, which is what causal and segment masks need.
 
 ## What four levels of this stack actually did
 
@@ -296,7 +350,7 @@ Whether the last step is worth taking on purpose — making memory space and har
 
 [^1]: **JAX Pallas.** The kernel language: `pallas_call`, `BlockSpec` and grid, `Ref`-based memory, and the Triton (GPU) and Mosaic (TPU) backends. ([Link](https://docs.jax.dev/en/latest/pallas/index.html))
 
-[^2]: **Reproduction environment.** JAX 0.11.0 with CUDA jaxlib on an NVIDIA A10G (compute capability 8.6), driver 595.71.05, CUDA 13.2, Ubuntu 24.04. Jaxprs are from `jax.make_jaxpr`; StableHLO from `jax.jit(...).lower(...).as_text()`; Triton modules from the same lowering with `debug=True`. All Triton output was lowered for an abstract `NVIDIA H100 80GB HBM3` target via `jax.sharding.AbstractDevice`, for the reason described in the text — it was assembled, not executed, so no performance claim is made from it. Nothing in this post ran on a TPU. ([Link](https://pypi.org/project/jax/0.11.0/))
+[^2]: **Reproduction environment.** JAX 0.11.0 with CUDA jaxlib on two machines: an NVIDIA A10G (compute capability 8.6, driver 595.71.05, CUDA 13.2, Ubuntu 24.04) for the backend-dispatch failures, and an NVIDIA H100 PCIe (compute capability 9.0, driver 580.142, `device_kind` `"NVIDIA H100 PCIe"`) for everything that had to actually run — the Triton IR, the attention fusion table, the Pallas `mha` timings, and the both-backends-work result. Jaxprs are from `jax.make_jaxpr`; StableHLO and optimized HLO from `jax.jit(...).lower(...)` and `.compile().as_text()`; Triton modules from the same lowering with `debug=True`. Timings are the mean of 50 iterations after a warmup call, with `block_until_ready()`. Nothing in this post ran on a TPU.
 
 [^3]: **Pallas GPU backends.** The Triton backend and the newer Mosaic-GPU backend, and backend selection via `jax_pallas_use_mosaic_gpu`. ([Link](https://docs.jax.dev/en/latest/pallas/gpu/index.html))
 
@@ -306,9 +360,9 @@ Whether the last step is worth taking on purpose — making memory space and har
 
 [^6]: **Pallas flash attention.** The reference multi-head attention kernel in `jax.experimental.pallas.ops.gpu.attention`, including the `BlockSizes` defaults quoted above. ([Link](https://github.com/jax-ml/jax/blob/main/jax/experimental/pallas/ops/gpu/attention.py))
 
-[^7]: **Equinox issue #732, "Flash Attention".** The thread covering whether XLA fuses attention on its own. The corrected benchmark showing the TPU Pallas flash kernel at parity with (slightly slower than) naive attention is from 2024-05-22; the profile-based report that the HLO still contains full QK^T blocks, together with the splash > jax.nn > equinox > pallas-flash ranking on TPU v4+, is from 2025-03-12. Both are practitioner reports, not measurements of mine. Kernel line counts and the "Sparse Flash Attention" docstring are from `jax-ml/jax` at commit `607930531` (2026-07-27). ([Thread](https://github.com/patrick-kidger/equinox/issues/732#issuecomment-2717988915), [splash kernel](https://github.com/jax-ml/jax/tree/main/jax/experimental/pallas/ops/tpu/splash_attention))
+[^7]: **`jax.nn.dot_product_attention` and the cuDNN fused path.** The function takes `implementation: Literal['xla', 'cudnn'] | None`; the cuDNN route is implemented in `jax/_src/cudnn/fused_attention_stablehlo.py`, which builds a `cudnn_fmha_backend_config` and emits fused multi-head-attention custom calls. The docstring notes the practical difference for masking: the `xla` path "will generate a mask tensor and apply it", while `cudnn` "will avoid computing the non-causal regions". Read from JAX 0.11.0; I have not benchmarked either path. ([Link](https://docs.jax.dev/en/latest/_autosummary/jax.nn.dot_product_attention.html))
 
-[^8]: **`jax.nn.dot_product_attention` and the cuDNN fused path.** The function takes `implementation: Literal['xla', 'cudnn'] | None`; the cuDNN route is implemented in `jax/_src/cudnn/fused_attention_stablehlo.py`, which builds a `cudnn_fmha_backend_config` and emits fused multi-head-attention custom calls. The docstring notes the practical difference for masking: the `xla` path "will generate a mask tensor and apply it", while `cudnn` "will avoid computing the non-causal regions". Read from JAX 0.11.0; I have not benchmarked either path. ([Link](https://docs.jax.dev/en/latest/_autosummary/jax.nn.dot_product_attention.html))
+[^8]: **Equinox issue #732, "Flash Attention".** The thread covering whether XLA fuses attention on its own. The corrected benchmark showing the TPU Pallas flash kernel at parity with (slightly slower than) naive attention is from 2024-05-22; the profile-based report that the HLO still contains full QK^T blocks, together with the splash > jax.nn > equinox > pallas-flash ranking on TPU v4+, is from 2025-03-12. Both are practitioner reports, not measurements of mine. Kernel line counts and the "Sparse Flash Attention" docstring are from `jax-ml/jax` at commit `607930531` (2026-07-27). ([Thread](https://github.com/patrick-kidger/equinox/issues/732#issuecomment-2717988915), [splash kernel](https://github.com/jax-ml/jax/tree/main/jax/experimental/pallas/ops/tpu/splash_attention))
 
 ---
 
