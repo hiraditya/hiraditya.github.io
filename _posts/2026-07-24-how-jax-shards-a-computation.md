@@ -216,7 +216,17 @@ Explicit: allow_spmd_sharding_propagation_to_parameters={false,false},
 
 Under `Auto`, JAX grants XLA permission to choose where the result lives. Under `Explicit` it withdraws that permission, because the type already said. The latitude the compiler is given shrinks by exactly the amount the type now carries.
 
-The tradeoff is a real one and I do not think `Explicit` is free. `Auto` lets you shard two inputs and walk away; the propagator handles a thousand-line model and usually gets it right. `Explicit` asks you to resolve every ambiguity it finds, and a large model has more of them than you expect. What you buy is that the ambiguities surface where you wrote them, with the mesh axis named, instead of showing up as a surprising collective in a profile three weeks later.
+The tradeoff is a real and I do not think `Explicit` is free. `Auto` lets you shard two inputs and walk away; the propagator handles a thousand-line model and usually gets it right. `Explicit` asks you to resolve every ambiguity it finds, and a large model has more of them than you expect. What you buy is that the ambiguities surface where you wrote them, with the mesh axis named.
+
+Be precise about what that does and does not buy you, because it is easy to over-read. Take the accidental all-gather from two sections ago — batch on `model`, features on `data`, weights replicated — and run it on an `Explicit` mesh:
+
+```text
+avals: float32[256@model,512@data] | float32[512,1024]
+traces cleanly, out aval float32[256@model,1024]
+compiled program: 3 all-gathers
+```
+
+No error. That sharding is unambiguous, consistently typed, and slow, and a type checker has no opinion about the third one. `ShardingTypeError` fires when a program is *ill-typed* — contracting two axes sharded the same way, broadcasting incompatible specs — not when it is merely expensive. The class of bug that moved from runtime to trace time is wrong-or-undefined placement. The class that did not move is placement that type-checks and costs you an extra collective on every step. Still yours to find, still in the profile.
 
 ## Manual: `shard_map`, and a second placement type
 
