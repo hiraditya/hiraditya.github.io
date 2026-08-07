@@ -6,9 +6,13 @@ tags: [apple-silicon, benchmarking, scheduling, rust, rayon]
 mermaid: true
 ---
 
+In September I am giving a talk at CppCon called "Escaping the AST: A Data-Oriented, Lock-Free Parallel Compiler Architecture"[^0]. The thesis is in the title. Throw out the pointer-chasing AST, put the program in flat arrays of bit-packed global identifiers, resolve names in a deferred pass, and the semantic phases stop needing locks and start scaling across cores.
+
+That is a claim about throughput, made from a stage, to a room of people who write concurrent code for a living. Design arguments are cheap there. So with the date getting close I went to produce the scaling numbers I would need to stand behind it — not to discover anything, just to confirm what the architecture obviously did.
+
 I spent two days explaining a result that did not exist.
 
-The setup: a compiler frontend I am building interns types two different ways, and I wanted to know which one parallelises better. Deferred interning gives every worker its own arena and reconciles at a barrier. Content-addressed interning hashes the structure so identity is final the moment a type is minted, and no reconciliation is needed at all. Both emit byte-identical MLIR. The only question was throughput.
+The setup: the Vx frontend interns types two different ways, and I wanted to know which one parallelises better. Deferred interning gives every worker its own arena and reconciles at a barrier. Content-addressed interning hashes the structure so identity is final the moment a type is minted, and no reconciliation is needed at all. Both emit byte-identical MLIR. The only question was throughput.
 
 The benchmark said this:
 
@@ -326,6 +330,8 @@ Two smaller traps from the same file, both of which produced wrong numbers befor
 
 The claim I had to retract was not small. I had been arguing that content-addressed identity was worth its complexity partly because it parallelised better. That performance argument was mine, and it was wrong.
 
+It was also two weeks from being a slide. The table at the top of this post is exactly the kind of artifact that ends up projected at a conference — a clean grid, a plausible mechanism, a design lesson falling out of it — and once it is in a talk, a few hundred people take the conclusion home and the retraction never catches up with them. The measurement I ran to confirm what I already knew is the one that saved me from saying it.
+
 The design argument survives intact and never needed the speed claim: with content addressing, identity is final at mint time, so there is no barrier, no patch pass, and determinism holds across any scheduling, partitioning, worker count, or process boundary. Reproducible builds are the point. "And it is faster" was a bonus I invented from a scheduling artifact.
 
 Those two failures have different fixes. Publishing a wrong number is a harness bug, and the harness is fixed. Building an architectural argument on top of a number I had already noticed did not fit its own mechanism is a judgement failure, and the only fix for that one is to treat "the cost landed in a phase my explanation cannot reach" as a stop condition rather than a footnote.
@@ -341,6 +347,8 @@ A paired A/B inside a single pool cancels placement, so "deferred versus content
 ---
 
 ## References
+
+[^0]: **"Escaping the AST: A Data-Oriented, Lock-Free Parallel Compiler Architecture."** CppCon 2026, Monday 14 September 2026, 3:15pm MDT. The talk covers the Vx frontend's array-of-GIDs representation, deferred resolution and lock-free coordination. ([Session page](https://cppcon2026.sched.com/event/2RT4Y/escaping-the-ast-a-data-oriented-lock-free-parallel-compiler-architecture))
 
 [^1]: **XNU `thread_policy_set`, `THREAD_AFFINITY_POLICY` case.** Returns `KERN_NOT_SUPPORTED` when `thread_affinity_is_supported()` is false. ([`osfmk/kern/thread_policy.c`](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/thread_policy.c))
 
