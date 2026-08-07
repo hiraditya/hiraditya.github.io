@@ -12,7 +12,7 @@ That is a claim about throughput, made from a stage, to a room of people who wri
 
 I spent two days explaining a result that did not exist.
 
-The setup: the Vx frontend interns types two different ways, and I wanted to know which one parallelises better. Deferred interning gives every worker its own arena and reconciles at a barrier. Content-addressed interning hashes the structure so identity is final the moment a type is minted, and no reconciliation is needed at all. Both emit byte-identical MLIR. The only question was throughput.
+The setup: the frontend of a custom language I have been researching interns types two different ways, and I wanted to know which one parallelises better. Deferred interning gives every worker its own arena and reconciles at a barrier. Content-addressed interning hashes the structure so identity is final the moment a type is minted, and no reconciliation is needed at all. Both emit byte-identical MLIR. The only question was throughput.
 
 The benchmark said this:
 
@@ -31,7 +31,7 @@ Every number in that table is real. I can reproduce all of them. The finding is 
 
 ## The part that should have stopped me
 
-Look at what I did to defend against noise. Fifteen repetitions per cell. Medians, not means. Three separate whole-run repeats. The interquartile range inside every cell was under 2%: one cell ran 30.00 to 30.33 ms, another 49.54 to 50.92 ms. By every convention I had absorbed over ten years of benchmarking on x86 Linux, that is a clean measurement.
+Look at what I did to defend against noise. Fifteen repetitions per cell. Medians. Three separate whole-run repeats. The interquartile range inside every cell was under 2%: one cell ran 30.00 to 30.33 ms, another 49.54 to 50.92 ms. By every convention I had absorbed over ten years of benchmarking on x86 Linux, that is a clean measurement.
 
 It was a clean measurement of the wrong thing.
 
@@ -47,7 +47,7 @@ pub const PHASES: [&str; 15] = [
     "env_build",
     "return_prov",
     "type_check",
-    "dedup_barrier",     // deferred interning reconciles here, and only here
+    "dedup_barrier",     // deferred interning reconciles here
     "stream_extract",
     "simd_patch",
     "codegen",
@@ -348,7 +348,7 @@ A paired A/B inside a single pool cancels placement, so "deferred versus content
 
 ## References
 
-[^0]: **"Escaping the AST: A Data-Oriented, Lock-Free Parallel Compiler Architecture."** CppCon 2026, Monday 14 September 2026, 3:15pm MDT. The talk covers the Vx frontend's array-of-GIDs representation, deferred resolution and lock-free coordination. ([Session page](https://cppcon2026.sched.com/event/2RT4Y/escaping-the-ast-a-data-oriented-lock-free-parallel-compiler-architecture))
+[^0]: **"Escaping the AST: A Data-Oriented, Lock-Free Parallel Compiler Architecture."** CppCon 2026, Monday 14 September 2026, 3:15pm MDT. The talk covers the array-of-GIDs representation, deferred resolution and lock-free coordination described here. ([Session page](https://cppcon2026.sched.com/event/2RT4Y/escaping-the-ast-a-data-oriented-lock-free-parallel-compiler-architecture))
 
 [^1]: **XNU `thread_policy_set`, `THREAD_AFFINITY_POLICY` case.** Returns `KERN_NOT_SUPPORTED` when `thread_affinity_is_supported()` is false. ([`osfmk/kern/thread_policy.c`](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/thread_policy.c))
 
