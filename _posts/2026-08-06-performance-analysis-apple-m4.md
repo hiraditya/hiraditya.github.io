@@ -6,7 +6,7 @@ tags: [apple-silicon, benchmarking, scheduling, rust, rayon]
 mermaid: true
 ---
 
-I spent a week explaining a result that did not exist.
+I spent two days explaining a result that did not exist.
 
 The setup: a compiler frontend I am building interns types two different ways, and I wanted to know which one parallelises better. Deferred interning gives every worker its own arena and reconciles at a barrier. Content-addressed interning hashes the structure so identity is final the moment a type is minted, and no reconciliation is needed at all. Both emit byte-identical MLIR. The only question was throughput.
 
@@ -27,11 +27,39 @@ Every number in that table is real. I can reproduce all of them. The finding is 
 
 ## The part that should have stopped me
 
-Look at what I did to defend against noise. Fifteen repetitions per cell. Medians, not means. Three separate whole-run repeats. The interquartile range inside every cell was under 2%: one cell ran 30.00 to 30.33 ms, another 49.54 to 50.92 ms. By every convention I had absorbed over twenty years of benchmarking on x86 Linux, that is a clean measurement.
+Look at what I did to defend against noise. Fifteen repetitions per cell. Medians, not means. Three separate whole-run repeats. The interquartile range inside every cell was under 2%: one cell ran 30.00 to 30.33 ms, another 49.54 to 50.92 ms. By every convention I had absorbed over ten years of benchmarking on x86 Linux, that is a clean measurement.
 
 It was a clean measurement of the wrong thing.
 
-Here is the detail that never fitted, and that I talked myself past twice. The entire regression sat in `codegen`. That phase does not touch the interner. Meanwhile `dedup_barrier` — the phase whose cost is the whole theoretical objection to deferred interning, the thing that *should* have been expensive — measured 0.3 ms against a 35 ms gap. I wrote a note to myself that this was "odd, worth measuring before believing," and then went on believing it.
+And I had the evidence to catch it, because the pipeline is instrumented per phase rather than end to end. Every run accumulates wall time under fifteen named phases:
+
+```rust
+pub const PHASES: [&str; 15] = [
+    "parse",
+    "macro_expand",
+    "name_resolution",
+    "registry_freeze",   // serial: the spine the parallel region waits on
+    "sig_clone",
+    "env_build",
+    "return_prov",
+    "type_check",
+    "dedup_barrier",     // deferred interning reconciles here, and only here
+    "stream_extract",
+    "simd_patch",
+    "codegen",
+    "  codegen:setup",
+    "  codegen:emit",
+    "teardown",
+];
+```
+
+These are wall times for the whole region, not summed per-thread CPU time, so each number is that phase's share of the *critical path* — which is the right question when you are asking where a parallel speedup went.
+
+So the two candidate stories were separable by measurement, and had been all along. If deferred interning fails to parallelise, the cost must appear in `dedup_barrier`: that is the phase where deferred does its reconciliation, and it is the entire theoretical objection to the design. It measured **0.3 ms**, against a gap of 35 ms.
+
+The gap sat in `codegen` instead — 24.7 ms at one thread, 32.3 ms at two. A phase that runs after the type stream has been extracted and does not touch the interner at all. It got *slower with more threads*, which no interning design can explain and which, on its own, should have sent me looking at the machine.
+
+I wrote a note to myself that this was "odd, worth measuring before believing," and then went on believing it.
 
 When your proposed mechanism cannot reach the phase where the cost lands, you do not have a mechanism. You have a coincidence with a story attached.
 
