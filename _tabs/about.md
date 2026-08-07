@@ -26,6 +26,7 @@ I am passionate about exploring the boundaries of compiler technology, language 
 
 Feel free to reach out to me with any ideas, suggestions, or comments!
 - **GitHub:** [@hiraditya](https://github.com/hiraditya)
-- **Twitter:** [@hiraditya](https://twitter.com/hiraditya)
+- **Linkedin:** [@adityazero](https://linkedin.com/in/adityazero)
+- **Twitter:** [@adityazero_](https://x.com/adityazero_)
 
 *All opinions presented on this website are my own and not my employer's.*
