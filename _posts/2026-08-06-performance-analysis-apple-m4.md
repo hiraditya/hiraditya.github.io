@@ -6,8 +6,11 @@ tags: [apple-silicon, benchmarking, scheduling, rust, rayon]
 mermaid: true
 ---
 
-In September, I am presenting a session at CppCon that challenges conventional frontend design: "Escaping the AST: A Data-Oriented, Lock-Free Parallel Compiler Architecture." The core thesis requires a fundamental structural shift. By abandoning traditional pointer-chasing ASTs in favor of representing the program as flat, contiguous arrays of bit-packed global identifiers, and by deferring name resolution to a later pass, we can eliminate the lock contention that typically throttles semantic phases. The result is an architecture that natively scales across available cores.
-Making bold throughput claims about concurrent compiler pipelines to a room full of systems experts demands rigorous empirical proof. With the conference approaching, I set out to gather the multi-core scaling benchmarks necessary to validate the lock-free design I have been building for Vx. The objective was simply to quantify the parallel speedups that a strictly data-oriented infrastructure should obviously deliver.
+In September, I am presenting a session at CppCon that challenges conventional frontend design: "Escaping the AST: A Data-Oriented, Lock-Free Parallel Compiler Architecture."
+
+The core thesis requires a fundamental structural shift. By abandoning traditional pointer-chasing ASTs in favor of representing the program as flat, contiguous arrays of bit-packed global identifiers, and by deferring name resolution to a later pass, we can eliminate the lock contention that typically throttles semantic phases. The result is an architecture that natively scales across available cores.
+
+Making throughput claims about concurrent compiler pipelines to a room full of systems experts demands rigorous empirical proof. With the conference approaching, I set out to gather the multi-core scaling benchmarks necessary to validate the lock-free design I have been building for Vx. The objective was simply to quantify the parallel speedups that a strictly data-oriented infrastructure should obviously deliver.
 
 I spent two days explaining a result that did not exist.
 
