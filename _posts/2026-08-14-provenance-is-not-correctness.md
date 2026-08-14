@@ -1,6 +1,6 @@
 ---
 title: "Provenance Is Not Correctness"
-date: 2026-08-14 09:00:00 -0700
+date: 2026-08-14 07:00:00 -0700
 categories: [Systems, Security]
 tags: [llm, watermarking, formal-methods, verification, security, code-generation]
 mermaid: true
