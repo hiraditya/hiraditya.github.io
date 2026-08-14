@@ -135,9 +135,35 @@ Provenance and correctness are orthogonal axes, and the industry is in the middl
 
 This is not an argument against watermarking. Attribution has real uses — training-data hygiene, disclosure obligations, disputes about authorship. It is an argument against the substitution that is quietly happening: treating a provenance signal as a safety signal because it is the one that has shipped.
 
+## Thompson settled the general case in 1984
+
+The strongest version of this argument is forty-two years old, and it is stronger than anything I have written above.
+
+Ken Thompson's Turing Award lecture, "Reflections on Trusting Trust," opens with the question directly: "To what extent should one trust a statement that a program is free of Trojan horses? Perhaps it is more important to trust the people who wrote the software."[^8] He then builds the attack in three stages, and the payload is a login backdoor:
+
+> The actual bug I planted in the compiler would match code in the UNIX "login" command. The replacement code would miscompile the login command so that it would accept either the intended encrypted password or a particular known password. Thus if this code were installed in binary and the binary were used to compile the login command, I could log into that system as any user.[^8]
+
+A compiler that backdoors `login` would be caught by anyone reading the compiler's source, so the third stage adds a second Trojan aimed at the compiler itself — a self-reproducing program that reinserts both Trojans whenever the compiler is compiled:
+
+> First we compile the modified source with the normal C compiler to produce a bugged binary. We install this binary as the official C. We can now remove the bugs from the source of the compiler and the new binary will reinsert the bugs whenever it is compiled. Of course, the login command will remain bugged with no trace in source anywhere.[^8]
+
+No trace in source anywhere. The source of the compiler is clean. The source of `login` is clean. Every line a reviewer can read is clean, and the system is owned. Thompson's moral is the sentence that should be pinned above every discussion of AI content provenance:
+
+> The moral is obvious. You can't trust code that you did not totally create yourself. (Especially code from companies that employ people like me.) No amount of source-level verification or scrutiny will protect you from using untrusted code.[^8]
+
+Sit with the relationship between that and a watermark. A watermark is a statistical property of a token sequence in the source. It is strictly *weaker* than source-level scrutiny — reading the source at least tells you what the source says. Thompson demolished the entire category of source-level assurance in 1984, and a watermark is a new instrument aimed at the layer he had already shown to be the wrong one.
+
+He also anticipated the generalization, in a line usually left out of the retelling:
+
+> In demonstrating the possibility of this kind of attack, I picked on the C compiler. I could have picked on any program-handling program such as an assembler, a loader, or even hardware microcode. As the level of program gets lower, these bugs will be harder and harder to detect.[^8]
+
+*Any program-handling program.* A code-generating model is now the first program-handling program in the chain — earlier than the compiler, and operating on intent rather than source. That is a new link in exactly the supply chain Thompson was describing, and the industry's response so far is to mark its output and call the problem addressed.
+
+The countermeasure, when one finally arrived, was not better provenance either. David A. Wheeler's diverse double-compiling recompiles the source twice — once with a second, independently produced compiler, then again using the result — so that a subverted binary can be detected by comparison rather than by trust.[^9] The ACSAC 2005 paper gave an informal justification; his 2009 dissertation supplied a formal proof that the technique actually works. The answer to "can I trust this artifact" turned out to require a proof, which is where this was always going.
+
 ## Check the artifact, not the author
 
-The right frame for this is almost thirty years old. Necula's proof-carrying code, from POPL 1997, addressed the problem of running a program from an untrusted source: the producer ships the code together with a machine-checkable proof that it satisfies the consumer's safety policy, and the consumer verifies the proof before running it.[^5] The producer's trustworthiness never enters the argument. Checking is cheap, automatic, and independent of who — or what — did the generating.
+If Thompson posed the problem, Necula proposed the shape of the answer thirteen years later. Proof-carrying code, from POPL 1997, addressed running a program from an untrusted source: the producer ships the code together with a machine-checkable proof that it satisfies the consumer's safety policy, and the consumer verifies the proof before running it.[^5] The producer's trustworthiness never enters the argument — which is the only way out of Thompson's box, since every alternative reduces to trusting somebody. Checking is cheap, automatic, and independent of who, or what, did the generating.
 
 That is exactly the shape of the problem an LLM creates, and it is why the answer is not better provenance.
 
@@ -192,6 +218,10 @@ The watermark tells you where a program came from. It was never going to tell yo
 [^3]: **"Scalable watermarking for identifying large language model outputs."** Dai et al., *Nature* 634 (October 2024) — the SynthID-Text system. Introduces tournament sampling, supports a non-distortionary configuration that preserves the output token distribution, modifies only the sampling procedure rather than training, and detects without invoking the model. ([Nature](https://www.nature.com/articles/s41586-024-08025-4))
 
 [^4]: **"On Google's SynthID-Text LLM Watermarking System: Theoretical Analysis and Empirical Validation."** Independent analysis reporting that "in regions where entropy is low, watermarking is typically less effective, which is also advantageous for the attacker," and that all existing LLM watermarking methods perform poorly on short texts — SynthID-Text achieving roughly 0.3 TPR at 1% FPR on 50-token passages. ([arXiv:2603.03410](https://arxiv.org/html/2603.03410v2))
+
+[^8]: **Thompson, "Reflections on Trusting Trust."** Turing Award Lecture, *Communications of the ACM* 27, no. 8 (August 1984), pp. 761–763. Source of the subtitle question, the `login` backdoor construction, the self-reproducing compiler Trojan that leaves "no trace in source anywhere," the moral that "no amount of source-level verification or scrutiny will protect you from using untrusted code," and the generalization to "any program-handling program such as an assembler, a loader, or even hardware microcode." ([ACM DL](https://dl.acm.org/doi/10.1145/358198.358210), [PDF](https://www.cs.cmu.edu/~rdriley/487/papers/Thompson_1984_ReflectionsonTrustingTrust.pdf))
+
+[^9]: **Wheeler, "Countering Trusting Trust through Diverse Double-Compiling."** ACSAC 2005. Recompiles source with a second, independently produced compiler and then with the result, so a subverted binary is detectable by comparison. Wheeler's 2009 PhD dissertation extends the work with a formal proof of the technique's effectiveness, where the conference paper gave only an informal justification. ([ACM DL](https://dl.acm.org/doi/10.1109/CSAC.2005.17), [project page](https://dwheeler.com/trusting-trust/))
 
 [^5]: **Necula, "Proof-Carrying Code."** POPL 1997; recipient of the Most Influential POPL 1997 Paper award. A host determines with certainty that it is safe to execute a program from an untrusted source by checking a proof shipped alongside the code, reducing the consumer's task "from the level of proving to the level of checking." ([ACM DL](https://dl.acm.org/doi/10.1145/263699.263712))
 
