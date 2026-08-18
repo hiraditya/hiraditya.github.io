@@ -6,15 +6,15 @@ tags: [inference, disaggregation, kv-cache, vllm, abi, llm-serving]
 mermaid: true
 ---
 
-The last post argued that prefill and decode want different computers, and that the industry has started buying them separately. This one is about the handoff, which sounds like the easy part and is not.
+The last post argued that prefill and decode want different computers, and that the industry has started buying them separately. This one is about the handoff, which sounds like the easy part but it is easier said than done.
 
 Stated at the level of a slide, disaggregation is simple. Prefill runs the prompt through the model and produces a KV cache. Ship that cache to the decode machine. Decode generates tokens from it. One artifact crosses one wire, once, per request.
 
-The problem is the word "it." There is no single representation of a KV cache, no standard describing one, and inside the most widely deployed inference engine there are fifty different answers to what shape the thing is.
+The problem is the word "it." There is no single representation of a KV cache, no standard describing one, and inside the most widely deployed inference engine there are twenty-eight different answers to what shape the thing is.
 
 ## What is actually in the cache
 
-Start with the ordinary case, multi-head or grouped-query attention on a GPU. vLLM's FlashAttention backend reports its cache shape as a four-dimensional tensor:
+Let's look at the ordinary case, multi-head or grouped-query attention on a GPU. vLLM's FlashAttention backend reports its cache shape as a four-dimensional tensor:
 
 ```python
 # vllm/v1/attention/backends/flash_attn.py
@@ -29,7 +29,7 @@ def get_kv_cache_shape(
     return (num_blocks, num_kv_heads, block_size, 2 * head_size)
 ```
 
-Four facts are already encoded there, none of them universal.
+Four things to notice here out which none of them are universal.
 
 The cache is **paged**. It is not a contiguous per-sequence buffer but a pool of fixed-size blocks, with a per-request block table mapping logical positions to physical blocks. Any consumer needs the block table as well as the blocks, and needs to agree on `block_size`. vLLM requires that to be a multiple of 16.
 
@@ -37,7 +37,7 @@ The cache is **paged**. It is not a contiguous per-sequence buffer but a pool of
 
 **Head count is a parameter.** Grouped-query attention means `num_kv_heads` is smaller than the query head count, by a model-specific ratio.
 
-And the **dimension order is a choice**, not a fact. vLLM supports two:
+And the **dimension order is a choice**, where vLLM supports two:
 
 ```python
 # NHD: (num_blocks, block_size, num_kv_heads, 2 * head_size)
@@ -53,11 +53,13 @@ def get_required_kvcache_layout() -> str | None:
 
 A negotiation method for a layout question, inside one engine, on one vendor's hardware.[^1] That is the shape of the problem in miniature, before any vendor boundary is involved.
 
-## It is not one shape. It is fifty.
+## Why have one shape when you can have twenty-eight.
 
-Search vLLM for definitions of `get_kv_cache_shape` and you get **fifty files**.[^5] Not fifty call sites — fifty implementations, each returning a different tensor shape for a cache that the disaggregation slide treats as a single object.
+Search vLLM for `"def get_kv_cache_shape"` and you get 31 files. Two are tests, and one is the abstract base that raises `NotImplementedError`. That leaves **28 concrete implementations**[^5], each returning a different tensor shape for a cache the disaggregation slide treats as a single object.
 
 They divide along several axes at once. Backend: FlashAttention, FlashInfer, Triton, ROCm, CPU, XPU. Attention variant: standard MHA/GQA, MLA, sparse MLA, sliding-window, differential KV. Model family: DeepSeek V4, Kimi K3, MiniMax M3, each with bespoke variants. And vendor — the same model carries separate implementations under `models/inkling/amd/` and `models/inkling/nvidia/`.
+
+Not all 28 are live in any one deployment. vLLM has been migrating into the `vllm/v1` tree, so several of these sit in older `model_executor` paths or in model-specific directories that only load for a single architecture. That helps less than it sounds: 19 of the 28 are under `vllm/v1/attention/` alone, and a consumer does not get to choose which one the producer was configured with.
 
 Multi-head Latent Attention is the sharpest divergence, because it changes the rank of the tensor. DeepSeek's MLA does not store keys and values at all. It stores a compressed latent plus a separate positional component, so the head dimension disappears:
 
@@ -225,7 +227,7 @@ The next post takes up moving the bytes rather than describing them, which is wh
 
 [^4]: **vLLM KV connector base class.** `KVConnectorBase_V1` and its abstract methods, typed in terms of `ForwardContext`, `AttentionMetadata`, `Request`, `KVCacheBlocks` and `SchedulerOutput`, with docstrings referring to "vLLM's paged KV buffer", plus `get_required_kvcache_layout()` returning `"HND"`, `"NHD"` or `None`. ([`distributed/kv_transfer/kv_connector/v1/base.py`](https://github.com/vllm-project/vllm/blob/main/vllm/distributed/kv_transfer/kv_connector/v1/base.py))
 
-[^5]: **The count of fifty.** A GitHub code search for `get_kv_cache_shape` in `vllm-project/vllm` reports 50 matching files, spanning attention backends, MLA and sparse-MLA variants, per-vendor implementations, and model-specific paths including separate `amd/` and `nvidia/` versions of the same model. Counted 2026-08-18; the number moves with the repository. ([search](https://github.com/search?q=repo%3Avllm-project%2Fvllm+get_kv_cache_shape&type=code))
+[^5]: **The count of twenty-eight.** A GitHub code search for the exact string `"def get_kv_cache_shape"` in `vllm-project/vllm` returns 31 files. Subtracting two tests (`tests/v1/kv_connector/unit/test_transfer_topology_sharded.py`, `tests/v1/worker/test_attn_utils.py`) and the abstract base in `vllm/v1/attention/backend.py`, which raises `NotImplementedError`, leaves 28 concrete implementations: 19 under `vllm/v1/attention/`, the rest in `vllm/models/` and `vllm/model_executor/`. Searching the bare symbol instead returns 50 files, but that count includes call sites and imports rather than definitions. Counted 2026-08-18; the number moves with the repository. ([search](https://github.com/search?q=repo%3Avllm-project%2Fvllm+%22def+get_kv_cache_shape%22&type=code))
 
 [^6]: **Splitwise KV cache sizing.** A 512-token OPT-66B request producing 1.13 GB of KV cache, requiring roughly 90 Gbps of transfer bandwidth at 10 requests per second — the figure that makes any per-handoff conversion step a first-order cost.
 
