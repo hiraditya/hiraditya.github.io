@@ -11,7 +11,7 @@ math: true
 
 Three announcements inside a year, all making the same architectural bet.
 
-AWS is pairing Trainium with Cerebras: Trainium runs prefill, a Cerebras CS-3 runs decode, and the result ships as a premium tier on Bedrock.[^1] AMD is pairing Helios rack-scale systems with the Cerebras Wafer-Scale Engine on the same split, claiming 5x higher tokens per second per watt, with Helios going into Cerebras datacenters before the end of 2026.[^2] And NVIDIA is doing the same arbitrage in-house with Rubin CPX, a part built specifically for the prefill phase, carrying 128 GB of GDDR7 instead of HBM.[^3]
+AWS is pairing Trainium with Cerebras: Trainium runs prefill, a Cerebras CS-3 runs decode, and the result ships as a premium tier on Bedrock.[^1] AMD is pairing Helios rack-scale systems with the Cerebras Wafer-Scale Engine on the same split, claiming 5x higher tokens per second per watt, with Helios going into Cerebras datacenters before the end of 2026.[^2] And NVIDIA, after licensing Groq's technology in a reported $20 billion deal, is shipping Groq 3 LPX as a dedicated decode co-processor inside the Vera Rubin platform: Rubin GPUs run prefill, LPX racks run the latency-sensitive part of the decode loop.[^3]
 
 None of this is fashion. It falls out of a property of the transformer decode loop that has been true since the first autoregressive model and gets worse with every hardware generation. This post is about why the split is inevitable. The four that follow are about why programming the result is so much harder than the press releases suggest.
 
@@ -61,27 +61,37 @@ The interesting part is that the gap is widening. Splitwise measured it directly
 
 That is the reasoning behind the recent silicon, and the specifications make the intent obvious.
 
-**Rubin CPX**, built for prefill, delivers 30 PFLOPS at NVFP4 from a monolithic die with 128 GB of GDDR7 rather than HBM.[^3] Reporting puts the resulting bandwidth near 1.8 TB/s on a 512-bit interface, which is an estimate from the memory configuration rather than a published figure. Less bandwidth than an H100, far more compute. NVIDIA's framing is that prefill "heavily utilizes compute and only lightly uses memory bandwidth," so the right part is skinny on bandwidth and fat on compute.
+**Cerebras WSE-3**, which the AWS and AMD deals put on decode, carries 900,000 cores and 44 GB of SRAM across a 46,225 mm² wafer, 4 trillion transistors, 125 PFLOPS of peak AI compute, and 21 PB/s of memory bandwidth.[^4] There is no HBM anywhere in the design. That bandwidth figure is roughly seven thousand times an H100's, which only makes sense once you accept that decode is a bandwidth problem wearing a compute problem's clothing.
 
-**Cerebras WSE-3**, which the AWS and AMD deals put on decode, is the exact inverse. 900,000 cores and 44 GB of SRAM distributed across a 46,225 mm² wafer, 4 trillion transistors, 125 PFLOPS of peak AI compute, and 21 PB/s of memory bandwidth.[^4] There is no HBM anywhere in the design. That bandwidth figure is roughly seven thousand times an H100's, which is a number that only makes sense once you accept that decode is a bandwidth problem wearing a compute problem's clothing.
+**Groq 3 LPX**, NVIDIA's decode co-processor, makes the same bet in a different package: a flat, compiler-managed SRAM scratchpad instead of HBM, statically scheduled with no caches and no out-of-order execution. A single LPU has roughly 80 TB/s of internal bandwidth, and a full LPX rack aggregates 256 of them into 128 GB of SRAM at about 40 PB/s.[^3]
 
 ```mermaid
 graph TB
     subgraph P["Prefill: compute-bound, intensity ~ N"]
         P1["whole prompt at once"] --> P2["GEMM (N x d) x (d x d)"]
         P2 --> P3["wants FLOPs<br/>tolerates low bandwidth"]
-        P3 --> P4["Rubin CPX: 30 PFLOPS, GDDR7<br/>Trainium / AMD Helios"]
+        P3 --> P4["general-purpose silicon:<br/>Trainium / AMD Helios / Rubin GPU"]
     end
     subgraph D["Decode: memory-bound, intensity ~ 1"]
         D1["one token per step"] --> D2["GEMV (1 x d) x (d x d)"]
         D2 --> D3["wants bandwidth<br/>cannot use the FLOPs"]
-        D3 --> D4["Cerebras WSE-3: 21 PB/s SRAM<br/>no HBM"]
+        D3 --> D4["custom SRAM silicon:<br/>Cerebras WSE-3 / Groq 3 LPX"]
     end
     style P3 fill:#1e3a5f,color:#fff
     style D3 fill:#7f1d1d,color:#fff
 ```
 
-Two chips, built by different companies, whose specifications are close to mirror images. That is not a coincidence. It is two teams solving opposite halves of the same roofline.
+## The specialization is asymmetric, and that is informative
+
+Look at where the custom silicon actually went. In all three deals, decode gets a purpose-built part and prefill stays on a general-purpose accelerator: Trainium, Helios, a standard Rubin GPU.
+
+NVIDIA is the interesting case, because they tried the other direction and stopped. Rubin CPX was a prefill-specific part built around 128 GB of GDDR7 rather than HBM, announced with a launch target inside 2026 and 30 PFLOPS of NVFP4 compute. It was removed from the roadmap at GTC 2026, about six months after being presented, with no public explanation. Reporting attributes the decision partly to memory and substrate orders that never materialized, and Ian Buck has indicated the idea may return with Feynman around 2028.[^8] The slot it would have filled is now occupied by Groq LPX, which is not a prefill part at all.
+
+That asymmetry follows from the roofline rather than from procurement. Specializing prefill is a margin play: prefill is compute-bound, general-purpose accelerators are already excellent at compute, and a prefill-specific part mostly saves you from paying for HBM bandwidth the phase cannot use. Worth doing, but the ceiling does not move.
+
+Specializing decode is a capability play. The division in the previous section is a wall that no amount of HBM engineering climbs, because HBM bandwidth is what it is. Replacing HBM with SRAM changes the denominator by three or four orders of magnitude. If you can only ship one specialized part, you ship the one that changes what is possible, not the one that improves the margin.
+
+There is a further wrinkle worth noting, because it complicates the tidy two-phase story this post has been telling. In the NVIDIA arrangement the split is not cleanly prefill-versus-decode: LPX handles the latency-sensitive parts of the decode loop, specifically the feed-forward and MoE expert execution, while Rubin GPUs retain prefill *and* decode attention.[^3] Attention stays with the GPU because that is where the KV cache lives. Which means the boundary can fall inside a single decoding step, with activations crossing it every layer.
 
 ## The measurements came first
 
@@ -139,7 +149,9 @@ The physics of the split is settled. Its programming model does not exist. The n
 
 [^2]: **AMD and Cerebras disaggregated inference.** AMD Helios rack-scale architecture for the compute-intensive prefill phase paired with the Cerebras Wafer-Scale Engine for low-latency decode, with a claimed 5x improvement in tokens per second per watt and Helios deployments inside Cerebras datacenters before the end of 2026. ([SiliconANGLE](https://siliconangle.com/2026/07/29/disaggregated-ai-inference-cerebras-amd-amdadvancingai/))
 
-[^3]: **NVIDIA Rubin CPX.** A prefill-phase accelerator delivering 30 PFLOPS at NVFP4 from a monolithic die with 128 GB of GDDR7 rather than HBM, available end of 2026. The ~1.8 TB/s bandwidth figure quoted above is a press estimate derived from a 512-bit interface at 30 Gbps, not a published specification. ([NVIDIA Newsroom](https://nvidianews.nvidia.com/news/nvidia-unveils-rubin-cpx-a-new-class-of-gpu-designed-for-massive-context-inference), [TechPowerUp](https://www.techpowerup.com/340818/nvidia-unveils-rubin-cpx-gpu-single-die-30-petaflops-and-128-gb-of-gddr7-memory))
+[^3]: **NVIDIA Groq 3 LPX.** An SRAM-based, statically scheduled decode co-processor for the Vera Rubin platform, following NVIDIA's licensing of Groq technology in a reported $20 billion agreement; built by Samsung on 4nm and slated to ship in Q3 2026. Rubin GPUs handle prefill and decode attention while LPX accelerates the latency-sensitive decode path including FFN and MoE expert execution. A full rack aggregates 256 LPUs into 128 GB of SRAM at roughly 40 PB/s; NVIDIA claims 35x throughput per megawatt against Blackwell NVL72 for trillion-parameter models. ([NVIDIA developer blog](https://developer.nvidia.com/blog/inside-nvidia-groq-3-lpx-the-low-latency-inference-accelerator-for-the-nvidia-vera-rubin-platform), [ServeTheHome](https://www.servethehome.com/decoding-the-future-of-inference-at-nvidia-groq-lpus-join-vera-rubin-platform-for-low-latency-inference/))
+
+[^8]: **Rubin CPX removed from the roadmap.** CPX was announced in September 2025 as a prefill/context-phase part with 30 PFLOPS NVFP4 and 128 GB of GDDR7, then removed from NVIDIA's roadmap at GTC 2026 roughly six months later without public explanation, with reporting citing memory and substrate orders that failed to materialize and NVIDIA indicating a similar idea may return with Feynman. ([Tom's Hardware](https://www.tomshardware.com/pc-components/gpus/nvidia-removes-rubin-cpx-accelerators-from-its-roadmap-groq-3-lpus-take-center-stage-as-cpx-is-removed), [The Elec](https://www.thelec.net/news/articleView.html?idxno=10763), [original announcement](https://nvidianews.nvidia.com/news/nvidia-unveils-rubin-cpx-a-new-class-of-gpu-designed-for-massive-context-inference))
 
 [^4]: **Cerebras WSE-3.** 4 trillion transistors, 900,000 AI-optimized cores, 125 PFLOPS peak AI performance, 44 GB on-chip SRAM, 21 PB/s memory bandwidth, 214 Pb/s fabric bandwidth, 46,225 mm² on TSMC 5nm. No HBM or stacked off-die memory in the package; all memory is SRAM distributed alongside the cores. ([Cerebras](https://www.cerebras.ai/press-release/cerebras-announces-third-generation-wafer-scale-engine))
 
