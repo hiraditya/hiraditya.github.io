@@ -10,7 +10,7 @@ The last post argued that prefill and decode want different computers, and that 
 
 Stated at the level of a slide, disaggregation is simple. Prefill runs the prompt through the model and produces a KV cache. Ship that cache to the decode machine. Decode generates tokens from it. One artifact crosses one wire, once, per request.
 
-The problem is the word "it." There is no single representation of a KV cache, no standard describing one, and inside the most widely deployed inference engine there are twenty-eight different answers to what shape the thing is.
+The problem is the word "it." There is no single representation of a KV cache, no standard describing one, and inside the most widely deployed inference engine there are dozens of different answers to what shape the thing is.
 
 ## What is actually in the cache
 
@@ -53,13 +53,13 @@ def get_required_kvcache_layout() -> str | None:
 
 A negotiation method for a layout question, inside one engine, on one vendor's hardware.[^1] That is the shape of the problem in miniature, before any vendor boundary is involved.
 
-## Why have one shape when you can have twenty-eight.
+## Why have one shape when you can have dozens.
 
-Search vLLM for `"def get_kv_cache_shape"` and you get 31 files. Two are tests, and one is the abstract base that raises `NotImplementedError`. That leaves **28 concrete implementations**[^5], each returning a different tensor shape for a cache the disaggregation slide treats as a single object.
+Search vLLM for `"def get_kv_cache_shape"` and you get **dozens of concrete implementations**[^5], each returning a different tensor shape for a cache the disaggregation slide treats as a single object.
 
 They divide along several axes at once. Backend: FlashAttention, FlashInfer, Triton, ROCm, CPU, XPU. Attention variant: standard MHA/GQA, MLA, sparse MLA, sliding-window, differential KV. Model family: DeepSeek V4, Kimi K3, MiniMax M3, each with bespoke variants. And vendor — the same model carries separate implementations under `models/inkling/amd/` and `models/inkling/nvidia/`.
 
-Not all 28 are live in any one deployment. vLLM has been migrating into the `vllm/v1` tree, so several of these sit in older `model_executor` paths or in model-specific directories that only load for a single architecture. That helps less than it sounds: 19 of the 28 are under `vllm/v1/attention/` alone, and a consumer does not get to choose which one the producer was configured with.
+Not all of them are live in any one deployment. vLLM has been migrating into the `vllm/v1` tree, so several sit in older `model_executor` paths or in model-specific directories that only load for a single architecture. That helps less than it sounds: most of them are under `vllm/v1/attention/` alone, and a consumer does not get to choose which one the producer was configured with.
 
 Multi-head Latent Attention is the sharpest divergence, because it changes the rank of the tensor. DeepSeek's MLA does not store keys and values at all. It stores a compressed latent plus a separate positional component, so the head dimension disappears:
 
