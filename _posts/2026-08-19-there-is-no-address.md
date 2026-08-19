@@ -1,6 +1,6 @@
 ---
 title: "There Is No Address"
-date: 2026-08-19 07:30:00 -0700
+date: 2026-08-19 04:30:00 -0700
 categories: [Systems, Inference]
 tags: [inference, disaggregation, nixl, rdma, cerebras, blackwell, memory-hierarchy, llm-serving]
 mermaid: true
@@ -180,9 +180,27 @@ graph LR
 
 Two architectures, both shipping, with opposite cost structures. One moves a large payload once and is bounded by bandwidth and staging. The other moves small payloads constantly and is bounded by latency and jitter. Both are called disaggregated inference, and the same descriptor is the only vocabulary available for either.
 
-What is missing is not a faster transport. It is a way to say where a tensor physically lives in terms richer than a pointer, what it costs to move it between two named places, what layout it must arrive in, and whether placement is fixed or something a scheduler may choose. Those are the things a compiler already knows about its own machine and has no way to tell anyone else's.
+## Is this actually programmable?
 
-Part four takes that to the scheduler, which has to make exactly those placement decisions across two engines with opposite batching economics, one latency budget, and no agreement about who owns an SLO violation.
+Stack this post on the previous one and the picture is worse than either alone.
+
+[The KV cache has no interchange format]({% post_url 2026-08-18-the-kv-cache-has-no-abi %}) because layouts are co-designed with kernels: the 656-byte MLA struct has the field offsets it has because a particular warp access pattern is fast on that hardware. This post says locality is co-designed with the hierarchy: `cslc` allocates routing colors against a fabric, a TMA descriptor assumes a tiling, a cache controller assumes a stride.
+
+Those are the same phenomenon seen twice. On both sides, the performance comes from co-design, and co-design is only available to a compiler that can see the whole path. Neither problem is a missing document. They are two faces of having split a single optimisation domain in half.
+
+So the composition question is sharper than "somebody should write a spec." It is whether two independently co-designed systems can be joined at all without destroying the co-design that made each of them fast. There are three shapes of answer and none is comfortable.
+
+**Bilateral agreement.** AWS and Cerebras privately negotiate a format, a staging protocol, and a distribution schedule, tuned to each other. This obviously works, and it is almost certainly what is happening. It also does not generalise: the agreement is worth nothing to AMD and Cerebras, and *n* vendors need *n²* of them. This is the pre-standard era of any interconnect, and historically it ends either in a standard or in one party's format winning by market share.
+
+**A neutral interchange form.** Define a canonical KV representation, have both sides convert. Now every handoff pays a layout conversion on one end and a hierarchy redistribution on the other, both on the time-to-first-token path, against a payload Splitwise measured at 1.13 GB for a single modest request. You have bought portability with the latency that justified disaggregating in the first place.
+
+**Make one side authoritative.** The producer emits directly in the form the consumer's hierarchy wants — the right answer on paper, since it removes the conversion entirely. But it requires the producer's compiler to model the consumer's memory hierarchy, routing constraints and kernel tilings. That is not an interface between two compilers. It is a merge, which is precisely the single-owner property that disaggregation gave up.
+
+I do not think this is unsolvable, and the industry has resolved worse impedance mismatches by eventually agreeing on something. But it is not a plumbing problem with a plumbing answer, and the current tooling is not an early version of the solution. `(addr, len, devId)` is not a first draft of a richer descriptor. It is a correct description of the one rung that a network can reach, in a stack whose performance lives on all the other rungs.
+
+And layout and locality are only two of the three. The values crossing that boundary were produced by an attention kernel the consumer does not contain, with a different accumulation order and different scaling, which means the decoder is reading a cache its own prefill would never have produced. That is the subject of part five.
+
+Part four takes the more immediate problem to the scheduler, which has to make exactly these placement decisions across two engines with opposite batching economics, one latency budget, and no agreement about who owns an SLO violation.
 
 ---
 
