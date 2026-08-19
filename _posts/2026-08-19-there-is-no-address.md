@@ -2,17 +2,65 @@
 title: "There Is No Address"
 date: 2026-08-19 07:30:00 -0700
 categories: [Systems, Inference]
-tags: [inference, disaggregation, nixl, rdma, cerebras, interconnect, llm-serving]
+tags: [inference, disaggregation, nixl, rdma, cerebras, blackwell, memory-hierarchy, llm-serving]
 mermaid: true
 ---
 
-The last post argued that a KV cache has no interchange format. Grant one anyway. Suppose the two vendors agree on layout, dtype, block size, scale placement, and every other axis in that list. The bytes still have to move, and this is where the assumptions get stranger, because a transfer library is not neutral about what kind of machine sits at the other end.
+The last post argued that a KV cache has no interchange format. Grant one anyway. Suppose the two vendors agree on layout, dtype, block size, scale placement and every other axis in that list. The bytes still have to move.
 
-## What the industry's transfer library actually is
+This is the part that looks like plumbing and is not, because a transfer library is not neutral about what kind of machine sits at the other end. And the reason it can afford not to be neutral, historically, is that one program has always owned the whole memory hierarchy it was moving data through. Disaggregation is the first time we have split that ownership across two vendors.
 
-NIXL is NVIDIA's inference transfer library, the thing underneath vLLM's NixlConnector and Dynamo's disaggregated path. It abstracts over UCX, RDMA, InfiniBand, RoCE, TCP, NVMe-oF and object storage, which is a genuinely useful piece of engineering.
+## Every machine is a memory hierarchy
 
-Its fundamental unit is this:
+Nothing about this problem is new to accelerators. It is the oldest structure in systems programming.
+
+A CPU has registers, then L1, then L2, then L3, then DRAM, then storage. Each level is smaller, faster and closer than the one below it, and a program that ignores the hierarchy runs an order of magnitude slower than one that respects it. The reason most programmers do not think about this daily is that two mechanisms hide it. The hardware has a cache controller that fetches, evicts and prefetches without being asked. And the compiler reasons about locality on your behalf, tiling loops and reordering accesses so the working set fits a level that is actually fast. That analysis is well-developed enough to have its own literature, and I have written about the lattice-theoretic machinery underneath it elsewhere on this blog.
+
+A GPU has the same structure with the automation removed. On Blackwell, an SM has registers, then tensor memory, then a configurable unified L1 and shared memory of 128 KB per SM, then a monolithic L2 of 64 to 65 MB, then HBM. Shared memory access runs on the order of 20 to 30 cycles. Distributed shared memory lets an SM reach a neighbour's shared memory within a cluster, at a latency penalty. Tensor memory is newer and, unlike registers, requires explicit user allocation and management.[^2]
+
+The GPU does not hide any of that. There is no cache controller deciding what belongs in shared memory. You write `__shared__`, you stage tiles into it yourself, or you use the tensor memory accelerator to move a block from global memory into shared memory asynchronously while compute proceeds. The hierarchy is exposed, and the programming model exists precisely to let you exploit it.
+
+A Cerebras wafer is the same idea taken to its limit. There are roughly 900,000 processing elements in a 2D mesh, each with 48 KB of local SRAM, and each PE accesses only its own memory, at sub-nanosecond latency. Everything else is a message. PEs communicate over a circuit-switched network-on-chip, sending packets called wavelets along configured routes, where each PE's router supports a limited number of concurrent circuits — 24, plus 8 reserved — called colors, which are virtual channels bound to physical routing resources. Two streams that might collide must be assigned different colors.[^3]
+
+That machine is programmable, and the how matters here, because the easy version of this argument is that a wafer is exotic and therefore hard. It is not exotic. It has a language. CSL is a Zig-inspired dataflow language in which computation is triggered by the arrival of data, and a CSL program is not just kernel code: it includes a layout file that prescribes which code runs on which PEs and how data is routed between them. The `cslc` compiler maps that onto the physical fabric. Placement and routing are first-class parts of the source program.
+
+```mermaid
+graph TB
+    subgraph C["CPU"]
+        C1["registers"] --> C2["L1 / L2 / L3"] --> C3["DRAM"]
+        C4["owner: cache controller<br/>+ compiler locality analysis"]
+    end
+    subgraph G["GPU (Blackwell)"]
+        G1["registers / TMEM"] --> G2["SMEM 128 KB per SM"] --> G3["L2 ~64 MB"] --> G4["HBM"]
+        G5["owner: CUDA programmer<br/>+ TMA + compiler"]
+    end
+    subgraph W["Wafer (WSE-3)"]
+        W1["48 KB per PE"] --> W2["fabric: wavelets, colors"] --> W3["MemoryX off-wafer"]
+        W4["owner: cslc<br/>placement + routing in source"]
+    end
+    style C4 fill:#1e3a5f,color:#fff
+    style G5 fill:#1e3a5f,color:#fff
+    style W4 fill:#1e3a5f,color:#fff
+```
+
+Three machines, three hierarchies, three different answers to who manages locality: hardware, programmer, compiler. All three answers work. Every one of them assumes a single owner.
+
+## What a transfer library can actually touch
+
+Now put a network in the middle and ask which rung of those ladders a remote peer can write into.
+
+The answer is one rung, and it is always the same rung: the level that is globally addressable, physically stable, and reachable by a device that is not the compute engine. On a CPU that is DRAM. On a GPU that is HBM. It is never L1, never shared memory, never tensor memory, never a PE's scratchpad.
+
+NIXL, NVIDIA's inference transfer library and the thing underneath vLLM's NixlConnector and Dynamo's disaggregated path, states this in its type system. Its memory spaces are enumerated exhaustively:
+
+```cpp
+// nixl/src/api/cpp/nixl_types.h
+enum nixl_mem_t {DRAM_SEG, VRAM_SEG, BLK_SEG, OBJ_SEG, FILE_SEG};
+```
+
+Host DRAM, GPU VRAM, block device, object store, file.[^1] There is no `SMEM_SEG`, no `TMEM_SEG`, no `PE_SEG`, and their absence is not an oversight. Those levels are not addressable from off-chip by anything.
+
+The unit NIXL moves is correspondingly simple:
 
 ```cpp
 // nixl/src/api/cpp/nixl_descriptors.h
@@ -31,130 +79,127 @@ public:
     uint64_t devId;
 ```
 
-A pointer, a length, and a device number.[^1] Everything NIXL can move is describable as a **single contiguous** range of bytes at an address on a numbered device.
+A pointer, a length, and a device number. Single contiguous.
 
-And the memory spaces it knows about are enumerated exhaustively:
+This is why RDMA needs **registration**: pages pinned so the OS cannot move them, the virtual-to-physical mapping handed to the NIC, a key returned that the remote peer presents on every access. Registration is exactly the operation that makes a region of the public rung stable enough for a foreign device to write into. It has no meaning at any other level of the hierarchy.
 
-```cpp
-// nixl/src/api/cpp/nixl_types.h
-enum nixl_mem_t {DRAM_SEG, VRAM_SEG, BLK_SEG, OBJ_SEG, FILE_SEG};
-```
+## The seam is already there on a GPU
 
-Host DRAM, GPU VRAM, block device, object store, file.[^2] Five kinds of place a byte can live. Every one of them is a flat, addressable, byte-indexed region.
+Here is the part that is easy to miss, because it has never caused anybody pain.
 
-That is not a criticism of NIXL. It is an accurate model of the machines it was written for. It is also a load-bearing assumption that nobody wrote down as one, and it is about to be handed a counterexample.
+You cannot RDMA into shared memory. If a remote machine sends you a KV cache, it lands in HBM. Getting it from HBM into the 128 KB of shared memory where the attention kernel actually wants it is a second movement, performed by the receiving side, using its own machinery — a TMA descriptor, an async copy, a tiling strategy chosen by whoever wrote that kernel.
 
-## Registration, and why it matters
+So even in the ordinary all-NVIDIA case, the handoff has two halves. The network gets the bytes to the public rung. The consumer's own compiler and kernel take them the rest of the way down the hierarchy.
 
-RDMA is not a function call that copies memory. Before a remote peer can write into your memory, that memory must be **registered**: the pages pinned so the OS cannot move or swap them, and the region's virtual-to-physical mapping handed to the NIC, which returns a key the peer presents on every access. This is what makes zero-copy possible — the NIC writes into your buffer with no CPU involvement, because it already knows where the buffer physically is and has permission to touch it.
+Nobody experiences this as a boundary, because both halves are written by the same people against the same layout. The producer knows the consumer will want 128-element tiles in a particular order, so it writes the cache to HBM in the order that makes the consumer's TMA descriptor cheap. That agreement is real, load-bearing, and entirely undocumented, because it never had to leave the building.
 
-Three things have to be true for that to work. Memory must have a stable physical location. It must be addressable by a device that is not the compute engine. And there must be a region large enough that describing it as `(addr, len)` is meaningful.
+That is the seam. It has always existed. Disaggregation is what happens when the two halves stop being written by the same organisation.
 
-Hold those three next to the decode side of the AWS and AMD deals.
+## The wafer removes the rung
 
-## The wafer has no pool
+Now the case where it becomes visible.
 
-A Cerebras WSE-3 has 44 GB of SRAM. That number invites you to picture 44 GB the way you picture 80 GB of HBM: a pool, addressable, sitting next to the compute.
+A WSE-3 has 44 GB of SRAM, and that number invites you to picture a pool the way you picture 80 GB of HBM. It is not a pool. It is 900,000 × 48 KB, private to each PE, with no shared address space between them.
 
-It is not that. The 44 GB is **900,000 cores × 48 KB**, private to each core. Roughly half of each core's ~38,000 µm² is its own SRAM and the other half is logic, with a 256-byte local cache in front of it. Cores do not share an address space. Sharing happens by moving data across the fabric, as messages, under a schedule the compiler produced.[^3]
+Try to fill in the descriptor. A single KV block for one layer of a mid-sized model is on the order of a hundred kilobytes: not one PE's scratchpad, two or three of them, and not adjacent in any address sense because there is no address sense. A sequence's whole cache spans thousands of PEs. There is no `uintptr_t addr` that names it, no `size_t len` over which the bytes are contiguous, and no `devId` resolving to something a NIC can write into. `VRAM_SEG` is the nearest enum value and it is wrong: this is not memory behind a controller, it is the compute substrate.
 
-Now try to fill in the descriptor.
+There is also nothing to pin. Registration assumes memory you can hold still while a device writes into it. On a wafer, where a value lives is part of the schedule, and the schedule is what `cslc` emitted from the layout file.
 
-A single KV block for one layer of a mid-sized model is on the order of a hundred kilobytes. That is not one core's scratchpad, it is two or three, and they are not adjacent in any address sense because there is no address sense. A whole sequence's cache spans thousands of cores. There is no `uintptr_t addr` that names it, no `size_t len` for which the bytes are contiguous, and no `devId` that resolves to a thing a NIC can write into. `VRAM_SEG` is the closest enum value and it is wrong: this is not video memory behind a memory controller, it is the compute substrate itself.
+The public rung is missing. Which means the bytes have to stage: land in host DRAM or MemoryX, the off-wafer store that already streams weights in, and then get pulled onto the fabric by the wafer's own dataflow, as scheduled work.
 
-There is also nothing obvious to pin. Registration assumes memory you can hold still while a device writes to it. On a wafer, where the data lands is part of the program's schedule, and the schedule is what the compiler emitted.
+So the handoff is at least two hops, and the second is not a DMA the sender controls. Weigh that against the reason for disaggregating at all. Part one's argument was latency — separate the phases so prefill stops interrupting decode and time-to-first-token improves. Now the first token waits on a network crossing, a staging buffer, and a fabric distribution, all sitting on the TTFT path in front of the metric the split existed to protect. Splitwise measured a single 512-token OPT-66B request producing 1.13 GB of KV cache;[^5] long-context requests are far larger.
+
+## The friction is ownership, not weirdness
+
+It would be easy to read all of this as an argument that wafer-scale hardware is impractical. That is not the claim, and the CSL description above is why.
+
+Cerebras has a compiler that does placement and routing. NVIDIA has a compiler, a TMA engine and a mature set of idioms for staging global memory into shared memory. Intel and AMD and Arm have decades of cache-aware code generation, and the CPU has a hardware controller doing it automatically. Every one of these is a competent answer to the locality problem *for its own machine*.
+
+The friction is that a disaggregated pipeline needs an answer that spans two of them, and nothing in either toolchain can represent the other half.
+
+`cslc` can schedule where a tensor lands on the fabric, but it cannot see the producer's HBM layout, its block table, or the tiling convention its attention kernel assumed. The producer's compiler can emit a KV cache in whatever layout its own kernels like best, but it has no representation for "and then this must be distributed across ten thousand PEs whose routing colors are already allocated." Both sides optimise locality correctly, on their own side of a boundary neither can see across.
 
 ```mermaid
-graph TB
-    subgraph G["What the descriptor assumes"]
-        G1["flat address space"] --> G2["addr + len names a region"]
-        G2 --> G3["NIC writes directly, zero copy"]
+graph LR
+    subgraph P["Producer's compiler"]
+        P1["knows: its own hierarchy<br/>tiling, HBM layout, kernels"]
     end
-    subgraph W["What a wafer is"]
-        W1["900,000 x 48 KB private SRAM"] --> W2["no shared address space"]
-        W2 --> W3["sharing = fabric messages<br/>on a compiled schedule"]
+    subgraph N["The wire"]
+        N1["(addr, len, devId)<br/>public rung only"]
     end
-    style G3 fill:#14532d,color:#fff
-    style W3 fill:#7f1d1d,color:#fff
+    subgraph Q["Consumer's compiler"]
+        Q1["knows: its own hierarchy<br/>placement, routing, colors"]
+    end
+    P1 --> N1 --> Q1
+    N1 --> X["expresses no locality,<br/>no cost, no schedule"]
+    style X fill:#7f1d1d,color:#fff
 ```
 
-So the sentence "RDMA the KV cache into the decoder" has no referent on that hardware. Something else must be happening.
+The descriptor is the entire vocabulary they share, and it can express a byte range and nothing else. Not what it costs to reach that range. Not what layout the bytes should be in when they arrive. Not whether the receiver is free to place them, or has already committed a routing schedule that constrains where they can go.
 
-## What has to happen instead
+Every mature architecture solved locality by giving one component enough visibility to reason about the whole path. Disaggregation removes that visibility and replaces it with a pointer.
 
-The realistic answer is staging. The cache lands somewhere the transfer library can describe — host DRAM on the Cerebras side, or MemoryX, the off-wafer store that already feeds weights onto the wafer. From there the wafer pulls it in through its own dataflow, as part of the schedule, the same way weights arrive.
+## Even the public rung is not uniform
 
-Which means the handoff is not one hop. It is at least two: network into a staging buffer, then staging buffer onto the wafer through the fabric. And the second hop is not a DMA the sender controls. It is work the receiver has to schedule.
+The flat model is already wrong before any of this, on ordinary hardware.
 
-Weigh that against what disaggregation was for. The entire argument in part one was latency: separate the phases so prefill stops interrupting decode and time-to-first-token improves. Now the first token cannot be produced until the cache has crossed a network, landed in a staging buffer, and been distributed across the wafer. Every one of those steps sits on the TTFT path, in front of the very metric the split was supposed to protect.
+Bandwidth between two GPUs varies by **72x** depending on where they physically sit: roughly 900 GB/s over NVLink within a domain, 50 GB/s over InfiniBand across nodes, 12.5 GB/s over TCP across datacenters. Recent work notes that DistServe, Splitwise and Mooncake all assume uniform RDMA and ignore this entirely.[^4]
 
-Splitwise measured a single 512-token OPT-66B request producing 1.13 GB of KV cache.[^5] Long-context requests are far larger. That is the payload, on the critical path, twice.
+Same defect, milder form. The descriptor says `(addr, len, devId)` and says nothing about what reaching `devId` costs. A scheduler choosing which decode instance receives a cache makes a placement decision with a 72x cost spread, through an interface that reports no cost at all.
 
-None of this says the deals do not work. It says the interesting engineering is in a place nobody has published, and that the published tooling does not describe it.
+## The other topology, where nothing is cached
 
-## Even between GPUs the uniformity is fiction
+Everything above assumes the split is prefill-then-decode, with a cache crossing once per request. NVIDIA's own arrangement is not that.
 
-Before treating this as a wafer-specific problem, note that the flat model is already wrong on ordinary hardware.
+Groq LPX takes the latency-sensitive part of the decode loop — feed-forward and MoE expert execution — while Rubin GPUs keep prefill *and decode attention*. Attention stays on the GPU because that is where the KV cache lives.[^6] So the cache never crosses anything. What crosses is activations, and the boundary falls inside a single decoding step.
 
-Bandwidth between two GPUs varies by **72x** depending on where they physically sit: roughly 900 GB/s over NVLink within a domain, 50 GB/s over InfiniBand across nodes, 12.5 GB/s over TCP across datacenters. Recent work points out that DistServe, Splitwise and Mooncake all assume uniform RDMA and ignore this entirely.[^4]
+Work out the shape. For a hidden dimension of `d` in bf16, each layer sends roughly `2d` bytes per token across and gets about the same back. At `d = 8192` that is around 16 KB each way, 32 KB round trip per layer per token, a few megabytes per token across a hundred layers.
 
-That is the same defect in milder form. The descriptor says `(addr, len, devId)` and says nothing about what it costs to reach `devId`. A scheduler choosing which decode instance receives a cache is making a placement decision with a 72x cost spread, using an interface that reports no cost at all. Part four takes up what that does to scheduling.
+The bandwidth is unremarkable. The latency is not, because those crossings are **serial** — layer `n+1` cannot begin until layer `n` returns. A hundred layers is two hundred boundary crossings per token, and they do not overlap.
 
-## The other topology, where nothing is cached at all
+At one microsecond per one-way crossing, that is 200 µs per token of pure interconnect latency before any arithmetic. Against a 10 ms inter-token budget it is 2%. Against the 1 ms budget that justifies buying a decode accelerator at all, it is 20%, and it scales linearly with depth.
 
-Everything above assumes the split is prefill-then-decode, with a cache crossing once per request. NVIDIA's arrangement is not that.
+That arithmetic is derived from published architecture descriptions and typical model dimensions, not measured. NVIDIA has not published GPU-to-LPX interconnect latency, and a real implementation may pipeline across tokens or batch layers in ways that change it. The structural point holds regardless: when the boundary falls inside a decode step, model depth multiplies your interconnect latency, and no transfer descriptor expresses that either.
 
-As noted at the end of part one, Groq LPX takes the latency-sensitive part of the decode loop — feed-forward and MoE expert execution — while Rubin GPUs keep prefill *and decode attention*. Attention stays with the GPU because that is where the KV cache lives.[^6] So the KV cache never crosses anything. What crosses is activations, and the boundary falls inside a single decoding step.
-
-Work out the shape of that. For a hidden dimension of `d` in bf16, each layer sends about `2d` bytes per token to the co-processor and gets about the same back. At `d = 8192` that is roughly 16 KB each way, 32 KB round trip per layer per token. Across a hundred layers, a few megabytes per token.
-
-The bandwidth is unremarkable. The latency is the problem, because those crossings are **serial**. Layer `n+1` cannot start until layer `n` comes back. A hundred layers means two hundred boundary crossings per token, and they do not overlap with each other.
-
-Put a number on it. If a one-way crossing costs 1 µs, that is 200 µs per token of pure interconnect latency before any arithmetic happens. Against a 10 ms inter-token budget that is 2%. Against the 1 ms budget that motivates buying a decode accelerator in the first place, it is 20%, and it grows linearly with depth.
-
-That is why this topology needs an NVLink-class fabric inside a rack and could never run over a network, and it is a different engineering problem from the Cerebras case in every respect. One moves a large payload once and cares about bandwidth and staging. The other moves small payloads constantly and cares only about latency and jitter. They are both called disaggregated inference.
-
-I should be clear that the arithmetic above is derived from published architecture descriptions and standard model dimensions, not from measurement. NVIDIA has not published the interconnect latency between a Rubin GPU and an LPX rack, and the real system may pipeline across tokens or batch layers in ways that change the picture. The structural point survives either way: when the boundary falls inside a decode step, depth multiplies your interconnect latency, and that is a property no transfer descriptor expresses.
-
-## Two topologies, no abstraction
+## Two topologies, one missing vocabulary
 
 ```mermaid
 graph LR
     subgraph A["Phase split (AWS, AMD)"]
-        A1["prefill"] -->|"KV cache<br/>~GB, once"| A2["decode"]
-        A2 --> A3["bandwidth + staging<br/>+ no address space"]
+        A1["prefill"] -->|"KV cache, ~GB, once"| A2["decode"]
+        A2 --> A3["bandwidth + staging<br/>+ no public rung"]
     end
     subgraph B["Intra-step split (NVIDIA)"]
-        B1["attention on GPU"] -->|"activations<br/>~KB, 2x per layer"| B2["FFN/MoE on LPX"]
-        B2 -->|"every layer"| B1
+        B1["attention on GPU"] -->|"activations, ~KB"| B2["FFN / MoE on LPX"]
+        B2 -->|"twice per layer"| B1
         B2 --> B3["latency x depth"]
     end
     style A3 fill:#7f1d1d,color:#fff
     style B3 fill:#7f1d1d,color:#fff
 ```
 
-Two architectures, both shipping, with opposite cost structures and no shared vocabulary between them. The transfer library models neither: it describes a contiguous byte range on a numbered device, which is the wrong shape for a wafer and the wrong granularity for a per-layer round trip, and it reports no cost for reaching anything.
+Two architectures, both shipping, with opposite cost structures. One moves a large payload once and is bounded by bandwidth and staging. The other moves small payloads constantly and is bounded by latency and jitter. Both are called disaggregated inference, and the same descriptor is the only vocabulary available for either.
 
-A programming model for this would need to express where a tensor physically resides, in terms richer than a pointer; what it costs to move it between two named places; and whether a stage's placement is a fixed property or something a scheduler may choose. None of those are expressible in `(addr, len, devId)`.
+What is missing is not a faster transport. It is a way to say where a tensor physically lives in terms richer than a pointer, what it costs to move it between two named places, what layout it must arrive in, and whether placement is fixed or something a scheduler may choose. Those are the things a compiler already knows about its own machine and has no way to tell anyone else's.
 
-Part four takes up the scheduler, which has to make exactly those placement decisions across two engines with opposite batching economics, one latency budget, and no agreement about who owns an SLO violation.
+Part four takes that to the scheduler, which has to make exactly those placement decisions across two engines with opposite batching economics, one latency budget, and no agreement about who owns an SLO violation.
 
 ---
 
 ## References
 
-[^1]: **NIXL descriptors.** `nixlBasicDesc`, documented as "a basic descriptor class, single contiguous memory/storage element," carrying `uintptr_t addr`, `size_t len` and `uint64_t devId`. ([`src/api/cpp/nixl_descriptors.h`](https://github.com/ai-dynamo/nixl/blob/main/src/api/cpp/nixl_descriptors.h))
+[^1]: **NIXL memory types and descriptors.** `enum nixl_mem_t {DRAM_SEG, VRAM_SEG, BLK_SEG, OBJ_SEG, FILE_SEG};` and `nixlBasicDesc`, documented as "a basic descriptor class, single contiguous memory/storage element," carrying `uintptr_t addr`, `size_t len` and `uint64_t devId`. ([`nixl_types.h`](https://github.com/ai-dynamo/nixl/blob/main/src/api/cpp/nixl_types.h), [`nixl_descriptors.h`](https://github.com/ai-dynamo/nixl/blob/main/src/api/cpp/nixl_descriptors.h))
 
-[^2]: **NIXL memory types.** `enum nixl_mem_t {DRAM_SEG, VRAM_SEG, BLK_SEG, OBJ_SEG, FILE_SEG};` — the exhaustive set of memory spaces NIXL can describe, all of them flat and byte-addressable. ([`src/api/cpp/nixl_types.h`](https://github.com/ai-dynamo/nixl/blob/main/src/api/cpp/nixl_types.h), [project](https://github.com/ai-dynamo/nixl))
+[^2]: **Blackwell memory hierarchy.** A configurable unified L1/shared memory of 128 KB per SM (reduced from 256 KB on Hopper), a monolithic L2 of roughly 64–65 MB, tensor memory as a new on-chip space requiring explicit user allocation, distributed shared memory for reaching a neighbouring SM at a latency penalty, and the TMA engine for asynchronous bulk copies from global memory into shared memory. Shared memory access is on the order of 20–30 cycles. ([Blackwell SM100 analysis](https://jianyuh.github.io/cuda/2026/04/12/blackwell-sm100.html), [microbenchmarking study](https://arxiv.org/html/2512.02189v1))
 
-[^3]: **Cerebras WSE-3 memory organization.** 900,000 cores each with 48 KB of private SRAM (roughly half of each core's ~38,000 µm², with a 256-byte local cache), totalling 44 GB on-wafer. Cores do not share an address space; data movement between them goes over the on-wafer fabric. MemoryX holds weights off-wafer and streams them in, with SwarmX as the interconnect fabric across systems. ([Cerebras architecture](https://www.cerebras.ai/blog/announcing-the-cerebras-architecture-for-extreme-scale-ai), [Hot Chips coverage](https://www.servethehome.com/cerebras-wafer-scale-engine-wse-2-and-cs-2-at-hot-chips-34/))
+[^3]: **Cerebras WSE memory and programming model.** Roughly 900,000 processing elements in a 2D mesh, each with 48 KB of local SRAM accessible only to itself at sub-nanosecond latency, communicating by wavelets over a circuit-switched fabric with 24 colors per PE plus 8 reserved. CSL is a Zig-inspired dataflow language in which a program includes a layout file prescribing PE placement and data routing, compiled by `cslc` onto the physical fabric. ([Cerebras SDK overview](https://www.cerebras.ai/blog/supercharge-your-hpc-research-with-the-cerebras-sdk), [CSL compiler docs](https://sdk.cerebras.net/csl/csl-compiler), [ALCF CSL guide](https://docs.alcf.anl.gov/ai-testbed/cerebras/csl/))
 
-[^4]: **Topology-aware data movement for disaggregated inference.** Reports that GPU-to-GPU bandwidth varies by 72x with physical relationship — approximately 900 GB/s over NVLink 4.0 within a domain, 50 GB/s over InfiniBand across nodes, 12.5 GB/s over TCP across datacenters — and that DistServe, Splitwise and Mooncake all assume uniform RDMA. ([arXiv:2607.28633](https://arxiv.org/abs/2607.28633))
+[^4]: **Topology-aware data movement.** GPU-to-GPU bandwidth varies by 72x with physical relationship — approximately 900 GB/s over NVLink 4.0 within a domain, 50 GB/s over InfiniBand across nodes, 12.5 GB/s over TCP across datacenters — and DistServe, Splitwise and Mooncake all assume uniform RDMA. ([arXiv:2607.28633](https://arxiv.org/abs/2607.28633))
 
-[^5]: **Splitwise KV cache sizing.** A 512-token OPT-66B request producing 1.13 GB of KV cache, the payload that has to cross the boundary and land before the first token can be produced.
+[^5]: **Splitwise KV cache sizing.** A 512-token OPT-66B request producing 1.13 GB of KV cache, the payload that must cross and land before the first token can be produced.
 
 [^6]: **NVIDIA Groq 3 LPX role split.** Rubin GPUs handle prefill and decode attention; LPX accelerates the latency-sensitive decode path including FFN and MoE expert execution. ([NVIDIA developer blog](https://developer.nvidia.com/blog/inside-nvidia-groq-3-lpx-the-low-latency-inference-accelerator-for-the-nvidia-vera-rubin-platform), [ServeTheHome](https://www.servethehome.com/decoding-the-future-of-inference-at-nvidia-groq-lpus-join-vera-rubin-platform-for-low-latency-inference/))
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. NIXL headers were read from the project's `main` branch on 2026-08-18 and are quoted rather than paraphrased. The per-layer activation arithmetic is derived from published architecture descriptions and typical model dimensions, not measured; NVIDIA has not published GPU-to-LPX interconnect latency, and I have not run any of the systems described here.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. NIXL headers were read from the project's `main` branch on 2026-08-18 and are quoted rather than paraphrased. The per-layer activation arithmetic is derived from published architecture descriptions and typical model dimensions rather than measured, and I have not run any of the systems described here.*
