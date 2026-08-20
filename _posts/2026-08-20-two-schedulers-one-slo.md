@@ -1,6 +1,6 @@
 ---
 title: "Two Schedulers, One SLO"
-date: 2026-08-20 07:30:00 -0700
+date: 2026-08-19 07:30:00 -0700
 categories: [Systems, Inference]
 tags: [inference, disaggregation, scheduling, vllm, dynamo, slo, llm-serving]
 mermaid: true
