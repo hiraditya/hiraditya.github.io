@@ -6,47 +6,47 @@ tags: [inference, disaggregation, numerics, determinism, evaluation, llm-serving
 mermaid: true
 ---
 
-The three previous posts each assumed the next one would be fine. Part two worked out that a KV cache has no interchange format, on the assumption that if two vendors agreed on a layout the bytes would move. Part three worked out that the bytes cannot be placed, on the assumption that if they landed the scheduler would cope. Part four worked out that the scheduler has no authority across the boundary, on the assumption that whatever does arrive is at least *correct*.
+The previous three posts all borrowed against the next one. Part two showed that KV caches lack an interchange format, assuming the bytes would flow if two vendors merely agreed on layout. Part three proved you cannot target a physical placement, assuming the scheduler could handle it anyway. Part four demonstrated the scheduler has zero authority across the boundary, banking on the blind faith that whatever bits finally arrive are at least correct.
 
-That last assumption is the one I want to take apart, because it is the most load-bearing and the least examined.
+That final assumption is a trap. It bears the most weight and gets the least scrutiny.
 
-A KV cache is not data. It is the output of a computation. Ship it to a machine whose attention kernel differs from the one that produced it, and the decoder is reading a cache its own prefill would never have produced.
+A KV cache is not passive data. It is the baked output of a specific computation. Hand it to a decoder running a different attention kernel than the one that generated it, and you force that decoder to consume a cache its own prefill would never have emitted.
 
 ## Two correct implementations disagree
 
-Floating-point addition is not associative. `(a + b) + c` and `a + (b + c)` are different numbers, and which one you get depends on the order a kernel chooses to accumulate.
+Floating-point math lacks associativity. Compute `(a + b) + c` versus `a + (b + c)` and you get different answers. The result hinges entirely on the exact accumulation order a kernel author chose.
 
-That is not a bug anyone is going to fix. It is a property of the representation, and every fast kernel makes ordering choices for performance reasons. A tiled attention kernel disagrees with a naive reference implementation in the low-order bits, and two tiled kernels with different tile sizes disagree with each other.
+No one considers this a bug. It is a fundamental reality of the representation. High-performance kernels deliberately make ordering tradeoffs to go fast. Any tiled attention kernel will deviate from a naive reference implementation in the low-order bits. Two tiled kernels using different tile sizes will deviate from each other.
 
-Attention is unusually exposed to this. FlashAttention does not materialise the full score matrix; it walks key and value tiles, keeping a running maximum and a running normaliser, and rescales the accumulated output each time the maximum moves. Because the global information the softmax needs is unavailable inside a single block, the algorithm reintroduces it through per-tile rescaling factors. Change the tile size and you change where those rescalings happen, which changes where rounding happens, which changes the result.[^2]
+Attention kernels are violently exposed to this. FlashAttention skips materialising the full score matrix. It walks key and value tiles instead, updating a running maximum and normaliser, and rescaling the accumulated output whenever the maximum shifts. The global state the softmax operation demands does not exist within a single block, so the algorithm fakes it via per-tile rescaling. Alter the tile size, and you alter the rescaling trigger. That shifts the rounding. That changes the math.[^2]
 
-Stack the other degrees of freedom on top. Whether the accumulator is fp32 or fp16. Which tensor-core instruction the kernel selects. Whether the reduction is split across thread blocks and recombined. And for a quantised cache, the granularity of the scale factors, which determines what gets clipped and what survives — recall from part two that the 656-byte MLA entry carries four fp32 scales for 512 fp8 elements, a specific choice about how finely to track dynamic range.[^3]
+Layer the remaining hardware-specific degrees of freedom over that. Maybe the accumulator uses fp32, maybe fp16. The specific tensor-core instructions selected. Whether the reduction splits across thread blocks before recombining. For quantised caches, the scale factor granularity dictates what is clipped versus preserved. The 656-byte MLA entry from part two embeds four fp32 scales for 512 fp8 elements — a highly specific, opinionated choice about tracking dynamic range.[^3]
 
-None of these is a correctness question. Every combination is a legitimate implementation of attention. They simply do not produce the same numbers.
+None of this represents a correctness failure. Each variation is a mathematically valid implementation of attention. They just yield divergent numbers.
 
-## The single-vendor version is already broken, and somebody measured it
+## Single-vendor deployments are already fundamentally broken
 
-Before reaching across a vendor boundary, look at how bad this already is inside one.
+Before examining a multi-vendor split, look at how fragile this gets on a single machine.
 
-Thinking Machines published a result last year that deserves to be better known. They sent the same request a thousand times to an LLM endpoint, with everything nominally fixed — same weights, same prompt, temperature zero.
+Thinking Machines published a result last year that the industry mostly ignored. They hammered an LLM endpoint with the same request a thousand times. Fixed weights, fixed prompt, temperature zero.
 
-They got **eighty unique completions**, with the first divergence at **token 103**.[^1]
+They retrieved **eighty unique completions**. The first divergence hit at **token 103**.[^1]
 
-The cause is not GPU nondeterminism in the usual folk sense. Their finding is that "the primary reason nearly all LLM inference endpoints are nondeterministic is that the load (and thus batch-size) nondeterministically varies." Kernels are not batch-invariant: the numerical result for a given element changes with the batch size it happened to be computed in. Compose a kernel that is sensitive to batch size with a serving system whose batch size depends on other users' traffic, and a request's output depends on who else was talking to the model at the same moment.
+Do not blame random GPU nondeterminism. Their core finding is that "the primary reason nearly all LLM inference endpoints are nondeterministic is that the load (and thus batch-size) nondeterministically varies." Most kernels are not batch-invariant. A computed element's numerical value shifts depending on the surrounding batch size. Slap a batch-sensitive kernel into a serving system where batch sizes fluctuate based on concurrent traffic, and your request's output is permanently tied to whatever else other users happened to be generating at that exact millisecond.
 
-The mechanisms are the ones listed above. RMSNorm switches to split reductions when batches shrink. Matrix multiply uses Split-K and picks different tensor-core instructions based on the batch dimension. Attention decomposes the sequence differently depending on shape and scheduling.
+The underlying mechanics match what I described above. RMSNorm pivots to split reductions on smaller batches. Matmul invokes Split-K and swaps tensor-core instructions based purely on the batch dimension. Attention shatters the sequence differently based on the exact shape the scheduler hands it.
 
-The fix they demonstrate is exactly what the diagnosis implies: make the kernels batch-invariant, so that "the reduction order for each element must be fixed regardless of the batch-size of the kernel." With batch-invariant kernels, all thousand completions were identical.
+The remedy they demonstrated is as brutal as the diagnosis suggests: force the kernels to be batch-invariant, ensuring "the reduction order for each element must be fixed regardless of the batch-size of the kernel." After that rewrite, all thousand completions matched.
 
-Notice what that fix required. They rewrote the kernels. Normalisation, matmul and attention, all three, to use one universal reduction strategy regardless of shape.
+Look at the cost of that fix. They had to rewrite the kernels. Normalisation, matmul, and attention. All three had to adopt a single, inflexible reduction strategy oblivious to tensor shape.
 
-## That fix does not survive disaggregation
+## That fix dies at the disaggregation boundary
 
-The repair is available when you own the kernels. Across a vendor boundary you own one of them.
+You can execute that repair when you control the kernels. Across a vendor boundary, you own exactly half the equation.
 
-In the AWS and AMD pairings, prefill runs one company's attention implementation and decode runs another's. There is no version of "make the reduction order consistent" that you can apply, because consistency is a property of a pair, and nobody has the ability to modify both halves. You cannot even establish what the other side does: its tiling, accumulator width and scale granularity are internal details of a proprietary kernel, and no interface in the stack asks for them.
+Take an AWS and AMD split. Prefill executes one company's attention kernel; decode runs another's. You cannot enforce a consistent reduction order. Consistency is a property of the paired systems, and no single entity holds the keys to both. You cannot even reverse-engineer what the remote side is doing. Their tiling geometry, accumulator width, and scale granularities are tightly held secrets of a proprietary kernel. Zero interfaces in the modern stack expose them.
 
-So the batch-invariance problem is not merely still present. It has been joined by a larger one that admits no equivalent solution.
+The batch-invariance problem survives, but it brings a much worse problem with it. One that has no technical remedy.
 
 ```mermaid
 graph TB
@@ -60,39 +60,39 @@ graph TB
     style F fill:#1e3a5f,color:#fff
 ```
 
-## The cache is persistent state, which makes it worse than a perturbation
+## The cache is persistent state. That makes it worse.
 
-There is a structural reason this matters more in a disaggregated system than the batch-size story suggests, and it is easy to miss.
+This matters heavily in a disaggregated system for a structural reason that most people miss entirely.
 
-In the single-machine case, a numerical difference perturbs one forward pass. The next token is computed from a context recomputed the same way, so errors do not obviously compound in a directed manner.
+On a single machine, a numerical deviation perturbs a single forward pass. Because the subsequent token relies on context computed through the identical numerical path, errors tend not to compound directionally.
 
-A KV cache is different. It is the prefiller's numerics, *stored*, and then read as context for every subsequent token the decoder produces. The prompt is not re-derived on the decode machine; the cache is the only record of it. So a prefiller whose scale granularity clips slightly differently has not introduced a transient error, it has established the premise from which the entire generation follows.
+The KV cache breaks that safety net. It represents the prefiller's exact numerical choices, *solidified into state*, and treated as ground truth for every token the decoder spits out. The decoder does not re-derive the prompt. The cache is its only historical record. When a prefiller's scale granularity clips just a bit differently, it is not a transient glitch. It locks in the faulty premise that drives the entire generation sequence.
 
-That also means the divergence has a specific shape. It does not accumulate gradually from token one. It is fixed at handoff, and then every token is generated from that fixed, slightly-different context.
+The resulting divergence is not a slow drift starting from the first token. It is a harsh discontinuity fixed at the exact moment of handoff. Every subsequent decode step propagates that slightly wrong context.
 
-## Three things this breaks
+## What this physically breaks
 
-**Reproducibility, as an operational property.** Two identical requests can be served by different decode instances, with different batch composition, from a cache produced by a prefiller under different load. The set of things that must match for a byte-identical rerun now spans two organisations' scheduling decisions.
+**Operational Reproducibility.** Identical requests might hit different decode instances, featuring different batch dimensions, reading from a cache generated by a prefiller experiencing totally different load. Generating a byte-identical rerun requires synchronizing the transient scheduling state of two separate corporations.
 
-**Evaluation validity.** You evaluate on some configuration and serve on another. That gap has always existed, but disaggregation widens what counts as "configuration" to include which vendor's prefill produced the cache. An eval run against a colocated deployment does not describe the disaggregated one, and there is no version string that captures the difference.
+**Evaluation Validity.** Serving on a different configuration than you evaluated on is an old sin, but disaggregation expands "configuration" to include the specific vendor prefill that built the cache. A benchmark executed against a colocated deployment tells you absolutely nothing about the disaggregated reality. No config flag captures this delta.
 
-**Bisection.** This is the one that hurts in practice. A generation comes out wrong. In a single-engine system you re-run with logging, pin the seed, bisect the pipeline. Here, neither half reproduces the failure alone: the prefiller produced a cache that looked fine and the decoder consumed it correctly. To reproduce you need both machines, in the same load conditions, with the same batch composition on each side. The failure is a property of the pair.
+**Pipeline Bisection.** This is where the pain actually lives. A generation returns garbage. On a single engine, you pin the seed, crank up logging, and bisect. In a split system, neither side fails in isolation. The prefiller dumped a cache it considers perfect. The decoder processed it flawlessly. Replicating the bug requires spinning up both machines, under identical loads, with identical batch compositions. The failure belongs exclusively to the pairing.
 
-## Nowhere in the stack is there a place to say any of this
+## The stack is entirely blind to this
 
-Walk the interfaces this series has examined and look for a field describing numerics.
+Scan every interface I have walked through in this series. Look for a struct field describing numerics. You will not find one.
 
-vLLM's KV connector, from part two, moves a `torch.Tensor` with vLLM's own `AttentionMetadata` alongside it. Shape, dtype, layout. Nothing about accumulation order, tile size or scale granularity.
+vLLM's KV connector, discussed in part two, shifts a `torch.Tensor` alongside `AttentionMetadata`. Shape, dtype, layout. It has zero awareness of accumulation order, tile geometry, or quantisation scales.
 
-NIXL's descriptor, from part three, is `(addr, len, devId)`. A byte range on a device.
+NIXL's descriptor from part three resolves to `(addr, len, devId)`. A raw byte slice on a card.
 
-Dynamo's router, from part four, prices candidate workers in block-equivalent cost. It models cache hits in host memory and on disk. It has no notion that two workers might compute differently.
+Dynamo's router from part four ranks workers using block-equivalent costs, modeling cache strikes in host RAM and disk. It fundamentally lacks the concept that two workers might yield different math.
 
-This is the pattern the whole series keeps arriving at, in its purest form here. The problem is not that the industry has considered numeric compatibility and chosen a permissive policy. It is that there is no field, in any interface, in which such a policy could be written down. A vendor pair that wanted to guarantee bit-exact compatibility has no way to state the guarantee, and a deployment that wanted to check it has nothing to check against.
+This is the exact dead end this series keeps hitting. The industry did not deliberately review numeric compatibility and settle on a relaxed standard. The fields simply do not exist. There is no API surface to encode a strict numerical policy. If two vendors wanted to enforce bit-exact execution, they have no protocol to express it. If you wanted to validate it, you have nothing to assert against.
 
-## What all five posts add up to
+## What all five parts actually mean
 
-Five parts, five layers, and the same structure at each.
+Five parts, five layers, identical structural failure at every single one.
 
 | Layer | What is co-designed | What crossing the boundary loses |
 |---|---|---|
@@ -102,15 +102,15 @@ Five parts, five layers, and the same structure at each.
 | Scheduling (4) | batching with global state | no authority, no shared SLO |
 | Numerics (5) | values with implementation | no contract, no reproducibility |
 
-Reading down that table, a programming model that made heterogeneous inference tractable would have to be able to express at least five things that are currently inexpressible.
+Read down that column. Any programming model capable of wrangling heterogeneous inference requires expressing at least five things that remain entirely inexpressible today.
 
-**Where a stage runs**, as something the system knows rather than something a YAML file asserts. **What the bytes mean**, precisely enough that a foreign kernel can consume them. **Where a tensor physically resides and what moving it costs**, in terms richer than a pointer and a device number — including, per a good correction I got on part three, the possibility that placement is chosen by the receiver on arrival rather than encoded in the handle, which is what Intel's DDIO does at the cache level.[^4] **Who may preempt whom, and who owns which term of the latency budget.** And **what the values are permitted to be** — the numeric contract that would let two implementations agree, or at least let a deployment discover that they do not.
+**Where a stage runs.** The system must know it, not just read a YAML assertion. **What the bytes actually mean.** Specified down to a level where a foreign kernel can safely consume them. **Where a tensor physically resides and what moving it costs.** You need richer semantics than a flat pointer and a device ID. As someone pointed out regarding part three, receivers might choose placement dynamically on arrival—Intel's DDIO does exactly this at the cache level, totally ignoring the sending descriptor.[^4] **Who preempts whom, and who owns the latency budget.** And finally, **what the values are permitted to be.** A strict numeric contract allowing two implementations to either align, or cleanly fail when they do not.
 
-Every one of those is something a compiler already knows about its own machine. None of them is something it can currently tell anyone else's.
+A compiler inherently knows all five of these things about its own local machine. It cannot communicate a single one to a remote peer.
 
-I will not pretend to know the right shape for that. What I am fairly confident of is the diagnosis: none of these five gaps is a missing document, and none is a plumbing problem. They are all the same consequence of splitting an optimisation domain that every one of these systems assumed it owned, and they arrived together because the split arrived all at once.
+I do not have a pristine architecture diagram that fixes this. But the diagnosis is solid. These five failures are not missing docs or neglected Jira tickets. They are the direct consequence of ripping apart an optimisation domain that every internal system assumes it entirely owns. The split happened everywhere, all at once.
 
-The hardware argument from part one is settled. Prefill and decode want different computers, the economics are compelling, and the deals are signed. The interfaces are roughly twenty years behind that, and the gap is not closing on its own.
+The hardware argument from part one is over. Prefill and decode require totally different silicon. The economics are undeniable, the contracts are signed. Our interfaces are two decades behind the hardware reality, and they will not heal themselves.
 
 ---
 
@@ -126,4 +126,4 @@ The hardware argument from part one is settled. Prefill and decode want differen
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The nondeterminism figures are Thinking Machines' published measurements rather than mine; I have not run a cross-vendor disaggregated deployment, and the claim that two vendors' attention kernels differ numerically is an argument from how the kernels are constructed rather than a measurement of the AWS or AMD systems, whose kernel internals are not public.*
+*Disclaimer: Researched and drafted with AI assistance (Claude 5 Opus and Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The nondeterminism figures are Thinking Machines' published measurements rather than mine; I have not run a cross-vendor disaggregated deployment, and the claim that two vendors' attention kernels differ numerically is an argument from how the kernels are constructed rather than a measurement of the AWS or AMD systems, whose kernel internals are not public.*
