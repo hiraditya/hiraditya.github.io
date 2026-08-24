@@ -6,9 +6,9 @@ tags: [inference, disaggregation, numerics, determinism, evaluation, llm-serving
 mermaid: true
 ---
 
-Each of the previous three posts assumed the next layer of the stack would save it. Part two showed that KV caches lack an interchange format, assuming the bytes would flow if two vendors merely agreed on layout. Part three proved you cannot target a physical placement, assuming the scheduler could handle it anyway. Part four demonstrated the scheduler has zero authority across the boundary, banking on the blind faith that whatever bits finally arrive are at least correct.
+Each of the previous three posts assumed the next layer of the stack would save it. [Part two]({% post_url 2026-08-18-the-kv-cache-has-no-abi %}) showed that KV caches lack an interchange format, assuming the bytes would flow if two vendors merely agreed on layout. [Part three]({% post_url 2026-08-19-there-is-no-address %}) proved you cannot target a physical placement, assuming the scheduler could handle it anyway. [Part four]({% post_url 2026-08-20-two-schedulers-one-slo %}) demonstrated the scheduler has zero authority across the boundary, banking on the blind faith that whatever bits finally arrive are at least correct.
 
-That final assumption is a trap. It bears the most weight and gets the least scrutiny.
+That final assumption is the fatal one. It carries the weight of the entire architecture, but falls apart the second you actually look at the math.
 
 A KV cache is not passive data. It is the baked output of a specific computation. Hand it to a decoder running a different attention kernel than the one that generated it, and you force that decoder to consume a cache its own prefill would never have emitted.
 
@@ -110,7 +110,7 @@ A compiler inherently knows all five of these things about its own local machine
 
 I do not have a pristine architecture diagram that fixes this. But the diagnosis is solid. These five failures are not missing docs or neglected Jira tickets. They are the direct consequence of ripping apart an optimisation domain that every internal system assumes it entirely owns. The split happened everywhere, all at once.
 
-The hardware argument from part one is over. Prefill and decode require totally different silicon. The economics are undeniable, the contracts are signed. Our interfaces are two decades behind the hardware reality, and they will not heal themselves.
+The hardware argument from [part one]({% post_url 2026-08-16-prefill-and-decode-want-different-computers %}) is over. Prefill and decode require totally different silicon. The economics are undeniable, the contracts are signed. Our interfaces are two decades behind the hardware reality, and they will not heal themselves.
 
 ---
 
