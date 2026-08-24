@@ -139,7 +139,7 @@ Two schedulers with opposite batching economics have to cooperate on one latency
 
 And the numerics will not match. The decoder consumes a KV cache produced by an implementation it does not contain, with different accumulation order and different scaling. It receives a cache its own prefill would never have produced.
 
-The physics of the split is settled. Its programming model does not exist. The next four posts take those four gaps in order: what is actually inside a KV cache and why it has no ABI; what it takes to move one across a vendor boundary; how two schedulers share one SLO; and what a programming model would have to express to make any of this tractable.
+The physics of the split is settled. Its programming model does not exist. The next four posts take those four gaps in order, beginning with [what is actually inside a KV cache]({% post_url 2026-08-18-the-kv-cache-has-no-abi %}): what is actually inside a KV cache and why it has no ABI; what it takes to move one across a vendor boundary; how two schedulers share one SLO; and what a programming model would have to express to make any of this tractable.
 
 ---
 

@@ -6,7 +6,7 @@ tags: [inference, disaggregation, nixl, rdma, cerebras, blackwell, memory-hierar
 mermaid: true
 ---
 
-The last post argued that a KV cache has no interchange format. Grant one anyway. Suppose the two vendors agree on layout, dtype, block size, scale placement and every other axis in that list. The bytes still have to move.
+[The last post]({% post_url 2026-08-18-the-kv-cache-has-no-abi %}) argued that a KV cache has no interchange format. Grant one anyway. Suppose the two vendors agree on layout, dtype, block size, scale placement and every other axis in that list. The bytes still have to move.
 
 This is the part that looks like plumbing and is not, because a transfer library is not neutral about what kind of machine sits at the other end. And the reason it can afford not to be neutral, historically, is that one program has always owned the whole memory hierarchy it was moving data through. Disaggregation is the first time we have split that ownership across two vendors.
 
@@ -200,7 +200,7 @@ I do not think this is unsolvable, and the industry has resolved worse impedance
 
 And layout and locality are only two of the three. The values crossing that boundary were produced by an attention kernel the consumer does not contain, with a different accumulation order and different scaling, which means the decoder is reading a cache its own prefill would never have produced. That is the subject of part five.
 
-Part four takes the more immediate problem to the scheduler, which has to make exactly these placement decisions across two engines with opposite batching economics, one latency budget, and no agreement about who owns an SLO violation.
+[Part four]({% post_url 2026-08-20-two-schedulers-one-slo %}) takes the more immediate problem to the scheduler, which has to make exactly these placement decisions across two engines with opposite batching economics, one latency budget, and no agreement about who owns an SLO violation.
 
 ---
 

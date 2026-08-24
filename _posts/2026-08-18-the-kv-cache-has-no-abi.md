@@ -6,7 +6,7 @@ tags: [inference, disaggregation, kv-cache, vllm, abi, llm-serving]
 mermaid: true
 ---
 
-The last post argued that prefill and decode want different computers, and that the industry has started buying them separately. This one is about the handoff, which sounds like the easy part but it is easier said than done.
+[The last post]({% post_url 2026-08-16-prefill-and-decode-want-different-computers %}) argued that prefill and decode want different computers, and that the industry has started buying them separately. This one is about the handoff, which sounds like the easy part but it is easier said than done.
 
 Stated at the level of a slide, disaggregation is simple. Prefill runs the prompt through the model and produces a KV cache. Ship that cache to the decode machine. Decode generates tokens from it. One artifact crosses one wire, once, per request.
 
@@ -213,7 +213,7 @@ The AWS and AMD deals both describe prefill on one vendor's silicon and decode o
 
 That is the shape of an industry moving to a heterogeneous architecture without an interchange standard. It worked for a while in the GPU era because there was only one vendor to agree with.
 
-The next post takes up moving the bytes rather than describing them, which is where the assumptions get stranger. Transport libraries want a flat, registerable, addressable target buffer. The decode side in these deals is a wafer with 44 GB of SRAM distributed across 900,000 cores and no HBM at all. And in NVIDIA's arrangement the boundary does not even fall between the phases: it falls inside a decoding step, with activations crossing every layer rather than a cache crossing once.
+[The next post]({% post_url 2026-08-19-there-is-no-address %}) takes up moving the bytes rather than describing them, which is where the assumptions get stranger. Transport libraries want a flat, registerable, addressable target buffer. The decode side in these deals is a wafer with 44 GB of SRAM distributed across 900,000 cores and no HBM at all. And in NVIDIA's arrangement the boundary does not even fall between the phases: it falls inside a decoding step, with activations crossing every layer rather than a cache crossing once.
 
 ---
 

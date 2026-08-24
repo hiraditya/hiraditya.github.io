@@ -6,7 +6,7 @@ tags: [inference, disaggregation, scheduling, vllm, dynamo, slo, llm-serving]
 mermaid: true
 ---
 
-The previous post ended on a pattern: a memory hierarchy works because one component can see the whole path, and disaggregation splits that visibility across two vendors. Scheduling has the same shape, and it fails louder, because the scheduler is not merely optimising. It is the thing holding the system inside its latency budget.
+[The previous post]({% post_url 2026-08-19-there-is-no-address %}) ended on a pattern: a memory hierarchy works because one component can see the whole path, and disaggregation splits that visibility across two vendors. Scheduling has the same shape, and it fails louder, because the scheduler is not merely optimising. It is the thing holding the system inside its latency budget.
 
 ## Continuous batching is a global algorithm
 
@@ -163,7 +163,7 @@ Three posts in, the pattern is consistent. The KV cache has no interchange forma
 
 Each of these worked for a decade because one organisation held both ends. None of them is a missing document. They are the same structural fact at three layers, and disaggregation across a vendor boundary is being deployed considerably faster than the interfaces for it are being designed.
 
-There is one axis left, and it is the one with the least tooling of all. Even granting a format, a transport and a scheduler, the values crossing that boundary were produced by an attention kernel the consumer does not contain — different accumulation order, different softmax, different scaling. The decoder is reading a cache its own prefill would never have produced. Part five takes up numerics, determinism, and what any of this does to your ability to evaluate a model.
+There is one axis left, and it is the one with the least tooling of all. Even granting a format, a transport and a scheduler, the values crossing that boundary were produced by an attention kernel the consumer does not contain — different accumulation order, different softmax, different scaling. The decoder is reading a cache its own prefill would never have produced. [Part five]({% post_url 2026-08-24-a-cache-its-own-prefill-would-never-have-produced %}) takes up numerics, determinism, and what any of this does to your ability to evaluate a model.
 
 ---
 
