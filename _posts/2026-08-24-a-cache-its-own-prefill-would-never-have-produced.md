@@ -6,7 +6,7 @@ tags: [inference, disaggregation, numerics, determinism, evaluation, llm-serving
 mermaid: true
 ---
 
-The previous three posts all borrowed against the next one. Part two showed that KV caches lack an interchange format, assuming the bytes would flow if two vendors merely agreed on layout. Part three proved you cannot target a physical placement, assuming the scheduler could handle it anyway. Part four demonstrated the scheduler has zero authority across the boundary, banking on the blind faith that whatever bits finally arrive are at least correct.
+Each of the previous three posts assumed the next layer of the stack would save it. Part two showed that KV caches lack an interchange format, assuming the bytes would flow if two vendors merely agreed on layout. Part three proved you cannot target a physical placement, assuming the scheduler could handle it anyway. Part four demonstrated the scheduler has zero authority across the boundary, banking on the blind faith that whatever bits finally arrive are at least correct.
 
 That final assumption is a trap. It bears the most weight and gets the least scrutiny.
 
@@ -18,7 +18,7 @@ Floating-point math lacks associativity. Compute `(a + b) + c` versus `a + (b + 
 
 No one considers this a bug. It is a fundamental reality of the representation. High-performance kernels deliberately make ordering tradeoffs to go fast. Any tiled attention kernel will deviate from a naive reference implementation in the low-order bits. Two tiled kernels using different tile sizes will deviate from each other.
 
-Attention kernels are violently exposed to this. FlashAttention skips materialising the full score matrix. It walks key and value tiles instead, updating a running maximum and normaliser, and rescaling the accumulated output whenever the maximum shifts. The global state the softmax operation demands does not exist within a single block, so the algorithm fakes it via per-tile rescaling. Alter the tile size, and you alter the rescaling trigger. That shifts the rounding. That changes the math.[^2]
+Attention is inherently exposed to this. FlashAttention skips materialising the full score matrix. It walks key and value tiles instead, updating a running maximum and normaliser, and rescaling the accumulated output whenever the maximum shifts. The global state the softmax operation demands does not exist within a single block, so the algorithm reintroduces it via per-tile rescaling. Alter the tile size, and you alter the rescaling trigger. That shifts the rounding. That changes the math.[^2]
 
 Layer the remaining hardware-specific degrees of freedom over that. Maybe the accumulator uses fp32, maybe fp16. The specific tensor-core instructions selected. Whether the reduction splits across thread blocks before recombining. For quantised caches, the scale factor granularity dictates what is clipped versus preserved. The 656-byte MLA entry from part two embeds four fp32 scales for 512 fp8 elements — a highly specific, opinionated choice about tracking dynamic range.[^3]
 
@@ -34,7 +34,7 @@ They retrieved **eighty unique completions**. The first divergence hit at **toke
 
 Do not blame random GPU nondeterminism. Their core finding is that "the primary reason nearly all LLM inference endpoints are nondeterministic is that the load (and thus batch-size) nondeterministically varies." Most kernels are not batch-invariant. A computed element's numerical value shifts depending on the surrounding batch size. Slap a batch-sensitive kernel into a serving system where batch sizes fluctuate based on concurrent traffic, and your request's output is permanently tied to whatever else other users happened to be generating at that exact millisecond.
 
-The underlying mechanics match what I described above. RMSNorm pivots to split reductions on smaller batches. Matmul invokes Split-K and swaps tensor-core instructions based purely on the batch dimension. Attention shatters the sequence differently based on the exact shape the scheduler hands it.
+The underlying mechanics match what I described above. RMSNorm pivots to split reductions on smaller batches. Matmul invokes Split-K and swaps tensor-core instructions based purely on the batch dimension. Attention decomposes the sequence differently based on the exact shape the scheduler hands it.
 
 The remedy they demonstrated is as brutal as the diagnosis suggests: force the kernels to be batch-invariant, ensuring "the reduction order for each element must be fixed regardless of the batch-size of the kernel." After that rewrite, all thousand completions matched.
 
@@ -62,13 +62,13 @@ graph TB
 
 ## The cache is persistent state. That makes it worse.
 
-This matters heavily in a disaggregated system for a structural reason that most people miss entirely.
+This matters heavily in a disaggregated system for a structural reason that is easy to overlook.
 
-On a single machine, a numerical deviation perturbs a single forward pass. Because the subsequent token relies on context computed through the identical numerical path, errors tend not to compound directionally.
+When a numerical deviation occurs in a normal neural network layer, it typically perturbs a single forward pass. It is a transient error. The KV cache is different. It represents the prefiller's exact numerical choices, *solidified into state*, and treated as ground truth for every subsequent token the decoder spits out. 
 
-The KV cache breaks that safety net. It represents the prefiller's exact numerical choices, *solidified into state*, and treated as ground truth for every token the decoder spits out. The decoder does not re-derive the prompt. The cache is its only historical record. When a prefiller's scale granularity clips just a bit differently, it is not a transient glitch. It locks in the faulty premise that drives the entire generation sequence.
+The decoder does not re-derive the prompt. The cache is its only historical record. So when a foreign prefiller's scale granularity clips just a bit differently, it does not introduce a momentary glitch. It locks in a faulty premise that drives the entire generation sequence.
 
-The resulting divergence is not a slow drift starting from the first token. It is a harsh discontinuity fixed at the exact moment of handoff. Every subsequent decode step propagates that slightly wrong context.
+The resulting divergence is not a slow drift. It is a harsh discontinuity fixed at the exact moment of handoff. Every subsequent decode step propagates that slightly foreign context.
 
 ## What this physically breaks
 
