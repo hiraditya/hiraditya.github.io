@@ -24,15 +24,15 @@ Layer the remaining hardware-specific degrees of freedom over that. Maybe the ac
 
 None of this represents a correctness failure. Each variation is a mathematically valid implementation of attention. They just yield divergent numbers.
 
-## Single-vendor deployments are already fundamentally broken
+## Single-vendor deployments are already nondeterministic
 
 Before examining a multi-vendor split, look at how fragile this gets on a single machine.
 
-Thinking Machines published a result last year that the industry mostly ignored. They hammered an LLM endpoint with the same request a thousand times. Fixed weights, fixed prompt, temperature zero.
+Thinking Machines published a result last year that deserves to be better known. They hammered an LLM endpoint with the same request a thousand times. Fixed weights, fixed prompt, temperature zero.
 
 They retrieved **eighty unique completions**. The first divergence hit at **token 103**.[^1]
 
-Do not blame random GPU nondeterminism. Their core finding is that "the primary reason nearly all LLM inference endpoints are nondeterministic is that the load (and thus batch-size) nondeterministically varies." Most kernels are not batch-invariant. A computed element's numerical value shifts depending on the surrounding batch size. Slap a batch-sensitive kernel into a serving system where batch sizes fluctuate based on concurrent traffic, and your request's output is permanently tied to whatever else other users happened to be generating at that exact millisecond.
+Do not blame random GPU nondeterminism. Their core finding is that "the primary reason nearly all LLM inference endpoints are nondeterministic is that the load (and thus batch-size) nondeterministically varies." Most kernels are not batch-invariant. A computed element's numerical value shifts depending on the surrounding batch size. Slap a batch-sensitive kernel into a serving system where batch sizes fluctuate based on concurrent traffic, and your request's output is tied to whatever else other users happened to be generating at that moment.
 
 The underlying mechanics match what I described above. RMSNorm pivots to split reductions on smaller batches. Matmul invokes Split-K and swaps tensor-core instructions based purely on the batch dimension. Attention decomposes the sequence differently based on the exact shape the scheduler hands it.
 
@@ -44,9 +44,9 @@ Look at the cost of that fix. They had to rewrite the kernels. Normalisation, ma
 
 You can execute that repair when you control the kernels. Across a vendor boundary, you own exactly half the equation.
 
-Take an AWS and AMD split. Prefill executes one company's attention kernel; decode runs another's. You cannot enforce a consistent reduction order. Consistency is a property of the paired systems, and no single entity holds the keys to both. You cannot even reverse-engineer what the remote side is doing. Their tiling geometry, accumulator width, and scale granularities are tightly held secrets of a proprietary kernel. Zero interfaces in the modern stack expose them.
+Take either announced pairing — AWS with Cerebras, or AMD with Cerebras. Prefill executes one company's attention kernel; decode runs another's. You cannot enforce a consistent reduction order. Consistency is a property of the paired systems, and no single entity holds the keys to both. You cannot even reverse-engineer what the remote side is doing. Their tiling geometry, accumulator width, and scale granularities are unpublished implementation details of a proprietary kernel, and none of the interfaces in this series asks for them.
 
-The batch-invariance problem survives, but it brings a much worse problem with it. One that has no technical remedy.
+The batch-invariance problem survives, and it brings a larger one with it — larger because the fix that worked inside one vendor has no equivalent here. Part three's three remedies still apply, and still do not generalise: a bilateral agreement between two partners, a neutral form that costs conversion, or one side emitting in the other's terms.
 
 ```mermaid
 graph TB
@@ -64,19 +64,19 @@ graph TB
 
 This matters heavily in a disaggregated system for a structural reason that is easy to overlook.
 
-When a numerical deviation occurs in a normal neural network layer, it typically perturbs a single forward pass. It is a transient error. The KV cache is different. It represents the prefiller's exact numerical choices, *solidified into state*, and treated as ground truth for every subsequent token the decoder spits out. 
+When a numerical deviation occurs in a normal neural network layer, it typically perturbs a single forward pass. It is a transient error. The KV cache is different. It represents the prefiller's exact numerical choices, *solidified into state*, and treated as ground truth for every subsequent token the decoder spits out.
 
 The decoder does not re-derive the prompt. The cache is its only historical record. So when a foreign prefiller's scale granularity clips just a bit differently, it does not introduce a momentary glitch. It locks in a faulty premise that drives the entire generation sequence.
 
 The resulting divergence is not a slow drift. It is a harsh discontinuity fixed at the exact moment of handoff. Every subsequent decode step propagates that slightly foreign context.
 
-## What this physically breaks
+## What this actually breaks
 
 **Operational Reproducibility.** Identical requests might hit different decode instances, featuring different batch dimensions, reading from a cache generated by a prefiller experiencing totally different load. Generating a byte-identical rerun requires synchronizing the transient scheduling state of two separate corporations.
 
-**Evaluation Validity.** Serving on a different configuration than you evaluated on is an old sin, but disaggregation expands "configuration" to include the specific vendor prefill that built the cache. A benchmark executed against a colocated deployment tells you absolutely nothing about the disaggregated reality. No config flag captures this delta.
+**Evaluation Validity.** Serving on a different configuration than you evaluated on is an old sin, but disaggregation expands "configuration" to include the specific vendor prefill that built the cache. A benchmark executed against a colocated deployment does not describe the disaggregated reality, and no config flag captures the delta.
 
-**Pipeline Bisection.** This is where the pain actually lives. A generation returns garbage. On a single engine, you pin the seed, crank up logging, and bisect. In a split system, neither side fails in isolation. The prefiller dumped a cache it considers perfect. The decoder processed it flawlessly. Replicating the bug requires spinning up both machines, under identical loads, with identical batch compositions. The failure belongs exclusively to the pairing.
+**Pipeline Bisection.** This is where the pain actually lives. A generation comes back subtly wrong. On a single engine, you pin the seed, crank up logging, and bisect. In a split system, neither side fails in isolation. The prefiller dumped a cache it considers perfect. The decoder processed it flawlessly. Replicating the bug requires spinning up both machines, under identical loads, with identical batch compositions. The failure belongs exclusively to the pairing.
 
 ## The stack is entirely blind to this
 
@@ -102,7 +102,7 @@ Five parts, five layers, identical structural failure at every single one.
 | Scheduling (4) | batching with global state | no authority, no shared SLO |
 | Numerics (5) | values with implementation | no contract, no reproducibility |
 
-Read down that column. Any programming model capable of wrangling heterogeneous inference requires expressing at least five things that remain entirely inexpressible today.
+Read down that table. Any programming model capable of wrangling heterogeneous inference requires expressing at least five things that remain entirely inexpressible today.
 
 **Where a stage runs.** The system must know it, not just read a YAML assertion. **What the bytes actually mean.** Specified down to a level where a foreign kernel can safely consume them. **Where a tensor physically resides and what moving it costs.** You need richer semantics than a flat pointer and a device ID. As someone pointed out regarding part three, receivers might choose placement dynamically on arrival—Intel's DDIO does exactly this at the cache level, totally ignoring the sending descriptor.[^4] **Who preempts whom, and who owns the latency budget.** And finally, **what the values are permitted to be.** A strict numeric contract allowing two implementations to either align, or cleanly fail when they do not.
 
@@ -126,4 +126,4 @@ The hardware argument from part one is over. Prefill and decode require totally 
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude 5 Opus and Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The nondeterminism figures are Thinking Machines' published measurements rather than mine; I have not run a cross-vendor disaggregated deployment, and the claim that two vendors' attention kernels differ numerically is an argument from how the kernels are constructed rather than a measurement of the AWS or AMD systems, whose kernel internals are not public.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5 and Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The nondeterminism figures are Thinking Machines' published measurements rather than mine; I have not run a cross-vendor disaggregated deployment, and the claim that two vendors' attention kernels differ numerically is an argument from how the kernels are constructed rather than a measurement of the AWS or AMD systems, whose kernel internals are not public.*
