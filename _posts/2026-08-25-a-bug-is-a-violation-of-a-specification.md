@@ -119,7 +119,7 @@ Fixing every issue on both trackers produces an engine that agrees with itself, 
 
 When the engineer who found the divergence, diagnosed it to 1 ULP, and wrote the fix declines to call it a bug, they make an accurate observation. No specification was violated, because none exists.
 
-Thanks to a reader who pointed out SGLang #10278 and vLLM #34046. The data in those issues isolates the exact mechanics of numeric divergence.
+Thanks to [Micah Villmow](https://www.linkedin.com/in/micah-villmow-1542534/), whose comment on the previous post argued that this was a defect in vLLM and SGLang rather than a structural property, and pointed to SGLang #10278 and vLLM #34046. The data in those two issues isolates the mechanics of numeric divergence more precisely than anything else I have found on it.
 
 ---
 
@@ -135,4 +135,4 @@ Thanks to a reader who pointed out SGLang #10278 and vLLM #34046. The data in th
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The measurements quoted here are from the linked vLLM pull request and its author's own testing on ROCm, not mine; the SGLang item counts were read from that tracking issue on 2026-08-25 and will move as it is updated. This post exists because of a correction offered on the previous one, and the substance of that correction is the reader's rather than mine.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The measurements quoted here are from the linked vLLM pull request and its author's own testing on ROCm, not mine; the SGLang item counts were read from that tracking issue on 2026-08-25 and will move as it is updated. This post exists because of a correction offered on the previous one by Micah Villmow, and the substance of that correction is his rather than mine.*
