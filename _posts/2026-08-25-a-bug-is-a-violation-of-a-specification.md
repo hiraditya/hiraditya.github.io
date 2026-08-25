@@ -42,7 +42,9 @@ The PR contains empirical data on why 1 ULP matters, isolated on a real model ac
 | Layer 27 | ~14,100 | 8.0 |
 | Logits | 129,895 of 151,936 | argmax flips |
 
-One element, one unit in the last place, at layer 0. By the logits, the majority of the vocabulary has moved and the selected token changes. This is the entire mechanism by which a rounding difference becomes a different answer.
+One element, one unit in the last place, at layer 0. By the logits, the majority of the vocabulary has moved and the greedy choice changes. This is the entire mechanism by which a rounding difference becomes a different answer.
+
+That last row deserves a qualification, because argmax is a claim about greedy decoding. At temperature zero the flip *is* the emitted token, and a 1 ULP difference decides the output whenever it exceeds the gap between the top two logits. At higher temperatures the perturbation is diluted by the entropy of the distribution: it shifts the sampling boundaries slightly, and even with a fixed seed it changes the drawn token only when the draw lands inside that shifted window. What temperature does not fix is reproducibility. Different logits from identical inputs mean the run cannot be replayed, whatever sampling strategy sits downstream of them.
 
 ## Specifications and features
 
