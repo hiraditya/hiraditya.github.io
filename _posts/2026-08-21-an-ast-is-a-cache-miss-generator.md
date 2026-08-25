@@ -121,7 +121,7 @@ Rust's trait system has the same character in a different dialect. Coherence and
 
 Languages with whole-program inference sit further along the same axis. If your inference unit is larger than your module, then a change anywhere invalidates conclusions everywhere, and the incremental story degrades into the parallel story: neither works, for the same reason.
 
-It is worth seeing that this is the same constraint that governs incremental rebuilds, because the two problems are usually discussed separately and they are one problem.
+This is the same constraint that governs incremental rebuilds. The two problems are usually discussed separately, and they are one problem.
 
 Parallelism asks: can two workers proceed without consulting each other? Incrementality asks: can I skip work whose inputs did not change? Both questions reduce to how far the effect of a declaration can travel. If adding an `impl` or an overload can alter resolution in an arbitrary other module, then a worker cannot proceed without consulting a global structure *and* a rebuild cannot prove that any particular downstream conclusion survived. Every language feature that widens the reach of a name widens both failures at once.
 
