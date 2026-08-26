@@ -6,135 +6,119 @@ tags: [inference, disaggregation, determinism, numerics, vllm, sglang, llm-servi
 mermaid: true
 ---
 
-Prefix caching makes the same prompt produce different logits on a cache hit versus a cache miss. Is that a bug?
+Prefix caching can cause the same prompt to produce different logits on a cache hit versus a cache miss. In many operational contexts, this is quickly categorized as a defect. However, a bug strictly implies the violation of a specification. In this domain, no such specification exists.
 
-A bug is a violation of a specification. No specification exists that this behaviour violates.
+As established previously, a key-value (KV) cache carries the numeric signatures of the specific kernel configuration that generated it. This becomes a systemic issue when prefill and decode phases execute under differing configurations or across disparate vendor implementations. Examining the engineering effort required to strictly control this variance reveals fundamental structural properties of modern inference engines.
 
-[The last post]({% post_url 2026-08-24-a-cache-its-own-prefill-would-never-have-produced %}) argued that a KV cache carries the numerics of whichever kernel produced it, and that this becomes a problem when prefill and decode belong to different vendors. This numeric variation is frequently categorized as a simple defect. But examining the engineering work required to patch it reveals a structural property of inference engines.
+## The Engineering Cost of Determinism
 
-## The work of determinism
+To understand the mechanics, we can look at the active efforts to enforce determinism within major serving engines. SGLang #10278, tracking "deterministic inference with Batch Invariant Ops," illustrates the breadth of the requirement. At the time of writing, it lists 28 requirements across attention backends, quantization schemes, expert parallelism, and speculative decoding drafters. A significant portion remains unresolved.[^1]
 
-SGLang #10278 is a tracking issue titled *"Support deterministic inference with Batch Invariant Ops"* — the work of implementing the batch-invariant kernel approach across a serving engine. 17 of 28 items are checked. The remaining 11 unchecked include FlashInfer radix cache support, prefill-with-and-without-radix-cache equivalence, linear attention models, all four quantization line items, DP attention, expert parallelism, speculative decoding drafters, and an open entry reading "Not deterministic on Blackwell for TP4." The issue is closed and labelled inactive.[^1]
+Similarly, vLLM #34046 introduces an opt-in `--deterministic-prefix-caching` flag. This forces a cache-miss prefill to split at the last block boundary, ensuring the suffix GEMM operates with the identical `M` dimension regardless of the cache state. 
 
-vLLM #34046 adds an opt-in flag, `--deterministic-prefix-caching`, that forces cache-miss prefills to split at the last block boundary. The suffix GEMM then runs with the same M dimension regardless of cache state. It has been open since February.
-
-Its problem statement describes the mechanism:
-
-> With prefix caching enabled, the first request for a given prefix (cache miss) and subsequent identical requests (cache hit) take fundamentally different computation paths.
+The mechanism driving the variance is straightforward:
 
 | Request | Cache State | Tokens Computed | GEMM M Dimension |
 |---|---|---|---|
 | Run 1 | Miss | All N tokens in one pass | M = N |
 | Run 2+ | Hit | Only uncached suffix | M = N % block_size |
 
-> The GEMM backend (Tensile on ROCm, cuBLAS on CUDA) selects tile configurations based on the M dimension. Different tiles partition the K-dimension reduction differently. Although accumulation uses fp32 internally, fp32 addition is non-associative --- different accumulation orders produce results that can differ by 1 ULP.[^2]
+GEMM backends, such as cuBLAS or Tensile, select optimal tile configurations dynamically based on the `M` dimension. Different tiling choices dictate different K-dimension reduction partitions. Because floating-point addition is non-associative, altering the accumulation order produces results that can diverge by 1 Unit in the Last Place (ULP), even when accumulating in FP32.[^2]
 
-Atomics are absent from that account. The nondeterminism arises from a vendor BLAS library choosing tile shapes by problem size. The kernels involved are deterministic. Run the same shape twice and you get the same answer. Run a different shape that computes the same *mathematical* quantity and you do not.
+Crucially, this is not a synchronization issue or an atomic race condition. The underlying kernels are entirely deterministic given fixed dimensions. The variance emerges strictly from the library optimizing tile shapes for the specific problem size presented.
 
-## The amplification, measured
+## Measuring Amplification
 
-The PR contains empirical data on why 1 ULP matters, isolated on a real model across layers 0/14/27:
+A single ULP difference at the start of a network is rarely terminal on its own, but deep transformer architectures amplify these perturbations. The vLLM pull request provides empirical validation on a standard model across intermediate layers:
 
-| | elements differing | max difference |
+| | Elements Differing | Max Difference |
 |---|---|---|
 | Layer 0 | 1 of 92,160 | 0.008 (1 ULP) |
 | Layer 14 | ~13,500 | 0.5 |
 | Layer 27 | ~14,100 | 8.0 |
-| Logits | 129,895 of 151,936 | argmax flips |
+| Logits | 129,895 of 151,936 | Argmax flips |
 
-One element, one unit in the last place, at layer 0. By the logits, the majority of the vocabulary has moved and the greedy choice changes. This is the entire mechanism by which a rounding difference becomes a different answer.
+A 1 ULP deviation at layer 0 propagates into substantial divergence by layer 27, ultimately flipping the argmax decision at the logits level for a majority of the vocabulary. 
 
-That last row deserves a qualification, because argmax is a claim about greedy decoding. At temperature zero the flip *is* the emitted token, and a 1 ULP difference decides the output whenever it exceeds the gap between the top two logits. At higher temperatures the perturbation is diluted by the entropy of the distribution: it shifts the sampling boundaries slightly, and even with a fixed seed it changes the drawn token only when the draw lands inside that shifted window. What temperature does not fix is reproducibility. Different logits from identical inputs mean the run cannot be replayed, whatever sampling strategy sits downstream of them.
+While non-zero sampling temperatures dilute the immediate impact of an argmax flip, they do not resolve the underlying reproducibility failure. Divergent logits guarantee that a run cannot be reliably replayed, regardless of the downstream sampling strategy or fixed random seeds.
 
-## Specifications and features
+## Feature vs. Defect
 
-The engineer who found this discrepancy filed it as **`[Bug][ROCm]: Prefix caching produces different output on first request (cache miss) vs subsequent requests (cache hit)`**. That issue is closed and marked stale.[^3]
+The engineer who identified this discrepancy originally filed it as a bug: **`[Bug][ROCm]: Prefix caching produces different output on first request (cache miss) vs subsequent requests (cache hit)`**.[^3] 
 
-The same engineer then wrote the fix, and labelled it **`[Feature]`**. The PR text states:
+However, the same engineer subsequently implemented the fix and correctly reclassified it as a **`[Feature]`**, explicitly noting in the PR:
 
 > All methods are identical in accuracy --- the GEMM is working correctly. The 12 differing elements between M=31 and M=15 paths are a consequence of different tile-level K-reduction ordering, **not a precision bug.**
 
-Filed as a bug, implemented as a feature. The author states in writing that nothing is broken. This is the correct position.
+This distinction is critical. Designating a behavior as a bug asserts a deviation from a required contract. In this case, neither vLLM nor the underlying GEMM libraries have ever guaranteed bitwise equivalence across varying matrix dimensions. Optimizing tile selection by shape is the precise mechanism by which these libraries achieve high utilization. 
 
-Call a behaviour a bug, and you assert it differs from required behaviour. This reduces to a prior question: what did anyone promise?
+The introduction of `--deterministic-prefix-caching` does not restore broken behavior; it establishes a new, stricter operational guarantee that trades scheduling flexibility for numeric consistency.
 
-Nothing in vLLM promises that a cache hit and a cache miss produce identical logits. Nothing in cuBLAS promises that a GEMM with M = 31 and a GEMM with M = 15 use the same K-reduction order. Selecting tiles by shape is how the library earns its performance. Nothing in the CUDA programming model promises that mathematically equivalent computations are bitwise equivalent.
+## The Determinism Hierarchy
 
-The flag in that PR offers a *new* guarantee that nobody previously made. It does not restore promised behaviour.
-
-## Determinism is not one property
-
-"Deterministic" names at least seven different properties. Here is the ladder, with what each rung is invariant to and where the ecosystem currently stands.
+"Determinism" in ML systems is an overloaded term. It represents a hierarchy of invariants, each requiring distinct engineering tradeoffs:
 
 | Level | Output is invariant to | Status |
 |---|---|---|
-| 0 | repeating the identical call | largely solved: fixed kernel, fixed shape, no atomics |
-| 1 | batch size | the batch-invariant kernel work; SGLang 17 of 28 items |
-| 2 | cache hit vs miss | vLLM #34046, open since February |
-| 3 | KV block size | follows from 2 |
-| 4 | TP / DP / EP degree | deterministic all-reduce landed; Blackwell TP4 still failing |
-| 5 | quantization scheme | all four SGLang line items unchecked |
-| 6 | which engine (vLLM ≡ SGLang) | not attempted by anyone |
-| 7 | which vendor (Trainium ≡ Cerebras) | not expressible |
+| 0 | Repeating the identical call | Largely solved (fixed kernel, fixed shape, no atomics). |
+| 1 | Batch size | Active development (e.g., SGLang batch-invariant ops). |
+| 2 | Cache hit vs miss | Addressed via scheduling constraints (e.g., vLLM #34046). |
+| 3 | KV block size | Inherently follows from Level 2. |
+| 4 | Parallelism degree (TP/DP/EP) | Partially solved (deterministic all-reduce available, but edge cases remain). |
+| 5 | Quantization scheme | Unsolved; dynamic range constraints make scale granularity inherently variable. |
+| 6 | Engine choice (e.g., vLLM vs SGLang) | Unattempted. |
+| 7 | Vendor hardware (e.g., TPU vs GPU) | Currently inexpressible. |
 
-The batch-invariance result from the previous post lives at level 1.[^4] Saying "GPUs are deterministic" usually refers to level 0. Saying "inference is nondeterministic" usually refers to level 1 or 2.
+When hardware vendors claim deterministic execution, they generally refer to Level 0. When inference engineers discuss nondeterminism, they are typically debugging failures at Level 1 or 2.[^4]
 
-## What each rung costs
+## Evaluating the Engineering Cost
 
-Determinism is often assumed to trade directly against performance. The data does not entirely support that.
+Enforcing these invariants is generally assumed to incur steep performance penalties, but the reality is more nuanced.
 
-**Level 2 is nearly free.** The vLLM PR reports zero impact on cache hits, decode steps, and block-aligned prompts. The only cost is one extra scheduling step for non-block-aligned cache-miss prefills. End-to-end, that comes to **−0.4% at a 0% cache hit rate, −0.08% at a typical 80%, and −0.02% at 95%.** At those numbers, the feature costs nothing measurable. Level 2 and its consequence level 3 are cheap, identified, and should be defaults rather than flags.
+**Levels 2 and 3** are inexpensive. The vLLM implementation reports negligible overhead: −0.4% at a 0% cache hit rate, and −0.02% at 95%. The only cost is a minor scheduling constraint for unaligned cache-miss prefills. Given the negligible penalty, this behavior warrants being a default rather than an opt-in flag.
 
-**Level 1 costs a kernel rewrite.** Normalisation, matmul, and attention all move to a single reduction strategy regardless of shape. This abandons the shape-specialisation that made them fast. SGLang's tracker includes a line item for accelerating the batch-invariant Triton kernels afterwards, indicating the first version was slow.
+**Level 1**, however, requires invasive kernel modifications. Normalization, matmul, and attention operations must adopt a unified reduction strategy regardless of the batch dimension. This intentionally bypasses shape-specialized optimizations, reliably degrading peak performance.
 
-**Level 4 costs collective performance.** A deterministic all-reduce cannot use whatever reduction tree the topology makes fastest today.
+**Level 4** compromises collective communication efficiency. A strictly deterministic `all_reduce` is constrained from utilizing dynamic or topology-optimized reduction trees.
 
-**Level 5 is unstarted.** The reason is visible in the shape of the problem: quantization scale granularity tracks dynamic range. Fixing it for reproducibility means accepting worse clipping somewhere.
+**Level 5** remains unaddressed because quantization scale granularity is tightly coupled to dynamic range. Enforcing reproducibility across quantization boundaries requires accepting suboptimal clipping profiles.
 
-The pattern is not a smooth curve. The cheap rungs constrain *scheduling*, and the expensive rungs constrain *arithmetic*.
+The general trend is clear: lower-rung determinism typically requires cheap scheduling constraints, while higher-rung determinism demands expensive arithmetic compromises.
 
-## Where the ladder stops being an engineering problem
+## The Limits of Internal Implementation
 
-Levels 0 through 5 share a property that levels 6 and 7 lack: one team owns all the code.
+Levels 0 through 5 share a defining characteristic: they can be resolved internally by a single engineering organization controlling the engine. 
 
-Implementing these invariants requires a team to change their own kernels, scheduler, and collectives, and then test that their engine agrees with itself. That is hard, multi-quarter work, but it is ordinary work with a clear owner.
+Levels 6 and 7 represent a fundamental shift from technical implementation to industry coordination. Requiring two distinct engines to produce identical logits (Level 6) necessitates strict, maintained agreements on reduction order, accumulator precision, and scale granularity.
 
-Level 6 asks two engines to produce identical logits. No one has attempted it. It is a coordination problem before it is a technical one. vLLM and SGLang would have to agree on reduction order, tile policy, accumulator precision, and scale granularity, holding that agreement across releases.
+Level 7 requires this agreement across disparate hardware vendors and closed-source kernels. There is currently no specification or contract interface where such an agreement could be encoded. A KV cache tensor carries shape, dtype, and layout, but lacks metadata defining the numeric contract of its generation. Consequently, consumers of the cache cannot verify the bitwise compatibility of the incoming state.
 
-Level 7 asks two vendors to do the same with unpublished kernels. Here the difficulty is not effort or willingness. **There is no artefact in which the agreement could be written down.** The KV connector carries shape, dtype, and layout. NIXL's descriptor carries an address, a length, and a device. The router prices workers in blocks. A vendor pair that wanted to promise bitwise compatibility has nowhere to put the promise, and a customer that wanted to verify it has nothing to test against.
+## Defining a Numeric Contract
 
-Inside one engine, a team can decide to make the invariant part of the contract, as vLLM is doing with a flag. Across two vendors, they cannot decide, because there is no contract to amend.
+To achieve Level 7 reproducibility in a disaggregated architecture, a rigorous numeric specification for KV caches must be established. At a minimum, this contract must define:
 
-## What a criterion would have to say
+- **Reduction Order:** A guarantee of shape-independent reduction ordering.
+- **Accumulator Precision:** Explicit separation from storage precision (e.g., isolating FP32 accumulation into BF16 storage versus pure BF16 pipelines).
+- **Tile-Selection Policy:** Strict tile-invariance guarantees.
+- **Quantization Granularity:** Explicit placement and scaling logic, which is physically embedded in the cache layout.
+- **Collective Algorithms:** Deterministic reduction orders for tensor-parallel environments.
 
-If an engineer wanted to specify level 7, the fields are enumerable. A numeric contract for a KV cache would have to fix, at minimum:
+These parameters are not theoretical; the generating compiler holds all of these facts internally. The deficiency is the lack of a standardized protocol to communicate them downstream.
 
-**Reduction order**, or an explicit statement that the producer guarantees a shape-independent one. **Accumulator precision**, separately from storage precision, because fp32-accumulate into bf16-store is a different result from bf16 throughout. **Tile-selection policy**, or a guarantee of tile-invariance. **Quantization scale granularity and placement**, which part two showed is physically embedded in the cache layout. **Collective algorithm and reduction order** where tensor parallelism is involved. And **scheduler split policy**, since vLLM #34046 demonstrates that where you chunk a prefill changes the arithmetic.
-
-Systems would also need a way to declare which level of the ladder is claimed, discovering at configuration time that one promises level 5 and the other promises level 1.
-
-None of this is exotic. The producing implementation already knows every item. These are facts a compiler holds about its own machine, with no channel to communicate them to anyone else's.
-
-## The limits of internal fixes
-
-Fixing every issue on both trackers produces an engine that agrees with itself, achieving levels 0 through 5 for one implementation. But disaggregated deployments need two implementations from two companies to agree. No amount of work inside a single repository moves that line.
-
-When the engineer who found the divergence, diagnosed it to 1 ULP, and wrote the fix declines to call it a bug, they make an accurate observation. No specification was violated, because none exists.
-
-Thanks to [Micah Villmow](https://www.linkedin.com/in/micah-villmow-1542534/), whose comment on the previous post argued that this was a defect in vLLM and SGLang rather than a structural property, and pointed to SGLang #10278 and vLLM #34046. The data in those two issues isolates the mechanics of numeric divergence more precisely than anything else I have found on it.
+Until such a specification is defined and adopted, cross-vendor bitwise reproducibility remains an intractable problem. When engineers correctly diagnose deep divergence cascading from a 1 ULP shift and refuse to label it a bug, they are acknowledging this reality: there is no bug because there is no specification to violate.
 
 ---
 
 ## References
 
-[^1]: **SGLang #10278, "[Feature] Support deterministic inference with Batch Invariant Ops."** Tracking issue covering attention backends, deterministic all-reduce for tensor parallelism, radix cache support, model coverage, quantization, parallelism and speculative decoding. Seventeen items checked, eleven unchecked at time of writing, including all four quantization entries, DP attention, expert parallelism, speculative decoding drafters, the prefill-with-versus-without-radix-cache equivalence, and "Not deterministic on Blackwell for TP4." Closed, labelled inactive. ([sgl-project/sglang#10278](https://github.com/sgl-project/sglang/issues/10278))
+[^1]: **SGLang #10278, "[Feature] Support deterministic inference with Batch Invariant Ops."** Tracking issue covering attention backends, deterministic all-reduce for tensor parallelism, radix cache support, model coverage, quantization, parallelism and speculative decoding. ([sgl-project/sglang#10278](https://github.com/sgl-project/sglang/issues/10278))
 
-[^2]: **vLLM #34046, "[Feature][Scheduler] Add split prefix caching feature to eliminate bf16 GEMM tiling divergence across cache-hit/miss paths."** Source of the cache-miss versus cache-hit M-dimension table, the statement that Tensile and cuBLAS select tile configurations by M and partition the K-dimension reduction differently, the layer-by-layer amplification measurements from 1 ULP at layer 0 to argmax flips at the logits, the assertion that "the GEMM is working correctly … not a precision bug," and the overhead figures of −0.4% at 0% cache hit rate, −0.08% at 80% and −0.02% at 95%. Opt-in behind `--deterministic-prefix-caching`; open since February 2026. ([vllm-project/vllm#34046](https://github.com/vllm-project/vllm/pull/34046))
+[^2]: **vLLM #34046, "[Feature][Scheduler] Add split prefix caching feature to eliminate bf16 GEMM tiling divergence across cache-hit/miss paths."** Identifies the M-dimension tiling divergence and provides empirical layer-by-layer amplification measurements. ([vllm-project/vllm#34046](https://github.com/vllm-project/vllm/pull/34046))
 
-[^3]: **vLLM #33123, "[Bug][ROCm]: Prefix caching produces different output on first request (cache miss) vs subsequent requests (cache hit)."** The originating report, filed as a bug by the same engineer who later implemented the fix as a feature. Closed, labelled stale. ([vllm-project/vllm#33123](https://github.com/vllm-project/vllm/issues/33123))
+[^3]: **vLLM #33123, "[Bug][ROCm]: Prefix caching produces different output on first request (cache miss) vs subsequent requests (cache hit)."** The originating report for the prefix caching numeric divergence. ([vllm-project/vllm#33123](https://github.com/vllm-project/vllm/issues/33123))
 
-[^4]: **Defeating Nondeterminism in LLM Inference.** Thinking Machines Lab. The batch-invariance result discussed in the previous post: 1,000 identical requests at temperature zero producing 80 unique completions, first diverging at token 103, resolved by rewriting normalisation, matmul and attention to use a reduction order fixed independently of batch size. ([Thinking Machines](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/))
+[^4]: **Defeating Nondeterminism in LLM Inference.** Thinking Machines Lab. Details batch-invariance failures and the required kernel rewrites for normalization, matmul, and attention. ([Thinking Machines](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/))
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The measurements quoted here are from the linked vLLM pull request and its author's own testing on ROCm, not mine; the SGLang item counts were read from that tracking issue on 2026-08-25 and will move as it is updated. This post exists because of a correction offered on the previous one by Micah Villmow, and the substance of that correction is his rather than mine.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.1 Pro, Claude Opus 4.8). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*
