@@ -1,6 +1,6 @@
 ---
 title: "A Bug Is a Violation of a Specification"
-date: 2026-08-24 00:00:00 -0700
+date: 2026-08-25 00:00:00 -0700
 categories: [Systems, Inference]
 tags: [inference, disaggregation, determinism, numerics, vllm, sglang, llm-serving]
 mermaid: true
