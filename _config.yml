@@ -16,10 +16,10 @@ timezone: America/Los_Angeles
 
 title: Aditya Kumar # the main title
 
-tagline: Compilers, Software Performance optimizations # it will display as the subtitle
+tagline: Compilers, MLIR, LLVM, XLA, JAX # it will display as the subtitle
 
 description: >- # used by seo meta and the atom feed
-  Compilers, Static analysis, software performance optimizations.
+  Compilers, MLIR, LLVM, XLA, JAX, C++.
 
 # Fill in the protocol & hostname for your site.
 # E.g. 'https://username.github.io', note that it does not end with a '/'.
