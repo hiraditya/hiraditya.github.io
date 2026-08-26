@@ -91,7 +91,7 @@ That asymmetry follows from the roofline rather than from procurement. Specializ
 
 Specializing decode is a capability play. The division in the previous section is a wall that no amount of HBM engineering climbs, because HBM bandwidth is what it is. Replacing HBM with SRAM changes the denominator by three or four orders of magnitude. If you can only ship one specialized part, you ship the one that changes what is possible, not the one that improves the margin.
 
-There is a further wrinkle worth noting, because it complicates the tidy two-phase story this post has been telling. In the NVIDIA arrangement the split is not cleanly prefill-versus-decode: LPX handles the latency-sensitive parts of the decode loop, specifically the feed-forward and MoE expert execution, while Rubin GPUs retain prefill *and* decode attention.[^3] Attention stays with the GPU because that is where the KV cache lives. Which means the boundary can fall inside a single decoding step, with activations crossing it every layer.
+One further wrinkle complicates the tidy two-phase story this post has been telling. In the NVIDIA arrangement the split is not cleanly prefill-versus-decode: LPX handles the latency-sensitive parts of the decode loop, specifically the feed-forward and MoE expert execution, while Rubin GPUs retain prefill *and* decode attention.[^3] Attention stays with the GPU because that is where the KV cache lives. Which means the boundary can fall inside a single decoding step, with activations crossing it every layer.
 
 ## The measurements came first
 

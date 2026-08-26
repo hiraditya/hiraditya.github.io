@@ -10,7 +10,7 @@ VLIW (Very Long Instruction Word) spent most of the last two decades as a specia
 
 That has changed. The economics of machine learning have pulled VLIW back into mainstream silicon, and the population of engineers writing compilers and kernels for these machines has grown by roughly an order of magnitude. The reason is straightforward: ML training and inference are dominated by regular, statically analyzable computation, which is precisely the workload VLIW was built to exploit.
 
-The VLIW-versus-out-of-order (OoO) debate is an old one, and for general-purpose code it was settled in favor of OoO. But "settled" rested on assumptions about the workload, and those assumptions do not hold for dense linear algebra. It is worth being precise about why.
+The VLIW-versus-out-of-order (OoO) debate is an old one, and for general-purpose code it was settled in favor of OoO. But "settled" rested on assumptions about the workload, and those assumptions do not hold for dense linear algebra. The reasons are specific.
 
 ## What is VLIW? The Anatomy of an Instruction Bundle
 

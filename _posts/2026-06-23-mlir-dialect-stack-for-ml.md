@@ -169,7 +169,7 @@ It is also how new hardware gets targeted. A vendor adds a dialect that models i
 
 ## The Costs: Verification, Debugging, and Fragile Pipelines
 
-The machinery that makes MLIR productive has sharp edges worth stating plainly.
+The machinery that makes MLIR productive has sharp edges.
 
 **Defining correct verification is real work.** Every dialect ships a verifier that enforces invariants on its ops and types, and the shared framework runs all of them together. That catches malformed IR early, but the burden of writing *correct* verification rules falls on whoever defines a dialect. Get a type invariant wrong, or leave one out, and malformed IR passes the verifier and resurfaces as a crash in a later pass, far from where it was actually introduced.[^7]
 

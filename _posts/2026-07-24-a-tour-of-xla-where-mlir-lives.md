@@ -175,7 +175,7 @@ graph TD
   class LLVM core; class XLA,SHLO,SHARDY,TRITON leaf;
 ```
 
-It is worth noting how much of the periphery — the StableHLO front door, the Shardy partitioner, the Triton and Mosaic codegen — is built on MLIR, while the classic-HLO optimizer at the center is its own older representation. XLA predates MLIR by years, and that ordering shows in the architecture: MLIR sits at the interfaces that were built or rebuilt more recently, and the mature core has stayed as it was.
+Almost the entire periphery — the StableHLO front door, the Shardy partitioner, the Triton and Mosaic codegen — is built on MLIR, while the classic-HLO optimizer at the center is its own older representation. XLA predates MLIR by years, and that ordering shows in the architecture: MLIR sits at the interfaces that were built or rebuilt more recently, and the mature core has stayed as it was.
 
 ## The design, and where it binds
 
