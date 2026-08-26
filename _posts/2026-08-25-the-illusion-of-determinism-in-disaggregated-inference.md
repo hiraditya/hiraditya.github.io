@@ -50,7 +50,7 @@ The vLLM pull request measures this layer by layer on Qwen3-0.6B running on ROCm
 
 An imperceptible 1 ULP shift becomes an absolute difference of `8.0` because the residual stream is threaded through non-linearities at every layer.
 
-When a 1 ULP discrepancy passes through LayerNorm, the mean and variance statistics of the entire hidden state shift microscopically. This broadcasts the local error globally across the vector. When this perturbed vector enters the attention mechanism, the Softmax operation applies an exponential function (`exp(x)`). Exponential functions aggressively stretch minor differences in input scores. When multiplied against the value matrix, the perturbation spreads across the feature dimensions.
+When a 1 ULP discrepancy passes through RMSNorm, it shifts the root-mean-square taken over the entire hidden state. That single statistic divides every element of the vector, so a perturbation in one element is immediately broadcast to all of them. When this perturbed vector enters the attention mechanism, the Softmax operation applies an exponential function (`exp(x)`). Exponential functions aggressively stretch minor differences in input scores. When multiplied against the value matrix, the perturbation spreads across the feature dimensions.
 
 By Layer 14, the error has bounced through 14 layers of exponential stretch, global normalization, and SwiGLU gating. The error margin grows from `0.008` to `0.5`. By Layer 27, it hits `8.0`. At the final projection to the vocabulary space, the accumulated variance fundamentally alters the output distribution, shifting the logits enough to flip the top-1 token choice.
 
