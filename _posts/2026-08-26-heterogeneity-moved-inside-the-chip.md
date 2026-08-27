@@ -86,6 +86,40 @@ So the question does not disappear at the die boundary. It changes jurisdiction.
 
 What is missing is a way to say it. A kernel today declares the shapes it consumes and the memory it touches. It does not declare that this phase is compute-heavy and bandwidth-light while the next inverts that, that the interconnect should expect bursts rather than a steady stream, or that the resource mix should be re-derived when the acceptance rate moves. Those are properties of a phase, and a phase is not something the interface currently names.
 
+## The assumption underneath
+
+Keeping the KV cache local is a claim about capacity, and capacity is a function of context length.
+
+A Jalapeño package pairs its compute die with six HBM4 stacks: 216 GiB at 15.4 TB/s in a 700 W envelope, with a 128-chip rack holding 27.5 TB.[^5] Whether that is generous or tight depends on how much KV a session carries, and the spread across attention designs is wide enough to change the answer.
+
+| KV layout | Per token | One 1M-token session | Such sessions per 216 GiB |
+|---|---|---|---|
+| MLA, the 656-byte entry from part two | 656 B | 0.6 GiB | ~350 |
+| GQA: 80 layers, 8 KV heads, 128-wide, fp8 | 160 KiB | ~153 GiB | 1.4 |
+| the same at bf16 | 320 KiB | ~305 GiB | does not fit |
+
+OpenAI does not publish its serving configurations, so the two GQA rows are a bracket rather than a measurement of anything it runs. The point is the ratio between them. A compressed-latent design keeps a million tokens local without difficulty. A conventional grouped-query layout at the same length puts one session on seventy percent of a package.
+
+Capacity is not the binding constraint in any case. Decode throughput comes from batching sequences together, and batch size is what long context destroys. At 8k a chip holds hundreds of sessions and batches across them. At 1M with the layout above it holds one, and decode collapses into the memory-bound GEMV described in part one, with nothing left to amortise the weight traffic against. Across a full rack, 27.5 TB works out to roughly 168 concurrent million-token sessions.
+
+The dark-silicon argument also narrows here. Gating an unused block recovers power. It does not recover die area, and an agentic mix — long input, short output — skews toward prefill for long stretches, leaving the memory and network blocks dark on silicon that was already bought. Gating is an operating-cost answer to what becomes a capital-cost question once the skew is persistent.
+
+Long sessions add a third pressure unrelated to peak load. Agentic work waits: on a tool call, on a retrieval, on a person. Through those gaps the session's KV sits resident in HBM, which is the most expensive place in the system to hold cold state. The usual remedy is to move it down a tier, to host memory or a pooled store, which is disaggregating memory inside a design whose argument was that disaggregation costs too much.
+
+None of this is disqualifying, and the defence is strong. "Local" can mean rack-local across a coherent fabric rather than resident on one die, and 27.5 TB is real headroom. Agentic sessions also share unusually large prefixes — system prompts, tool schemas, repository context — so if prefix cache hit rates are high, prefill work collapses and the phase mix swings back toward decode, which is the regime a balanced chip is built for.
+
+What is missing is evidence. The published figures cover an 8k input, 1k output workload. SemiAnalysis, which watched the runs in person, reports there are no agentic traces yet, and that the components under the most pressure in that regime are the routers and the prefix caching machinery.[^3] Those are the parts that decide the question.
+
+## Two live bets, not a consensus
+
+The rest of the industry has not converged on this answer.
+
+NVIDIA removed Rubin CPX from its roadmap at GTC 2026 — the part built specifically for compute-bound prefill, with GDDR7 standing in for HBM. Consolidation is not what replaced it. The slot went to a 256-chip SRAM-based Groq 3 LPX rack, through a licensing deal reported at around twenty billion dollars.[^6] One specialist was exchanged for another aimed at the opposite end of the request, while Rubin and Rubin Ultra keep growing. Both bets are running inside the same roadmap.
+
+The vendor pairings from part one point the same way. Each puts a specialised part on one side of a phase boundary and treats the boundary as a cost worth paying.
+
+So the question is not settled by a chip that declines to answer it. It is being answered two ways at once, by organisations with comparable information and comparable incentives.
+
 ## Different configurations of the same computer
 
 Part one of this series claimed that prefill and decode want different computers. Jalapeño is a reasonable argument that they want different *configurations* of the same computer, and that the configuration should change while the request is in flight.
@@ -103,6 +137,10 @@ That is a more demanding claim than the one I made, not a softer one. Different 
 [^3]: **SemiAnalysis on Jalapeño.** Reports that the performance figures were supplied by OpenAI, that the published runs cover an 8k input / 1k output workload rather than agentic traces, and that the speculative decoding configuration differs between Jalapeño and the systems it is compared against. Also states that OpenAI chose not to disaggregate prefill and decode across separate chip pools, and that the draft model shares chips and fabric with the main model. ([SemiAnalysis](https://newsletter.semianalysis.com/p/openai-jalapeno-better-than-nvidia))
 
 [^4]: **The five-part series.** [Prefill and decode want different computers]({% post_url 2026-08-16-prefill-and-decode-want-different-computers %}), [the KV cache has no ABI]({% post_url 2026-08-18-the-kv-cache-has-no-abi %}), [there is no address]({% post_url 2026-08-19-there-is-no-address %}), [two schedulers, one SLO]({% post_url 2026-08-20-two-schedulers-one-slo %}), and [a cache its own prefill would never have produced]({% post_url 2026-08-24-a-cache-its-own-prefill-would-never-have-produced %}).
+
+[^5]: **Jalapeño configuration.** Each package pairs the compute die with six HBM4 stacks for 216 GiB at 15.4 TB/s and 13.4 PFLOP/s of MXFP4 matrix compute in a 700 W envelope; a rack is 128 chips holding 27.5 TB, and a pod is 2,048 ASICs. HBM4 reported as supplied by Samsung. ([The Register](https://www.theregister.com/systems/2026/08/25/openais-upcoming-jalapeno-chip-looks-like-itll-be-an-inference-beast/5292052), [Tom's Hardware](https://www.tomshardware.com/tech-industry/semiconductors/openai-says-its-jalapeno-chip-beats-nvidias-gb300-in-first-published-benchmarks))
+
+[^6]: **Rubin CPX removed from the NVIDIA roadmap.** Announced at the AI Infra Summit in September 2025 as a prefill-specialised part using GDDR7 rather than HBM, and dropped at GTC 2026. The slot was taken by a 256-chip SRAM-based Groq 3 LPX rack acquired through a licensing arrangement reported at roughly $20B. ([Tom's Hardware](https://www.tomshardware.com/pc-components/gpus/nvidia-removes-rubin-cpx-accelerators-from-its-roadmap-groq-3-lpus-take-center-stage-as-cpx-is-removed))
 
 ---
 
