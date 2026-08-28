@@ -52,7 +52,15 @@ The hardware must reconfigure its resource mix hundreds of times per second. The
 
 At a network boundary, this is a protocol negotiation problem. On a unified die, it becomes a compiler and runtime scheduling problem. This is a superior domain for the problem to exist. A compiler has deep visibility into the phase structure of the computation, and a unified runtime has solitary ownership over the hardware execution.
 
-Yet, we currently lack the programming model to express these demands. A modern kernel declares its tensor shapes and memory footprints. It does not declare that a specific block is compute-heavy while its consumer is bandwidth-bound. It cannot instruct the hardware to expect bursty interconnect traffic, nor can it request a dynamic resource reallocation when the speculative acceptance rate drifts. These are properties of a computational phase, and "phase" is not a primitive that our current compiler stacks can name or manipulate.
+## The Missing Compiler Primitives
+
+Yet, we currently lack the programming model to express these hardware demands. A modern compiler intermediate representation (IR)—whether it is MLIR's `linalg` dialect, Triton IR, or PTX—is designed to express tensor shapes, memory layouts, and data flow. It completely lacks the vocabulary to express temporal traffic patterns or phase-level hardware transitions. 
+
+An IR does not declare that a specific sequence of operations will generate 800 GB/s of all-to-all traffic in 5-microsecond bursts. It cannot express that a computation is compute-heavy while its immediate consumer is strictly memory-bandwidth bound. 
+
+Without these annotations, the hardware runtime cannot schedule efficiently. To power-gate a silicon block, the runtime must preemptively wake it up *before* the computation arrives. Waking dormant systolic arrays or spinning up SERDES links takes measurable time. If the runtime is strictly reactive, the latency cost of waking the dark silicon destroys the latency budget you gained by avoiding the network boundary in the first place. 
+
+If a compiler cannot name a computational phase, the runtime cannot preemptively allocate the hardware. We are treating a dynamic, multi-modal hardware reconfiguration problem with static, single-mode compiler tools.
 
 ## The Capacity Wall
 
@@ -76,13 +84,17 @@ The traditional solution to agentic idling is to page the KV cache down the memo
 
 The dark-silicon argument also falters under persistent agentic workloads. Power-gating unused blocks saves operational expenditure, but it does not reclaim die area. An agentic workload heavily skews toward long prefill and short decode. This leaves the memory and network blocks dark on silicon that required massive capital expenditure to fabricate. Power-gating is a band-aid for operational costs; it does not solve the capital inefficiency of deploying unified silicon for heavily skewed workloads.
 
-## Two Bets on the Same Roadmap
+## The NVIDIA Counter-Bet: Physical Disaggregation
 
-The unified architecture is a compelling engineering argument, but it is not an industry consensus. 
+The unified architecture is a compelling engineering argument, but it is deeply contested by the rest of the industry. 
 
-NVIDIA recently removed Rubin CPX—a part specifically optimized for compute-bound prefill using GDDR7—from its roadmap at GTC 2026. The production slot was allocated to a 256-chip, SRAM-based Groq 3 LPX rack, acquired through a massive licensing arrangement.[^6] NVIDIA opted to exchange a prefill-specialized accelerator for a latency-specialized one, continuing to heavily invest in physical disaggregation while iterating on the unified Rubin architecture in parallel.
+NVIDIA recently removed Rubin CPX—a part specifically optimized for compute-bound prefill using GDDR7—from its roadmap at GTC 2026. The production slot was instead allocated to a 256-chip, SRAM-based Groq 3 LPX rack, acquired through a massive licensing arrangement.[^6] 
 
-The most sophisticated engineering organizations in the industry are actively funding directly opposed architectural philosophies. One is betting that the cost of crossing the network boundary is prohibitive and heterogeneity must move on-die. The other is betting that workload ratios will skew so heavily that maintaining specialized, disaggregated silicon pools is the only mathematically viable path to cluster efficiency.
+This is a structural rejection of the unified die approach. By pulling Groq's SRAM-based architecture into the roadmap to serve the latency-bound draft model phase, NVIDIA is doubling down on physical disaggregation. They are asserting that a unified HBM pool cannot simultaneously serve the deterministic, ultra-low latency demands of a batch-size-of-1 draft model *and* the massive capacity/throughput demands of batched prefill and verification without extreme, unacceptable compromise. 
+
+SRAM provides entirely deterministic access times with massive internal bandwidth, perfectly matching the draft model's profile. HBM provides the capacity required for KV caches and model weights, but its access latency is fundamentally too high for optimal speculative generation. NVIDIA’s bet is that the physical limitations of memory hierarchy physics—SRAM vs. HBM—dictate that specialized silicon pools connected by an ultra-fast fabric will mathematically outperform a unified die that tries to compromise between the two.
+
+The most sophisticated engineering organizations in the industry are actively funding directly opposed architectural philosophies. One is betting that the latency penalty of crossing a network boundary is fatal to speculative decoding, meaning heterogeneity must move on-die. The other is betting that workload ratios will skew so heavily, and memory access profiles are so distinct, that maintaining specialized, disaggregated silicon pools is the only mathematically viable path to cluster efficiency.
 
 Both bets rely on the exact same underlying premise: prefill, draft, and verification require fundamentally different hardware. Jalapeño is a forceful argument that they require different *configurations* of the same computer, reallocated dynamically while the request is in flight.
 
