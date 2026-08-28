@@ -6,9 +6,9 @@ tags: [inference, disaggregation, accelerators, speculative-decoding, hardware, 
 mermaid: true
 ---
 
-At Hot Chips 2026 on Tuesday, OpenAI presented Jalapeño, an inference ASIC built with Broadcom.[^1] One slide from the talk has been circulating since: a request no longer spans two phases but three — prefill, a draft model, and speculative verification.[^2]
+At Hot Chips 2026 on Tuesday, OpenAI presented Jalapeño, an inference ASIC built with Broadcom.[^1] The slide that has been circulating since shows a request split three ways rather than two: prefill, a draft model, and speculative verification.[^2]
 
-The third phase is not the news. The news is what OpenAI decided to do about it.
+What OpenAI decided to do about that third phase is the substance of the talk.
 
 ## Three regimes, one request
 
@@ -70,19 +70,19 @@ The five posts before this one argued that a programming model for heterogeneous
 
 OpenAI's design makes all five expressible by the only method currently available. It deletes the boundary. One vendor, one chip, one memory hierarchy, one scheduler, one set of kernels. Every question this series asked about crossing a vendor line stops being a question when there is no line.
 
-That is not a refutation of the argument. It is the strongest confirmation of it so far. Presented with three phases that genuinely want different hardware, an organization with its own silicon team looked at the cost of the boundary and declined to pay it.
+This is the strongest confirmation the argument has had. Presented with three phases that genuinely want different hardware, an organization with its own silicon team looked at the cost of the boundary and declined to pay it.
 
 The benchmark numbers on the closing slide are being quoted widely and I am setting them aside. SemiAnalysis, which saw the runs in person, reports that the figures came from OpenAI, cover a single 8k/1k workload, and are not iso-configuration — the comparisons involve different speculative decoding settings on either side.[^3] The architectural argument does not depend on them.
 
 ## What deleting the boundary does not delete
 
-Consolidation answers the question of who owns the machine. It does not answer what to do with it.
+Consolidation settles who owns the machine and leaves open what to do with it.
 
 "Activate the right ratio by phase; unused units go dark" is a runtime decision. Prefill wants the compute blocks and can leave memory bandwidth mostly idle. Verify wants the opposite, plus a burst-tolerant interconnect for expert routing. Draft wants very little of anything except a short path to the verify units. Something has to set that mix, per phase, and reset it a few hundred times a second.
 
 The inputs to that decision are the same list from the changing-ratios slide, and every item on it is dynamic. Context length varies per request. Speculative acceptance rate varies per request and drifts with the model. The latency-versus-throughput target varies by customer tier. None of these are known when the kernel is compiled.
 
-So the question does not disappear at the die boundary. It changes jurisdiction. Across a network it was a protocol problem, and the answer was that no protocol exists. On a single chip it is a compiler and runtime problem, which is a better place for it to be — a compiler has visibility into the phase structure of the computation, and there is finally a single owner who could act on the answer.
+At the die boundary the question changes jurisdiction. Across a network it was a protocol problem, and the answer was that no protocol exists. On a single chip it is a compiler and runtime problem, which is a better place for it to be — a compiler has visibility into the phase structure of the computation, and there is finally a single owner who could act on the answer.
 
 What is missing is a way to say it. A kernel today declares the shapes it consumes and the memory it touches. It does not declare that this phase is compute-heavy and bandwidth-light while the next inverts that, that the interconnect should expect bursts rather than a steady stream, or that the resource mix should be re-derived when the acceptance rate moves. Those are properties of a phase, and a phase is not something the interface currently names.
 
@@ -100,7 +100,7 @@ A Jalapeño package pairs its compute die with six HBM4 stacks: 216 GiB at 15.4 
 
 OpenAI does not publish its serving configurations, so the two GQA rows are a bracket rather than a measurement of anything it runs. The point is the ratio between them. A compressed-latent design keeps a million tokens local without difficulty. A conventional grouped-query layout at the same length puts one session on seventy percent of a package.
 
-Capacity is not the binding constraint in any case. Decode throughput comes from batching sequences together, and batch size is what long context destroys. At 8k a chip holds hundreds of sessions and batches across them. At 1M with the layout above it holds one, and decode collapses into the memory-bound GEMV described in part one, with nothing left to amortise the weight traffic against. Across a full rack, 27.5 TB works out to roughly 168 concurrent million-token sessions.
+Batch size binds before capacity does. Decode throughput comes from batching sequences together, and long context is what destroys batch size. At 8k a chip holds hundreds of sessions and batches across them. At 1M with the layout above it holds one, and decode collapses into the memory-bound GEMV described in part one, with nothing left to amortise the weight traffic against. Across a full rack, 27.5 TB works out to roughly 168 concurrent million-token sessions.
 
 The dark-silicon argument also narrows here. Gating an unused block recovers power. It does not recover die area, and an agentic mix — long input, short output — skews toward prefill for long stretches, leaving the memory and network blocks dark on silicon that was already bought. Gating is an operating-cost answer to what becomes a capital-cost question once the skew is persistent.
 
@@ -114,11 +114,11 @@ What is missing is evidence. The published figures cover an 8k input, 1k output 
 
 The rest of the industry has not converged on this answer.
 
-NVIDIA removed Rubin CPX from its roadmap at GTC 2026 — the part built specifically for compute-bound prefill, with GDDR7 standing in for HBM. Consolidation is not what replaced it. The slot went to a 256-chip SRAM-based Groq 3 LPX rack, through a licensing deal reported at around twenty billion dollars.[^6] One specialist was exchanged for another aimed at the opposite end of the request, while Rubin and Rubin Ultra keep growing. Both bets are running inside the same roadmap.
+NVIDIA removed Rubin CPX from its roadmap at GTC 2026 — the part built specifically for compute-bound prefill, with GDDR7 standing in for HBM. The slot went to a 256-chip SRAM-based Groq 3 LPX rack, through a licensing deal reported at around twenty billion dollars.[^6] One specialist was exchanged for another aimed at the opposite end of the request, while Rubin and Rubin Ultra keep growing. Both bets are running inside the same roadmap.
 
 The vendor pairings from part one point the same way. Each puts a specialised part on one side of a phase boundary and treats the boundary as a cost worth paying.
 
-So the question is not settled by a chip that declines to answer it. It is being answered two ways at once, by organisations with comparable information and comparable incentives.
+Two organisations with comparable information and comparable incentives are answering this in opposite directions, which is a fair sign the question is still open.
 
 ## Different configurations of the same computer
 
