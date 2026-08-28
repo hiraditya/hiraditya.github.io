@@ -6,7 +6,7 @@ tags: [inference, disaggregation, accelerators, speculative-decoding, hardware, 
 mermaid: true
 ---
 
-At Hot Chips this week, OpenAI detailed Jalapeño, an inference ASIC co-designed with Broadcom.[^1] The architecture slide circulating since the presentation frames a request pipeline split strictly three ways: prefill, a draft model, and speculative verification.[^2] While the traditional split is just prefill and decode, replacing standard decode with a tight draft-and-verify speculation loop forces a complete re-evaluation of hardware bottlenecks.
+At Hot Chips this week, OpenAI presented Jalapeño, an inference ASIC co-designed with Broadcom.[^1] The architecture slide circulating since the presentation frames a request pipeline split three ways: prefill, a draft model, and speculative verification.[^2] While the traditional split is just prefill and decode, replacing standard decode with a tight draft-and-verify speculation loop leads to a re-evaluation of hardware bottlenecks.
 
 It is worth inspecting the design closely. It rejects the industry trend of physical disaggregation entirely, opting instead for a unified silicon architecture that dynamically reallocates its own internal bottlenecks.
 
@@ -84,9 +84,9 @@ The traditional solution to agentic idling is to page the KV cache down the memo
 
 The dark-silicon argument also falters under persistent agentic workloads. Power-gating unused blocks saves operational expenditure, but it does not reclaim die area. An agentic workload heavily skews toward long prefill and short decode. This leaves the memory and network blocks dark on silicon that required massive capital expenditure to fabricate. Power-gating is a band-aid for operational costs; it does not solve the capital inefficiency of deploying unified silicon for heavily skewed workloads.
 
-## The NVIDIA Counter-Bet: Physical Disaggregation
+## The NVIDIA's Counter-Bet: Physical Disaggregation
 
-The unified architecture is a compelling engineering argument, but it is deeply contested by the rest of the industry. 
+The unified architecture is a compelling engineering argument, but it is contested by the rest of the industry. 
 
 NVIDIA recently removed Rubin CPX—a part specifically optimized for compute-bound prefill using GDDR7—from its roadmap at GTC 2026. The production slot was instead allocated to a 256-chip, SRAM-based Groq 3 LPX rack, acquired through a massive licensing arrangement.[^6] 
 
