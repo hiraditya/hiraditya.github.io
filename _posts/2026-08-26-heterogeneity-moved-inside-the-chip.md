@@ -78,7 +78,7 @@ An IR has no way to declare that a sequence of operations will produce all-to-al
 
 The consequence is concrete. To power-gate a block, the runtime has to wake it *before* the computation arrives. Waking dormant arithmetic units or bringing links out of a low-power state takes time. A strictly reactive runtime pays that wake-up latency on the critical path, which is the same latency the design avoided by refusing the network boundary. If the compiler cannot name a phase, the runtime cannot preallocate for it, and we end up managing a dynamic, multi-modal machine with static, single-mode tools.
 
-## Consolidation moves the boundary; it does not remove it
+## Consolidation moved the boundary; it did not remove it
 
 The phrase "heterogeneity moves inside the chip" is easy to read as "heterogeneity goes away," and the distinction decides how much of this problem a unified die actually retires. OpenAI's own slide does not claim that. It labels the winning column **"Unified, internally heterogeneous."** The heterogeneity is in the name of the thing.
 
@@ -94,7 +94,7 @@ So both architectures land the compiler in the same place, asking the same quest
 
 The assumption underneath "keep KV local" is that there is capacity to hold it, and capacity is a function of context length.
 
-A Jalapeño package pairs its compute die with six HBM4 stacks for 216 GiB at 15.4 TB/s in a 700 W envelope. A 128-chip rack holds 27.5 TB.[^5] Whether that is generous or tight depends on the KV layout, and the spread across attention designs is wide enough to change the answer.
+That same package carries 216 GiB at 15.4 TB/s in a 700 W envelope, and a 128-chip rack holds 27.5 TB.[^5] Whether that is generous or tight depends on the KV layout, and the spread across attention designs is wide enough to change the answer.
 
 | KV layout | Per token | One 1M-token session | Such sessions per 216 GiB |
 |---|---|---|---|
