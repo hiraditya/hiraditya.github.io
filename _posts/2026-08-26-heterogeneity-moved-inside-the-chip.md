@@ -6,11 +6,9 @@ tags: [inference, disaggregation, accelerators, speculative-decoding, hardware, 
 mermaid: true
 ---
 
-At Hot Chips 2026 on Tuesday, OpenAI presented Jalapeño, an inference ASIC built with Broadcom.[^1] The slide that has been circulating since shows a request split three ways rather than two: prefill, a draft model, and speculative verification.[^2]
+At Hot Chips this week, OpenAI presented Jalapeño, an inference ASIC built with Broadcom.[^1] The slide that has been circulating since shows a request split three ways: prefill, a draft model, and speculative verification.[^2]. Typically requests are split between prefill and decode but using a draft model and speculative verication to replace the typical 'decode' makes it worthwhile to inspect their architecture further.
 
-What OpenAI decided to do about that third phase is the substance of the talk.
-
-## Three regimes, one request
+## One request split three ways
 
 The first slide sets up the problem in the same terms this series has been using. A single request passes through three phases, and each one saturates a different part of the machine.
 
@@ -22,9 +20,9 @@ The first slide sets up the problem in the same terms this series has been using
 
 The prefill column reads as expected: "attention-heavy and primarily compute-bound. Low memory-BW demand; communication is easier to schedule smoothly." The verify column is the mirror image, with the added detail that mixture-of-experts routing makes its communication arrive in bursts rather than a steady stream.
 
-The middle column is the one that did not exist when [part one]({% post_url 2026-08-16-prefill-and-decode-want-different-computers %}) of this series argued that prefill and decode want different computers. A draft model is small, runs at a batch size close to one, and moves very little data. Its stated constraint is "low network bandwidth, but extreme latency sensitivity." It is not bandwidth-hungry or compute-hungry. It is impatient.
+The middle column is the one that did not exist when [part one]({% post_url 2026-08-16-prefill-and-decode-want-different-computers %}) of this series argued that prefill and decode want different computers. A draft model is small, runs at a batch size close to one, and moves very little data. It requires "low network bandwidth, but extreme latency sensitivity." TLDR: It is impatient!
 
-The slide closes on a line worth keeping: "What matters is requests/second/watt at the required SLA latency. Each phase hits a different bottleneck; efficiency only counts if the complete request remains within its end-to-end latency target."
+Their last slide concludes thier line of thought on designing Jalapeño: "What matters is requests/second/watt at the required SLA latency. Each phase hits a different bottleneck; efficiency only counts if the complete request remains within its end-to-end latency target."
 
 That is the same objective [part four]({% post_url 2026-08-20-two-schedulers-one-slo %}) argued no disaggregated system can actually optimize, because no component owns the end-to-end budget.
 
