@@ -6,99 +6,123 @@ tags: [inference, disaggregation, accelerators, speculative-decoding, hardware, 
 mermaid: true
 ---
 
-At Hot Chips this week, OpenAI presented Jalapeño, an inference ASIC co-designed with Broadcom.[^1] The architecture slide circulating since the presentation frames a request pipeline split three ways: prefill, a draft model, and speculative verification.[^2] While the traditional split is just prefill and decode, replacing standard decode with a tight draft-and-verify speculation loop leads to a re-evaluation of hardware bottlenecks.
+At Hot Chips this week, OpenAI presented Jalapeño, an inference ASIC co-designed with Broadcom.[^1] The architecture slide circulating since the presentation frames a request pipeline split three ways: prefill, a draft model, and speculative verification.[^2] The traditional split is prefill and decode. Replacing decode with a tight draft-and-verify speculation loop forces a re-evaluation of where the hardware bottlenecks actually sit.
 
-It is worth inspecting the design closely. It rejects the industry trend of physical disaggregation entirely, opting instead for a unified silicon architecture that dynamically reallocates its own internal bottlenecks.
+What makes the design worth studying is that it rejects physical disaggregation entirely, opting instead for a unified die that reallocates its own internal bottlenecks as the phase changes.
 
-## The Three-Phase Pipeline
+## Three phases, three bottlenecks
 
-A single request traverses three distinct operational regimes, each saturating a completely different dimension of the hardware architecture.
+A single request traverses three operational regimes, and each one saturates a different dimension of the hardware.
 
-**Prefill** encodes the context. It is heavily compute-bound, demanding maximum arithmetic density for attention and projection operations. Memory bandwidth requirements are relatively low, and interconnect communication is predictable and easy to schedule.
+**Prefill** encodes the context. The slide describes it as "attention-heavy and primarily compute-bound. Low memory-BW demand; communication is easier to schedule smoothly." It wants arithmetic density and little else.
 
-**The Draft Model** runs speculative generations. This model is deliberately small, operating at a batch size close to one. It moves negligible data but is hyper-sensitive to network latency. It is entirely latency-bound. Every microsecond spent moving a tensor or waiting on an interconnect directly degrades the token generation rate.
+**The draft model** runs speculative generations. It is deliberately small, operates at a batch size close to one, and moves very little data. Its stated constraint is "low network bandwidth, but extreme latency sensitivity." Every microsecond spent moving a tensor or waiting on an interconnect degrades the generation rate directly. This phase is not bandwidth-hungry or compute-hungry. It is impatient.
 
-**Speculative Verification** replaces the decode phase. It is fundamentally bottlenecked by HBM bandwidth to load the primary model weights for attention calculations. For Mixture-of-Experts (MoE) topologies, this phase also demands extreme, burst-tolerant interconnect bandwidth for expert routing.
+**Speculative verification** replaces decode. Here the slide is more specific than a summary suggests: attention becomes *less* memory-bound once GQA and speculative tokens are in play, so the attention work is compute-bound, while the mixture-of-experts routing is what consumes HBM bandwidth and makes communication arrive in bursts rather than a steady stream.
 
-A textbook systems engineering response to three distinct bottleneck profiles is physical specialization. You design a compute-heavy prefill ASIC, a latency-optimized SRAM-heavy draft ASIC, and a bandwidth-optimized verify ASIC. You then route the request over a fabric through all three. 
+The slide closes on the objective: "What matters is requests/second/watt at the required SLA latency. Each phase hits a different bottleneck; efficiency only counts if the complete request remains within its end-to-end latency target." That is precisely the objective [part four]({% post_url 2026-08-20-two-schedulers-one-slo %}) argued no disaggregated system can optimize, because no component owns the end-to-end budget.
 
-OpenAI put that exact topology on a slide and explicitly rejected it. 
+The textbook response to three bottleneck profiles is physical specialization: a compute-heavy prefill part, a latency-optimized draft part, a bandwidth-optimized verify part, with the request routed across a fabric through all three. OpenAI put that topology on a slide under the title "System choice: KV moves or the active silicon mix varies," and rejected it.
 
-Their conclusion was simple: heterogeneity must move inside the chip, not across a network. Their design philosophy dictates keeping the KV cache local and dynamically activating the necessary silicon blocks as the phase changes.
+```mermaid
+graph TB
+    subgraph L["Disaggregated specialization"]
+        P["Prefill<br/>compute"] -->|KV| D["Draft<br/>latency"]
+        D -->|KV| V["Verify<br/>memory + compute"]
+    end
+    subgraph R["Unified, internally heterogeneous"]
+        C["compute"] --- M["memory"] --- N["network"]
+        C --- K["KV stays local"]
+    end
+    L --> LX["network + synchronization<br/>at every phase boundary"]
+    R --> RX["activate the right ratio by phase<br/>unused units go dark"]
+    style LX fill:#7f1d1d,color:#fff
+    style RX fill:#1e3a5f,color:#fff
+```
 
-## The Cost of the Boundary
+Their conclusion, in their words: "Heterogeneity moves inside the chip—not across a KV-moving network," summarised as "Locality is king: keep KV local and activate the right resources."
 
-The decision to reject physical disaggregation rests on three harsh realities of production serving. 
+## The cost of the boundary
 
-First, the ratio of work across these three phases is never fixed. The distribution shifts wildly based on the model architecture, token efficiency, dynamic context lengths, attention algorithms, speculative acceptance rates, and the required latency-versus-throughput service level agreement (SLA). If you build a fleet comprising a fixed ratio of specialized prefill and decode servers, your cluster is optimized for exactly one workload mix. The moment your workload drifts—say, users start submitting 100K-token prompts instead of 4K—entire racks of specialized decode silicon sit idle, gated by the overwhelmed prefill tier. 
+The decision to refuse physical disaggregation rests on three realities of production serving, and each maps onto something this series worked through from the software side.
 
-Second, the KV cache is enormous. Prefill generates a KV cache that the decode phase requires immediately. Disaggregating the phases means this cache must cross a network boundary on every request. As I covered previously, the network transport cost for a large KV cache destroys the latency budget of the request. The cache must stay local to the compute elements that will consume it.
+First, the ratio of work across the three phases is never fixed. It shifts with model architecture, token efficiency, context length, attention algorithm, speculative acceptance rate, and the latency-versus-throughput target. A fleet built as a fixed split of specialized pools is correct for exactly one workload mix. When the mix drifts — users start submitting 100K-token prompts instead of 4K — entire racks of specialized silicon sit idle behind an overwhelmed tier.
 
-Third, speculative decoding is a tight loop, not a linear pipeline. The draft model proposes a handful of tokens. The verify model accepts a prefix and rejects the rest. The draft model resumes from the last accepted token. This round-trip occurs constantly. Inserting a network hop between the draft and verify stages means paying fabric latency on every single speculation cycle. The entire mechanism of speculative decoding is designed to buy latency; spending that latency on a network boundary defeats the architecture.
+Second, the KV cache is large and it is needed immediately. Prefill generates a cache that the next phase consumes at once, so disaggregating the phases pushes that cache across a network on every request. [Part two]({% post_url 2026-08-18-the-kv-cache-has-no-abi %}) covered what moving it costs, and [part three]({% post_url 2026-08-19-there-is-no-address %}) covered why you cannot say where it should land.
 
-By consolidating the phases onto a single die, OpenAI avoided these penalties. One chip, one memory hierarchy, one scheduler, and one set of unified kernels. The question of how to efficiently cross vendor lines or network boundaries disappears when you simply refuse to build the boundary.
+Third, speculative decoding is a loop rather than a pipeline. The draft model proposes k tokens, verify accepts a prefix and rejects the rest, and the draft resumes from whatever survived. That round trip happens every few tokens. Inserting a network hop between draft and verify means paying fabric latency on every speculation cycle, against a phase the slide itself labels latency-bound. The mechanism speculative decoding uses to buy latency is the first thing a boundary spends.
 
-## Dynamic Activation and Dark Silicon
+Consolidating onto one die avoids all three. One chip, one memory hierarchy, one scheduler, one set of kernels. The five things the earlier posts in this series argued were inexpressible across a vendor boundary — where a stage runs, what the bytes mean, where a tensor resides and what moving it costs, who preempts whom, and what the values are permitted to be — stop being questions when there is no boundary to cross.[^4]
 
-OpenAI justified this unified architecture with a stark economic claim: dark silicon is cheaper than idle accelerators. 
+This is the strongest confirmation the argument has had. Presented with three phases that genuinely want different hardware, an organization with its own silicon team priced the boundary and declined to pay it.
 
-A dedicated accelerator incurs capital and operational costs for packaging, HBM, I/O transceivers, network fabric, and cooling, regardless of its utilization. A unified chip can selectively power-gate its unused arithmetic or memory blocks while keeping the KV cache resident and the interconnect active.
+The benchmark figures on the closing slide are circulating widely and I am setting them aside. SemiAnalysis, which watched the runs in person, reports that the numbers came from OpenAI, cover a single 8k input / 1k output workload, and are not iso-configuration, because the speculative decoding settings differ on either side of the comparison.[^3] The architectural argument does not depend on them.
 
-Consolidation settles the physical location of the computation, but it leaves the scheduling problem completely unresolved. 
+## Dynamic activation and dark silicon
 
-"Activate the right ratio by phase; unused units go dark" is inherently a runtime decision. During prefill, the chip must activate its dense matrix-multiply blocks and gate its memory controllers. During verification, it must reverse this, saturating memory bandwidth while activating burst-tolerant network links for MoE routing. The draft phase requires gating almost everything except a low-latency path to the verification units. 
+OpenAI justified the unified design with a blunt economic claim: "dark silicon is cheaper than idle accelerators."
 
-The hardware must reconfigure its resource mix hundreds of times per second. The inputs driving this reconfiguration—context length, instantaneous speculative acceptance rate, multi-tenant QoS targets—are strictly dynamic. They cannot be known at compile time. 
+A dedicated accelerator pays for packaging, HBM, I/O transceivers, network fabric and cooling whatever its utilization. A unified chip can power-gate unused arithmetic or memory blocks while the KV cache stays resident.
 
-At a network boundary, this is a protocol negotiation problem. On a unified die, it becomes a compiler and runtime scheduling problem. This is a superior domain for the problem to exist. A compiler has deep visibility into the phase structure of the computation, and a unified runtime has solitary ownership over the hardware execution.
+Consolidation settles where the computation lives. It leaves the scheduling problem entirely open.
 
-## The Missing Compiler Primitives
+"Activate the right ratio by phase; unused units go dark" is a runtime decision. During prefill the chip wants its dense matrix-multiply blocks and can leave memory controllers mostly quiet. During verification it wants the reverse, plus burst-tolerant links for expert routing. The draft phase wants almost nothing except a short path to the verification units. The hardware has to reset that mix hundreds of times a second, and the inputs driving it — context length, instantaneous acceptance rate, per-tenant QoS targets — are dynamic. None of them are known when the kernel is compiled.
 
-Yet, we currently lack the programming model to express these hardware demands. A modern compiler intermediate representation (IR)—whether it is MLIR's `linalg` dialect, Triton IR, or PTX—is designed to express tensor shapes, memory layouts, and data flow. It completely lacks the vocabulary to express temporal traffic patterns or phase-level hardware transitions. 
+At a network boundary this is a protocol negotiation problem, and the answer was that no protocol exists. On a unified die it becomes a compiler and runtime scheduling problem, which is a better place for it to live: a compiler has visibility into the phase structure of the computation, and a unified runtime finally has sole ownership of the hardware.
 
-An IR does not declare that a specific sequence of operations will generate 800 GB/s of all-to-all traffic in 5-microsecond bursts. It cannot express that a computation is compute-heavy while its immediate consumer is strictly memory-bandwidth bound. 
+## The missing compiler primitives
 
-Without these annotations, the hardware runtime cannot schedule efficiently. To power-gate a silicon block, the runtime must preemptively wake it up *before* the computation arrives. Waking dormant systolic arrays or spinning up SERDES links takes measurable time. If the runtime is strictly reactive, the latency cost of waking the dark silicon destroys the latency budget you gained by avoiding the network boundary in the first place. 
+We do not currently have a programming model that can express these demands. A modern compiler IR — MLIR's `linalg` dialect, Triton IR, PTX — is built to express tensor shapes, memory layouts and data flow. None of them can express temporal traffic patterns or phase-level hardware transitions.
 
-If a compiler cannot name a computational phase, the runtime cannot preemptively allocate the hardware. We are treating a dynamic, multi-modal hardware reconfiguration problem with static, single-mode compiler tools.
+An IR has no way to declare that a sequence of operations will produce all-to-all traffic in short bursts rather than a steady stream, or that a computation is compute-heavy while its immediate consumer is bandwidth-bound. Those are properties of a phase, and a phase is not something the interface names.
 
-## The Capacity Wall
+The consequence is concrete. To power-gate a block, the runtime has to wake it *before* the computation arrives. Waking dormant arithmetic units or bringing links out of a low-power state takes time. A strictly reactive runtime pays that wake-up latency on the critical path, which is the same latency the design avoided by refusing the network boundary. If the compiler cannot name a phase, the runtime cannot preallocate for it, and we end up managing a dynamic, multi-modal machine with static, single-mode tools.
 
-The assumption underlying the "keep KV local" strategy is that the hardware possesses sufficient capacity to actually hold it. Capacity is strictly a function of context length, and this is where the unified architecture encounters severe friction.
+## Consolidation moves the boundary; it does not remove it
 
-A Jalapeño package pairs a compute die with six HBM4 stacks, delivering 216 GiB of capacity at 15.4 TB/s bandwidth within a 700 W envelope. A full 128-chip rack holds 27.5 TB.[^5] 
+The phrase "heterogeneity moves inside the chip" is easy to read as "heterogeneity goes away," and the distinction decides how much of this problem a unified die actually retires. OpenAI's own slide does not claim that. It labels the winning column **"Unified, internally heterogeneous."** The heterogeneity is in the name of the thing.
 
-Whether 216 GiB is expansive or suffocating depends entirely on the KV layout and the sequence length. 
+Physical layout and data traffic are properties of the workload, not of the packaging. Prefill still produces a KV cache that verification consumes. Draft still needs a short path to verify. Expert routing still generates all-to-all traffic in bursts. Consolidation changes what those transfers cost — a transfer across on-die interconnect is far cheaper than one across a NIC — but it does not change that they are transfers, that they have a direction, or that something has to decide where each tensor sits.
 
-Consider a standard Grouped-Query Attention (GQA) layout (e.g., 80 layers, 8 KV heads, 128-wide head dimension) at FP8 precision. A 1M-token sequence requires roughly 153 GiB of KV cache. A single session consumes over 70% of a Jalapeño package's total HBM capacity. If that cache is stored in BF16, it requires 305 GiB, which physically exceeds the package limits. 
+A package is not a uniform resource either. Jalapeño pairs a compute die with six HBM4 stacks. On a die of that size, the distance from a given compute tile to a given memory stack is not constant, and neither is the contention on the path between them. That is a topology. It is a smaller, faster, more forgiving topology than a rack network, and it is still something a compiler has to reason about if it wants the bandwidth the datasheet advertises.
 
-Conversely, a heavily compressed latent design, like Multi-Head Latent Attention (MLA), requires roughly 656 bytes per token. A 1M-token session consumes just 0.6 GiB, allowing a single package to host over 350 concurrent sessions.
+Scale settles the point. A 216 GiB package does not hold a frontier model and its caches alone; Jalapeño is deployed 128 chips to a rack and 2,048 to a pod.[^5] The model is therefore sharded across packages, and every phase transition that does not happen inside one package happens across a fabric — exactly the boundary the design set out to avoid. The bursty expert routing that verification depends on is precisely the traffic that crosses those packages. Consolidation raised the granularity at which distribution begins. It did not make the system undistributed.
 
-While OpenAI does not publish its exact serving configurations, the capacity delta between GQA and MLA dictates the viability of the architecture. A compressed layout easily sustains local KV retention. A conventional layout at 1M tokens destroys it.
+So both architectures land the compiler in the same place, asking the same questions: where does this tensor live, what does moving it cost, which resources does this phase need, and who owns the latency budget. Unified and disaggregated designs give different answers about the cost constants. They do not differ about which facts a compiler needs in order to compute them, and neither one lets us stop reasoning about the machine as a heterogeneous system. That is why I keep returning to this: the programming model gap survives the hardware decision.
 
-When context length scales, batch size collapses. Decode throughput is entirely dependent on batching multiple sequences to amortize the memory bandwidth cost of loading the model weights. If a chip can only hold one 1M-token session, batch size drops to one. The decode phase collapses into a purely memory-bound GEMV operation. 
+## The capacity wall
 
-Furthermore, agentic workloads introduce severe temporal pressures. Agents spend significant time idling—waiting on API calls, tool execution, or human input. During these gaps, the session's massive KV cache remains resident in HBM, the most expensive storage medium in the entire cluster. 
+The assumption underneath "keep KV local" is that there is capacity to hold it, and capacity is a function of context length.
 
-The traditional solution to agentic idling is to page the KV cache down the memory hierarchy to host DRAM or a pooled flash tier. But moving data off-package directly contradicts the core architectural premise of keeping the KV cache local.
+A Jalapeño package pairs its compute die with six HBM4 stacks for 216 GiB at 15.4 TB/s in a 700 W envelope. A 128-chip rack holds 27.5 TB.[^5] Whether that is generous or tight depends on the KV layout, and the spread across attention designs is wide enough to change the answer.
 
-The dark-silicon argument also falters under persistent agentic workloads. Power-gating unused blocks saves operational expenditure, but it does not reclaim die area. An agentic workload heavily skews toward long prefill and short decode. This leaves the memory and network blocks dark on silicon that required massive capital expenditure to fabricate. Power-gating is a band-aid for operational costs; it does not solve the capital inefficiency of deploying unified silicon for heavily skewed workloads.
+| KV layout | Per token | One 1M-token session | Such sessions per 216 GiB |
+|---|---|---|---|
+| MLA, the 656-byte entry from part two | 656 B | 0.6 GiB | ~350 |
+| GQA: 80 layers, 8 KV heads, 128-wide, fp8 | 160 KiB | ~153 GiB | 1.4 |
+| the same at bf16 | 320 KiB | ~305 GiB | does not fit |
 
-## The NVIDIA's Counter-Bet: Physical Disaggregation
+OpenAI does not publish its serving configurations, so the two GQA rows are a bracket rather than a measurement of anything it runs. The ratio between the rows is the point. A compressed-latent design keeps a million tokens local without difficulty. A conventional grouped-query layout at the same length puts a single session on seventy percent of a package.
 
-The unified architecture is a compelling engineering argument, but it is contested by the rest of the industry. 
+Batch size binds before capacity does. Decode throughput comes from batching sequences together to amortise the cost of loading model weights, and long context is what destroys batch size. At 8k a chip holds hundreds of sessions to batch across. At 1M with the layout above it holds one, decode collapses into the memory-bound GEMV described in [part one]({% post_url 2026-08-16-prefill-and-decode-want-different-computers %}), and there is nothing left to amortise against. Across a full rack, 27.5 TB works out to roughly 168 concurrent million-token sessions.
 
-NVIDIA recently removed Rubin CPX—a part specifically optimized for compute-bound prefill using GDDR7—from its roadmap at GTC 2026. The production slot was instead allocated to a 256-chip, SRAM-based Groq 3 LPX rack, acquired through a massive licensing arrangement.[^6] 
+Agentic workloads add a pressure unrelated to peak load. Agents idle — on a tool call, a retrieval, a person. Through those gaps the session's KV stays resident in HBM, the most expensive place in the system to hold cold state. The usual remedy is to page it down a tier to host memory or a pooled store, which reintroduces disaggregated memory into a design whose argument was that disaggregation costs too much.
 
-This is a structural rejection of the unified die approach. By pulling Groq's SRAM-based architecture into the roadmap to serve the latency-bound draft model phase, NVIDIA is doubling down on physical disaggregation. They are asserting that a unified HBM pool cannot simultaneously serve the deterministic, ultra-low latency demands of a batch-size-of-1 draft model *and* the massive capacity/throughput demands of batched prefill and verification without extreme, unacceptable compromise. 
+The dark-silicon argument narrows here as well. Power-gating an unused block recovers operating cost without recovering die area, and an agentic mix of long input and short output skews toward prefill for long stretches, leaving memory and network blocks dark on silicon that was already bought.
 
-SRAM provides entirely deterministic access times with massive internal bandwidth, perfectly matching the draft model's profile. HBM provides the capacity required for KV caches and model weights, but its access latency is fundamentally too high for optimal speculative generation. NVIDIA’s bet is that the physical limitations of memory hierarchy physics—SRAM vs. HBM—dictate that specialized silicon pools connected by an ultra-fast fabric will mathematically outperform a unified die that tries to compromise between the two.
+None of this is disqualifying, and the defence is strong. "Local" can mean rack-local across a coherent fabric rather than resident on one die, and 27.5 TB is real headroom. Agentic sessions also share unusually large prefixes — system prompts, tool schemas, repository context — so if prefix cache hit rates stay high, prefill work collapses and the mix swings back toward decode, which is the regime a balanced chip is built for. What we do not have is evidence: the published runs are 8k/1k, and SemiAnalysis notes there are no agentic traces yet, with the routers and prefix-caching machinery being the components under the most pressure in that regime.[^3]
 
-The most sophisticated engineering organizations in the industry are actively funding directly opposed architectural philosophies. One is betting that the latency penalty of crossing a network boundary is fatal to speculative decoding, meaning heterogeneity must move on-die. The other is betting that workload ratios will skew so heavily, and memory access profiles are so distinct, that maintaining specialized, disaggregated silicon pools is the only mathematically viable path to cluster efficiency.
+## NVIDIA's counter-bet
 
-Both bets rely on the exact same underlying premise: prefill, draft, and verification require fundamentally different hardware. Jalapeño is a forceful argument that they require different *configurations* of the same computer, reallocated dynamically while the request is in flight.
+The unified design is a serious engineering argument, and the rest of the industry has not converged on it.
 
-Procuring different computers for different phases is a solved supply-chain problem. Designing a runtime and compiler stack capable of dynamically reallocating compute, memory, and interconnect across a unified die based on unpredictable runtime metrics is a language problem. The hardware has arrived; the software stack required to actually exploit it has not.
+NVIDIA removed Rubin CPX — a part aimed at compute-bound prefill using GDDR7 rather than HBM — from its roadmap at GTC 2026. The slot went to a 256-chip SRAM-based Groq 3 LPX rack, acquired through a licensing arrangement reported at roughly twenty billion dollars.[^6]
+
+NVIDIA has not published its reasoning, so what follows is my reading rather than its stated position. Dropping one specialist and buying another is not a move toward consolidation. SRAM offers deterministic access and very high on-chip bandwidth in a small capacity; HBM offers the capacity that KV caches and model weights require, at higher access latency. Those profiles suit different phases, and a design that keeps separate pools can give each phase the memory technology that matches it instead of compromising between them on one die. Meanwhile Rubin and Rubin Ultra keep growing, so both bets are running inside a single roadmap.
+
+The vendor pairings from part one point the same way: each puts a specialized part on one side of a phase boundary and treats the boundary as a cost worth paying. Two sets of organizations with comparable information and comparable incentives are answering this in opposite directions, which is a fair sign the question is still open.
+
+Both bets rest on the same premise. Prefill, draft and verification want different hardware. Jalapeño argues they want different *configurations* of the same computer, reallocated while the request is in flight — a more demanding claim than the one I made in part one, not a softer one. Procuring different computers is a supply-chain problem the industry knows how to solve. Building a compiler and runtime that reallocate compute, memory and interconnect across a die in response to properties known only at runtime is a language problem. The hardware has arrived. The stack needed to exploit it has not.
 
 ---
 
@@ -118,4 +142,4 @@ Procuring different computers for different phases is a solved supply-chain prob
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5, Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine. The slide text quoted here is transcribed from photographs of the talk rather than from OpenAI-published material, and I did not attend; the talk metadata and the benchmark reporting come from the two secondary sources cited above. The argument about speculative decoding across a network boundary is mine, reasoned from the phase structure the slide describes, not a measurement.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5, Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine. The slide text quoted here is transcribed from photographs of the talk rather than from OpenAI-published material, and I did not attend; the talk metadata and the benchmark reporting come from the two secondary sources cited above. The argument about speculative decoding across a network boundary, and the reading of NVIDIA's roadmap change, are mine rather than either company's stated position.*
