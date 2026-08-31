@@ -6,9 +6,9 @@ tags: [compilers, frontend, parallelism, ast, cpp-modules, rust, zig, data-orien
 mermaid: true
 ---
 
-Compilers are commonly described as embarrassingly parallel and rarely are. Translation units are independent of one another, and machines have many cores, yet the frontend that turns source into IR is typically one thread walking a tree.
+Compilers are commonly described as embarrassingly parallel because translation units are independent of one another, and machines have many cores; yet the frontend that turns source into IR (the Abstract Syntax Tree) is typically one thread walking a tree.
 
-The cause is structural rather than a shortage of engineering effort. Every large data structure misses cache sometimes; what makes an AST different is that its traversal is a **dependent load chain**. A dependent load chain is the one access pattern an out-of-order core cannot hide. The tree defeats memory-level parallelism at the microarchitecture level, and the module and type systems reintroduce the same dependence at higher levels.
+The reason for frontend being single threaded is mostly structural and and countelss engineering hours have been spent on improving the status quo. Every large data structure misses cache sometimes; what makes an AST different is that its traversal is a **dependent load chain**. A dependent load chain is the one access pattern an out-of-order core cannot hide. The tree defeats memory-level parallelism at the microarchitecture level, and the module and type systems reintroduce the same dependence at higher levels.
 
 A core can sustain several outstanding cache misses at once; when the addresses are independent the misses overlap, so three misses cost roughly the latency of one. That is memory-level parallelism, and it is why hardware feels fast on array code.
 
