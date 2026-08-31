@@ -2,15 +2,15 @@
 title: "An AST Is a Cache-Miss Generator"
 date: 2026-08-21 07:30:00 -0700
 categories: [Systems, Compilers]
-tags: [compilers, frontend, parallelism, ast, cpp-modules, rust, data-oriented]
+tags: [compilers, frontend, parallelism, ast, cpp-modules, rust, zig, data-oriented]
 mermaid: true
 ---
 
-Compilers are often described as embarrassingly parallel. They rarely are. A translation unit is independent. The machine has sixteen cores. Yet the frontend turning source into an IR is typically a single thread walking a tree.
+Compilers are commonly described as embarrassingly parallel and rarely are. Translation units are independent of one another, and machines have many cores, yet the frontend that turns source into IR is typically one thread walking a tree.
 
-This is not a lack of engineering effort. The problem is structural. Every large data structure misses cache sometimes. But an AST traversal is a **dependent load chain**. This is the one access pattern a modern out-of-order core cannot hide. The tree defeats memory-level parallelism at the microarchitecture. The module and type systems then reintroduce the exact same dependence at higher levels.
+The cause is structural rather than a shortage of engineering effort. Every large data structure misses cache sometimes; what makes an AST different is that its traversal is a **dependent load chain**. A dependent load chain is the one access pattern an out-of-order core cannot hide. The tree defeats memory-level parallelism at the microarchitecture level, and the module and type systems reintroduce the same dependence at higher levels.
 
-A core can sustain many outstanding cache misses at once. Load A, load B, load C. If the addresses are independent, they overlap in the memory system. Three misses cost roughly one miss of latency. That is memory-level parallelism. It is why modern hardware feels fast on array code.
+A core can sustain several outstanding cache misses at once; when the addresses are independent the misses overlap, so three misses cost roughly the latency of one. That is memory-level parallelism, and it is why hardware feels fast on array code.
 
 Now walk a tree. To visit a child, you dereference a pointer stored in the parent. The address of the next load is the result of the previous load. Nothing about the next access is knowable until the current one returns. In a strict pointer chain, memory-level parallelism collapses toward one.[^1] Every miss is paid in full, serially, at a couple of hundred cycles each.
 
@@ -107,6 +107,24 @@ And there is a determinism cost. The way query cycles are broken depends on the 
 
 The interners appear on that list for the same reason they appear in every design of this kind. Interning is how a compiler makes structural equality into pointer equality. It is inherently a global agreement. Two threads independently encountering `Vec<HashMap<String, u32>>` must end up with the same identity for it. They must synchronise on exactly the structure that every other part of the frontend consults.
 
+## Zig fixed the layout and met the other half
+
+Zig is the useful case, because the Zig compiler already made the representational change this post argues for. Whatever serialization is left is therefore easier to attribute.
+
+`std.zig.Ast` does not hold a tree of heap nodes. Nodes live in a `MultiArrayList(Node)`, tokens in a `MultiArrayList` of their own, so a node's fields sit in separate dense arrays rather than interleaved in one record.[^5] References between nodes are not pointers. `Node.Index` is an `enum(u32)`. Its optional form is also an `enum(u32)`, using `maxInt(u32)` as the sentinel, so an optional child costs no extra word and no separate tag bit. There is even a relative form, `Offset = enum(i32)`, for references stored as a delta from the referring node.
+
+That representation answers every property from the opening of this post. A pass that reads only tags streams one dense array, which is a stride the prefetcher recognises. Node addresses follow parse order instead of allocator whim. And an index is a number the consumer already holds, so finding the next node does not require the previous load to land first. The chain is broken at the source.
+
+Zig parallelised the phase that admits it, dispatching the per-file AstGen work across a thread pool, one task per file. It also went at the interning problem the Rust section just described rather than around it: the `InternPool` is sharded, with "one item per thread, indexed by `tid`", and the thread id packed into the high bits of each index so that entries minted on different threads cannot collide.[^6]
+
+Then there is this comment in `Compilation.zig`, immediately after those tasks are queued:
+
+> We wait until the AstGen tasks are all completed before proceeding to the (at least for now) single-threaded main work queue.
+
+Semantic analysis runs on that queue. Zig removed the pointer chasing, removed the allocation-order problem, parallelised the per-file lowering, and built an intern pool designed for concurrent access — and the phase that decides what names mean is still one thread. The parenthetical is the Zig authors' own, and it carries the weight of this entire post.
+
+This is the cleanest separation of the two halves available in a shipping compiler. The layout half is an engineering problem with a known answer, and Zig implemented it. What remains is not about cache lines.
+
 ## The type system decides how much of this you can escape
 
 The last level is the language. It sets a ceiling the implementation cannot exceed.
@@ -156,6 +174,10 @@ I will present one such architecture at CppCon next month.[^4] I will write it u
 [^3]: **Parallel rustc frontend.** Available on nightly via `-Z threads=8`, with a stated goal of an average 20–25% improvement on eight cores and eight threads. Documented obstacles include `GlobalCtxt` being unfriendly to parallelism, the requirement that `TyCtxt` with its interners and allocators plus every query-returned type be thread-safe, data contention arising from query dependencies, the need for a deadlock detection algorithm, and query-cycle breaking that depends on the state of the query execution graph when the cycle is detected. ([Rust project goals](https://rust-lang.github.io/rust-project-goals/2025h1/parallel-front-end.html), [rustc-dev-guide](https://github.com/rust-lang/rustc-dev-guide/blob/main/src/parallel-rustc.md), [tracking issue #113349](https://github.com/rust-lang/rust/issues/113349), [announcement](https://blog.rust-lang.org/2023/11/09/parallel-rustc/))
 
 [^4]: **"Escaping the AST: A Data-Oriented, Lock-Free Parallel Compiler Architecture."** CppCon 2026, Monday 14 September 2026. ([Session page](https://cppcon2026.sched.com/event/2RT4Y/escaping-the-ast-a-data-oriented-lock-free-parallel-compiler-architecture))
+
+[^5]: **Zig's AST representation.** `std.zig.Ast` stores `nodes: NodeList.Slice` where `NodeList = std.MultiArrayList(Node)`, and tokens in a separate `MultiArrayList`. `Node.Index` is `enum(u32)`; `Node.OptionalIndex` is `enum(u32)` with `none = std.math.maxInt(u32)`; `Node.Offset` is `enum(i32)` for relative references. ([lib/std/zig/Ast.zig](https://github.com/ziglang/zig/blob/master/lib/std/zig/Ast.zig))
+
+[^6]: **Zig's parallel AstGen, sharded InternPool, and serial main queue.** `Compilation.zig` dispatches per-file AstGen work onto the thread pool via `spawnWgId(&astgen_wait_group, workerUpdateFile, ...)`, then comments: "We wait until the AstGen tasks are all completed before proceeding to the (at least for now) single-threaded main work queue." `InternPool.zig` declares `shards: []Shard` with "One item per thread, indexed by `tid`, which is dense and unique per thread," and caches shift amounts that pack the `tid` into the high bits of each index. Background on the data-oriented rewrite: Andrew Kelley, *A Practical Guide to Applying Data-Oriented Design*, Handmade Seattle 2021. ([Compilation.zig](https://github.com/ziglang/zig/blob/master/src/Compilation.zig), [InternPool.zig](https://github.com/ziglang/zig/blob/master/src/InternPool.zig), [talk](https://vimeo.com/649009599))
 
 ---
 
