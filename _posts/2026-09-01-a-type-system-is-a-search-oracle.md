@@ -30,6 +30,22 @@ Then the compiler goes in the loop, and Idris finishes at 96% — above where Py
 
 That is the reconciliation. Training data determines where the first draft lands. The type system determines whether the loop that follows converges on something correct or just on something that runs.
 
+## The same shape at company scale
+
+Fifty-six problems in a language nobody deploys is thin evidence for a claim about how software actually gets written. Some corroboration arrived last month from a direction I was not expecting.
+
+David Tolnay published eight years of language adoption at Meta, drawn from the source-control tables that back the company's internal dashboards.[^5] The metric is a year-over-year ratio: within each ninety-day window, the fraction of developers who committed in a given language, divided by that same fraction twelve months earlier. Company growth and the seasonal swings in code output both cancel.
+
+Five languages inflect together around February and March of 2026, and Tolnay dates the cause without hedging: "This timeframe correlates with the uptake in agentic coding among Meta engineers in Q1 of 2026." The five are TypeScript, Rust, Swift, JavaScript and Go. He discounts one of them himself, attributing the JavaScript growth to configuration files inside TypeScript projects rather than to new JavaScript work. That leaves four, all statically typed. His summary of everything else on the chart: "Other than TypeScript, Rust, Swift, JavaScript, and Go, every other language on the chart is uncorrelated or at best slightly correlated with AI adoption."
+
+Two cautions, because this is easy to over-read and I nearly did.
+
+C++ and Python are flat, and that is not evidence that models write them badly. A growth ratio divides by the base, and these are among the largest languages at Meta. A one percent move in C++ participation can exceed a doubling of Rust in absolute terms while still drawing a flat line, so flatness is consistent with C++ absorbing more engineering effort in 2026 than every surging language combined. Tolnay makes the same observation from the other side when he describes those languages as saturating their addressable market.
+
+The unit is also a developer rather than a line of code, so someone who writes one file counts like someone who writes the language full time. That matters most at the top of the chart. Tolnay's own explanation for TypeScript's growth is that engineers and managers "are producing all kinds of dashboards and personal widgets in TypeScript that they never would have bothered to do without AI." Dabbling counts at full weight.
+
+What survives both cautions is the one figure that is not a ratio — Meta engineers wrote twice as much first-party Rust this year as in the previous nine years combined — and the selection itself. Cheap generation applied broadly would have lifted the whole chart. The lift concentrated in languages whose compiler rejects a wrong program before it runs.
+
 ## C++ is the control group
 
 If the thesis were "static typing helps," C++ would be fine. It is statically typed, aggressively so, with a type system elaborate enough to be Turing-complete at compile time. My experience with generated C++ is nonetheless closer to Python than to Rust, and I think that difference is the most informative data point I have.
@@ -87,7 +103,7 @@ This is the argument I made from a different direction in [an earlier post on pr
 
 ## The part I have not resolved
 
-I would like this to be a measurement rather than an impression, and it is not one yet. My evidence is one controlled experiment on a language nobody deploys, a body of theorem-proving results whose success depends on a total oracle that ordinary programming does not have, and my own experience, which is uncontrolled and which knows what conclusion it prefers.
+I would like this to be a measurement rather than an impression, and it is not one yet. My evidence is one controlled experiment on a language nobody deploys, a body of theorem-proving results whose success depends on a total oracle that ordinary programming does not have, an adoption curve that records what engineers reached for rather than whether it worked, and my own experience, which is uncontrolled and which knows what conclusion it prefers.
 
 What I would want is the number nobody publishes: defects per thousand lines of generated code that reached production, cut by language, controlled for the same task and the same reviewer discipline. Pass@1 on programming puzzles is a poor proxy, and it is the wrong end of the pipeline.
 
@@ -105,6 +121,8 @@ The mechanism is clear enough to act on regardless. A generator with a nonzero e
 
 [^4]: **Iterative feedback loops for LLM code correction.** Across iterative-refinement studies, models improve markedly when given compiler errors and failing test cases, and the residual difficulty concentrates in logical and algorithmic errors rather than syntactic or type errors. ([Unlocking LLM Code Correction with Iterative Feedback Loops](https://arxiv.org/pdf/2606.17514))
 
+[^5]: **Programming language adoption patterns at Meta.** David Tolnay, 11 August 2026. Built from Meta's code review and source control tables covering all code changes submitted by employees. For each 90-day window the count of developers committing in a language is divided by the total committing in any language to give a market share, then divided by that language's share in the window ending twelve months earlier; the twelve-month spacing cancels seasonal variation in code output. ([x.com/dtolnay](https://x.com/dtolnay/article/2087229652293337160))
+
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine. The Idris and Lean figures are quoted from the linked papers rather than reproduced by me. The comparison between generated Rust, C++ and Lean that opens this post is my own working experience and is not a controlled measurement; I have tried to be explicit about which claims rest on it.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine. The Idris and Lean figures are quoted from the linked papers, and the Meta figures from Tolnay's article, rather than reproduced by me; I have no access to the underlying data in any of the three cases. The comparison between generated Rust, C++ and Lean that opens this post is my own working experience and is not a controlled measurement; I have tried to be explicit about which claims rest on it.*
