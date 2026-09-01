@@ -28,11 +28,11 @@ Zero-shot, the result is what the benchmarks predict. Idris solves 39% where Pyt
 
 Then the compiler goes in the loop, and Idris finishes at 96% — above where Python started. The ablation is the part worth sitting with. They also tried feeding the model documentation, and feeding it a guide to classifying Idris errors. Neither worked as well as handing back the local compilation errors. The compiler's own message, generated from the model's own broken code, was the most valuable signal available.
 
-That is the reconciliation. Training data determines where the first draft lands. The type system determines whether the loop that follows converges on something correct or just on something that runs.
+The feedback loop provides the reconciliation. Training data determines where the first draft lands. The type system determines whether the loop that follows converges on something correct or just on something that runs.
 
 ## The same shape at company scale
 
-Fifty-six problems in a language nobody deploys is thin evidence for a claim about how software actually gets written. Some corroboration arrived last month from a direction I was not expecting.
+Fifty-six problems in a language nobody deploys is thin evidence for a claim about how software gets written. Some corroboration arrived last month from a direction I was not expecting.
 
 David Tolnay published eight years of language adoption at Meta, drawn from the source-control tables that back the company's internal dashboards.[^5] The metric is a year-over-year ratio: within each ninety-day window, the fraction of developers who committed in a given language, divided by that same fraction twelve months earlier. Company growth and the seasonal swings in code output both cancel.
 
@@ -54,7 +54,7 @@ The distinction is not static versus dynamic. It is how much a successful compil
 
 In Rust, a program that compiles has been checked for a specific and useful set of properties: no use-after-free, no data races between threads, no aliasing a mutable reference, every enum match exhausted, every error path acknowledged at the call site. The checker cannot be talked out of these. Defeating it requires writing `unsafe`, which is a lexically visible, greppable admission that the guarantee stops here.
 
-In C++, a program that compiles has been checked that the names resolve and the overloads pick out. It has not been checked for use-after-free, iterator invalidation, data races, out-of-bounds access, or signed overflow. An implicit conversion can quietly change the meaning of a call. A `reinterpret_cast` will convert any pointer into any other pointer with no ceremony at all. Undefined behaviour is not a diagnostic; it is a licence for the optimiser to assume the case never happens.
+In C++, a program that compiles has been checked that the names resolve and the overloads pick out. It has not been checked for use-after-free, iterator invalidation, data races, out-of-bounds access, or signed overflow. An implicit conversion can quietly change the meaning of a call. A `reinterpret_cast` will convert any pointer into any other pointer with no ceremony at all. Undefined behaviour offers no diagnostic, serving instead as a licence for the optimiser to assume the case never happens.
 
 So "it compiles" carries far less information in C++ than in Rust, and it is the information content of that signal that determines how useful the compiler is as a reviewer. A checker that can be defeated silently is a checker whose approval means less.
 
@@ -81,13 +81,13 @@ Sampling thirty-two candidate proofs and keeping the one that checks is a sound 
 
 Now try that in Python. Sample thirty-two implementations, run the tests, keep the ones that pass. What you have is thirty-two programs that agree with your test suite, which is a much weaker statement than thirty-two correct programs, and you have no way to distinguish the two. The oracle is partial, so the search is unsound. You are back to reading the code.
 
-A verifier you can call cheaply and trust completely turns a mediocre generator into a good one, because brute force becomes admissible. That is why models are unreasonably good at Lean given how little Lean exists to have been trained on. The scarcity is real. The oracle compensates.
+A verifier you can call cheaply and trust completely turns a mediocre generator into a good one, because brute force becomes admissible. The availability of brute force explains why models are unreasonably good at Lean given how little Lean exists to have been trained on. The scarcity is real. The oracle compensates.
 
 ## What the checker still cannot see
 
 Rust that compiles can still be wrong. It can compute the wrong thing correctly, with excellent memory safety, forever. Types constrain the shape of a computation, not its intent, and outside a dependently typed setting they only encode the part of the specification you chose to write down.
 
-The self-repair literature is consistent about where the remaining difficulty lives: syntactic and type errors turn out to be far more tractable for a model to fix from feedback than logical or algorithmic ones.[^4] That finding is usually reported as a limitation. I read it as the mechanism. Moving an error from the second category into the first is exactly what a stronger type system does, and it is the whole of the benefit. An off-by-one in an index becomes a compile error when the index is a distinct type. A forgotten case becomes a compile error when the match must be exhaustive. A stale pointer becomes a compile error when lifetimes are tracked.
+The self-repair literature is consistent about where the remaining difficulty lives: syntactic and type errors turn out to be far more tractable for a model to fix from feedback than logical or algorithmic ones.[^4] That finding is usually reported as a limitation. I read it as the mechanism. Moving an error from the second category into the first is what a stronger type system does, and it constitutes the whole of the benefit. An off-by-one in an index becomes a compile error when the index is a distinct type. A forgotten case becomes a compile error when the match must be exhaustive. A stale pointer becomes a compile error when lifetimes are tracked.
 
 None of that makes the model smarter. It relocates a class of mistakes from the expensive category to the cheap one.
 
@@ -95,9 +95,9 @@ None of that makes the model smarter. It relocates a class of mistakes from the 
 
 When I write a function, the code is a partial record of a model I hold in my head. The invariants I did not write down are still real, because I know them and I will maintain them. Review works reasonably well against that background, since a reviewer can ask what I was thinking and get a coherent answer.
 
-A generated function comes with no such model. It is locally plausible text, which is precisely the failure mode that human review is worst at catching. Reviewers are good at spotting code that looks wrong. Generated code that is wrong usually looks right — that is the same property that makes it useful when it happens to be correct.
+A generated function comes with no such model, arriving instead as locally plausible text. Plausible-but-wrong text is the failure mode human review is worst at catching. Reviewers are good at spotting code that looks wrong. Generated code that is wrong usually looks right — surface plausibility makes the text useful when it happens to be correct.
 
-The mental model that used to carry the unwritten invariants is gone, and a machine checker is the only cheap way to put constraints back. It is indifferent to plausibility. It does not get tired at four in the afternoon, and it does not extend the benefit of the doubt to code that reads confidently.
+The mental model that used to carry the unwritten invariants is gone, leaving a machine checker as the only cheap way to put constraints back. The machine remains indifferent to plausibility. It does not get tired at four in the afternoon, and it refuses to extend the benefit of the doubt to code that reads confidently.
 
 This is the argument I made from a different direction in [an earlier post on provenance]({% post_url 2026-08-14-provenance-is-not-correctness %}): knowing where code came from tells you nothing about whether it is correct, and a signature on a program is not a proof about its behaviour. The conclusion is the same from both sides. As more code is generated, the value of properties a machine can check rises, and the value of properties resting on an author's understanding falls, because there is no author holding the understanding.
 
@@ -125,4 +125,4 @@ The mechanism is clear enough to act on regardless. A generator with a nonzero e
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine. The Idris and Lean figures are quoted from the linked papers, and the Meta figures from Tolnay's article, rather than reproduced by me; I have no access to the underlying data in any of the three cases. The comparison between generated Rust, C++ and Lean that opens this post is my own working experience and is not a controlled measurement; I have tried to be explicit about which claims rest on it.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5 and Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine. The Idris and Lean figures are quoted from the linked papers, and the Meta figures from Tolnay's article, rather than reproduced by me; I have no access to the underlying data in any of the three cases. The comparison between generated Rust, C++ and Lean that opens this post is my own working experience and is not a controlled measurement; I have tried to be explicit about which claims rest on it.*
