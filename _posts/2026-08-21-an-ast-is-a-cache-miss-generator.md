@@ -181,4 +181,4 @@ I will present one such architecture at CppCon next month.[^4] I will write it u
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The rustc figures and obstacle list are the Rust project's own published targets and documentation rather than measurements of mine, and the C++ modules scheduling behaviour is quoted from Clang's documentation rather than benchmarked here.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5 and Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The rustc figures and obstacle list are the Rust project's own published targets and documentation rather than measurements of mine, and the C++ modules scheduling behaviour is quoted from Clang's documentation rather than benchmarked here.*
