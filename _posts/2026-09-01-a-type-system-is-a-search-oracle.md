@@ -2,7 +2,7 @@
 title: "A Type System Is a Search Oracle"
 date: 2026-09-01 06:00:00 -0700
 categories: [Systems, Compilers]
-tags: [types, llm, rust, lean, cpp, formal-methods, code-generation, compilers]
+tags: [types, llm, rust, lean, cpp, cpp20, formal-methods, code-generation, compilers]
 mermaid: true
 ---
 
@@ -48,15 +48,23 @@ What survives both cautions is the one figure that is not a ratio — Meta engin
 
 ## C++ is the control group
 
-If the thesis were "static typing helps," C++ would be fine. It is statically typed, aggressively so, with a type system elaborate enough to be Turing-complete at compile time. My experience with generated C++ is nonetheless closer to Python than to Rust, and I think that difference is the most informative data point I have.
+If the thesis were "static typing helps," C++ would be settled. It is statically typed, aggressively so, with a type system elaborate enough to be Turing-complete at compile time, and it rejects at compile time a whole category of error that Python finds at runtime or never: a wrong argument type, a misspelled member, a missing overload. Against Python it is not close.
 
-The distinction is not static versus dynamic. It is how much a successful compile promises.
+Against Rust it is close, and that gap is the informative part. The distinction is not static versus dynamic. It is how much a successful compile promises.
 
 In Rust, a program that compiles has been checked for a specific and useful set of properties: no use-after-free, no data races between threads, no aliasing a mutable reference, every enum match exhausted, and errors carried in the return type, where reaching the success value means handling the failure case. The checker cannot be talked out of these. Defeating it requires writing `unsafe`, which is a lexically visible, greppable admission that the guarantee stops here.
 
-In C++, a program that compiles has been checked that the names resolve and the overloads pick out. It has not been checked for use-after-free, iterator invalidation, data races, out-of-bounds access, or signed overflow. An implicit conversion can quietly change the meaning of a call. A `reinterpret_cast` will convert any pointer into any other pointer with no ceremony at all. Undefined behaviour offers no diagnostic, serving instead as a licence for the optimiser to assume the case never happens.
+In C++, what a compile promises is not fixed. It is a dial, and most code leaves it near the bottom.
 
-So "it compiles" carries far less information in C++ than in Rust, and it is the information content of that signal that determines how useful the compiler is as a reviewer. A checker that can be defeated silently is a checker whose approval means less.
+A bare `g++ foo.cpp` checks that names resolve and overloads pick out. It has not checked for use-after-free, iterator invalidation, data races, out-of-bounds access, or signed overflow. An implicit conversion can quietly change the meaning of a call. A `reinterpret_cast` will convert any pointer into any other with no ceremony at all. Undefined behaviour offers no diagnostic, serving instead as a licence for the optimiser to assume the case never happens.
+
+Turn the dial up and the picture changes. `-Wall -Wextra -Werror` converts a large class of silent acceptance into a build failure. C++20 puts more of a specification into checkable form than any earlier version: `static_assert` for invariants, `if constexpr` in place of runtime branching on types, `consteval` for functions that must never run at runtime, and concepts that make a bad template call fail at the call site instead of forty lines into an instantiation. `[[nodiscard]]` turns an ignored result into a diagnostic. `enum class` and `explicit` close two of the implicit-conversion holes. Sanitizers catch at test time much of what the type system will not.
+
+None of that reaches Rust's guarantees. The checks are opt-in, they can be switched off, and no combination of them proves the absence of a data race. But the distance between well-configured C++20 and default C++ is larger than the distance between default C++ and Python, and C++ is the one language here where the strength of the oracle is something you choose.
+
+That configurability is also why generated C++ is harder to judge than the other three. A model writing Rust gets the same checker I do. A model writing C++ gets whatever checker the project happens to have configured, which is usually the weak one, and the output gets graded against that.
+
+So "it compiles" carries a variable amount of information in C++, and it is the information content of that signal that determines how useful the compiler is as a reviewer. A checker that can be defeated silently is a checker whose approval means less. A checker that was never switched on is one whose approval means almost nothing.
 
 ```mermaid
 graph LR
@@ -69,7 +77,7 @@ graph LR
     style E fill:#7f1d1d,color:#fff
 ```
 
-Every type system is this diagram. What differs between languages is how much of the wrongness flows down the right-hand edge instead of the left. Python sends nearly everything right. C++ sends a great deal right, including most of the memory-safety and concurrency errors that matter. Rust pushes a large, well-defined class of it left. Lean pushes almost all of it left.
+Every type system is this diagram. What differs between languages is how much of the wrongness flows down the right-hand edge instead of the left. Python sends nearly everything right. C++ spans a range set by its build flags, and even at the top of that range it sends the memory-safety and concurrency errors right. Rust pushes a large, well-defined class of it left. Lean pushes almost all of it left.
 
 ## Lean is the limit case
 
