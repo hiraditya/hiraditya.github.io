@@ -14,7 +14,7 @@ Both observations are correct. Reconciling them is the interesting part, and the
 
 ## What one-shot accuracy leaves out
 
-A pass@1 number measures whether the first draft is right: one sample per problem, scored by whether it passes the reference tests. Nobody ships the first draft. The number I care about is different: of the programs that reach production, how many are wrong, and how much work did it take to get there.
+A pass@1 number measures whether the first draft is right: one sample per problem, scored by whether it passes the reference tests.[^6] Nobody ships the first draft. The number I care about is different: of the programs that reach production, how many are wrong, and how much work did it take to get there.
 
 The cleanest experiment I have found on this used Idris, which is a reasonable stand-in for the far end of the type-strength axis. Li and Krishnamachari gave GPT-5 fifty-six Exercism problems in Idris and measured it zero-shot against the same model on other languages.[^2]
 
@@ -83,6 +83,8 @@ Now try that in Python. Sample thirty-two implementations, run the tests, keep t
 
 That is also what the benchmark scores at the top of this post are made of. pass@k counts a problem solved when some sample passes the reference tests, so the metric used to rank these languages is itself read through the weak oracle. It measures agreement with a test suite and reports it as correctness.
 
+The metric's origin makes the point better than I can. pass@k comes from SPoC, a 2019 system that searched for a functionally correct program under a budget of a hundred compilations, using compiler errors to localise which line to re-translate. It reported that compilation errors accounted for 88.7% of program failures, and that searching this way lifted success from 25.6% to 44.7%.[^6] Compiler-guided search over candidates, demonstrated before language models entered the picture. The search survived into how we score models. The compiler that made it work did not.
+
 A verifier you can call cheaply and trust completely turns a mediocre generator into a good one, because brute force becomes admissible. The availability of brute force explains why models are unreasonably good at Lean given how little Lean exists to have been trained on. The scarcity is real. The oracle compensates.
 
 ## What the checker still cannot see
@@ -124,6 +126,8 @@ The mechanism is clear enough to act on regardless. A generator with a nonzero e
 [^4]: **Iterative feedback loops for LLM code correction.** Across iterative-refinement studies, models improve markedly when given compiler errors and failing test cases, and the residual difficulty concentrates in logical and algorithmic errors rather than syntactic or type errors. ([Unlocking LLM Code Correction with Iterative Feedback Loops](https://arxiv.org/pdf/2606.17514))
 
 [^5]: **Programming language adoption patterns at Meta.** David Tolnay, 11 August 2026. Built from Meta's code review and source control tables covering all code changes submitted by employees. For each 90-day window the count of developers committing in a language is divided by the total committing in any language to give a market share, then divided by that language's share in the window ending twelve months earlier; the twelve-month spacing cancels seasonal variation in code output. ([x.com/dtolnay](https://x.com/dtolnay/article/2087229652293337160))
+
+[^6]: **pass@k scheme is from Kulal et al., *SPoC: Search-based Pseudocode to Code* (2019), which searched the space of translations for a program passing its test cases, guided by compiler errors: "we propose to perform credit assignment based on signals from compilation errors, which constitute 88.7% of program failures," and "under a budget of 100 program compilations, performing search improves the synthesis success rate over using the top-one translation of the pseudocode from 25.6% to 44.7%." The Codex paper records the definition — "Kulal et al. 2019 evaluate functional correctness using the pass@k metric, where k code samples are generated per problem, a problem is considered solved if any sample passes the unit tests, and the total fraction of problems solved is reported" — and contributes the unbiased estimator now used to report it, because "computing pass@k in this way can have high variance." SPoC's own abstract does not use the name. ([SPoC, arXiv:1906.04908](https://arxiv.org/abs/1906.04908), [Evaluating Large Language Models Trained on Code, arXiv:2107.03374](https://arxiv.org/abs/2107.03374))
 
 ---
 
