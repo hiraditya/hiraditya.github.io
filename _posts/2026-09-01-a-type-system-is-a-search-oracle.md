@@ -14,7 +14,7 @@ Both observations are correct. Reconciling them is the interesting part, and the
 
 ## What one-shot accuracy leaves out
 
-A pass@1 number measures whether the first draft is right. Nobody ships the first draft. The number I care about is different: of the programs that reach production, how many are wrong, and how much work did it take to get there.
+A pass@1 number measures whether the first draft is right: one sample per problem, scored by whether it passes the reference tests. Nobody ships the first draft. The number I care about is different: of the programs that reach production, how many are wrong, and how much work did it take to get there.
 
 The cleanest experiment I have found on this used Idris, which is a reasonable stand-in for the far end of the type-strength axis. Li and Krishnamachari gave GPT-5 fifty-six Exercism problems in Idris and measured it zero-shot against the same model on other languages.[^2]
 
@@ -52,7 +52,7 @@ If the thesis were "static typing helps," C++ would be fine. It is statically ty
 
 The distinction is not static versus dynamic. It is how much a successful compile promises.
 
-In Rust, a program that compiles has been checked for a specific and useful set of properties: no use-after-free, no data races between threads, no aliasing a mutable reference, every enum match exhausted, every error path acknowledged at the call site. The checker cannot be talked out of these. Defeating it requires writing `unsafe`, which is a lexically visible, greppable admission that the guarantee stops here.
+In Rust, a program that compiles has been checked for a specific and useful set of properties: no use-after-free, no data races between threads, no aliasing a mutable reference, every enum match exhausted, and errors carried in the return type, where reaching the success value means handling the failure case. The checker cannot be talked out of these. Defeating it requires writing `unsafe`, which is a lexically visible, greppable admission that the guarantee stops here.
 
 In C++, a program that compiles has been checked that the names resolve and the overloads pick out. It has not been checked for use-after-free, iterator invalidation, data races, out-of-bounds access, or signed overflow. An implicit conversion can quietly change the meaning of a call. A `reinterpret_cast` will convert any pointer into any other pointer with no ceremony at all. Undefined behaviour offers no diagnostic, serving instead as a licence for the optimiser to assume the case never happens.
 
@@ -81,6 +81,8 @@ Sampling thirty-two candidate proofs and keeping the one that checks is a sound 
 
 Now try that in Python. Sample thirty-two implementations, run the tests, keep the ones that pass. What you have is thirty-two programs that agree with your test suite, which is a much weaker statement than thirty-two correct programs, and you have no way to distinguish the two. The oracle is partial, so the search is unsound. You are back to reading the code.
 
+That is also what the benchmark scores at the top of this post are made of. pass@k counts a problem solved when some sample passes the reference tests, so the metric used to rank these languages is itself read through the weak oracle. It measures agreement with a test suite and reports it as correctness.
+
 A verifier you can call cheaply and trust completely turns a mediocre generator into a good one, because brute force becomes admissible. The availability of brute force explains why models are unreasonably good at Lean given how little Lean exists to have been trained on. The scarcity is real. The oracle compensates.
 
 ## What the checker still cannot see
@@ -105,7 +107,7 @@ This is the argument I made from a different direction in [an earlier post on pr
 
 I would like this to be a measurement rather than an impression, and it is not one yet. My evidence is one controlled experiment on a language nobody deploys, a body of theorem-proving results whose success depends on a total oracle that ordinary programming does not have, an adoption curve that records what engineers reached for rather than whether it worked, and my own experience, which is uncontrolled and which knows what conclusion it prefers.
 
-What I would want is the number nobody publishes: defects per thousand lines of generated code that reached production, cut by language, controlled for the same task and the same reviewer discipline. Pass@1 on programming puzzles is a poor proxy, and it is the wrong end of the pipeline.
+What I would want is the number nobody publishes: defects per thousand lines of generated code that reached production, cut by language, controlled for the same task and the same reviewer discipline. A pass@1 score on programming puzzles is a poor proxy, and it is the wrong end of the pipeline.
 
 The mechanism is clear enough to act on regardless. A generator with a nonzero error rate needs a verifier, the strength of the type system sets how much of the specification the verifier can decide, and everything it cannot decide falls to a reviewer whose weakest moment is confident, plausible, wrong code. Choosing a language for a codebase that will be substantially machine-written is now partly a decision about how much of your specification you want the compiler to hold.
 
