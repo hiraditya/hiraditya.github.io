@@ -10,7 +10,7 @@ I keep noticing the same pattern working with models on real code. The Rust I ge
 
 The published benchmarks say the opposite. Rust is a low-resource language for a pretrained model. It is underrepresented relative to Python by a wide margin, scoring below Python on the standard multilingual code benchmarks.[^1] Lean does not register. My experience runs backwards down the list if you rank languages by how much a model has read.
 
-Both observations are correct. Reconciling them changes what I think a type system is for.
+I was intrigued to find that my observations diverged from the benchmark numbers, so I started investigating more.
 
 ## What one-shot accuracy leaves out
 
