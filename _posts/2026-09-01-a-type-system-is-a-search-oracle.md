@@ -93,6 +93,8 @@ That is also what the benchmark scores at the top of this post are made of. pass
 
 The metric's origin makes the point better than I can. pass@k comes from SPoC, a 2019 system that searched for a functionally correct program under a budget of a hundred compilations, using compiler errors to localise which line to re-translate. It reported that compilation errors accounted for 88.7% of program failures, and that searching this way lifted success from 25.6% to 44.7%.[^6] Compiler-guided search over candidates, demonstrated before language models entered the picture. The search survived into how we score models. The compiler that made it work did not.
 
+The distinction generalises past Lean. A type system is a total oracle for the properties it encodes and silent about the rest. Rust decides memory safety completely, and sampling on that question and filtering on the checker would be a sound procedure, while it says nothing about whether the program computes the right thing. The question is never whether you get an oracle. It is which fragment of the specification yours decides.
+
 A verifier you can call cheaply and trust completely turns a mediocre generator into a good one, because brute force becomes admissible. The availability of brute force explains why models are unreasonably good at Lean given how little Lean exists to have been trained on. The scarcity is real. The oracle compensates.
 
 ## What the checker still cannot see
