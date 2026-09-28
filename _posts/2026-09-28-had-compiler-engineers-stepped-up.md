@@ -61,7 +61,11 @@ Hardware had store buffers and cache coherence protocols in the 1980s. It took t
 
 The cost model is the deeper problem. Languages assume uniform-cost RAM: every load costs the same. That has been false since the first cache. The theory people admitted it in 1988, when Aggarwal and Vitter published a complexity model where I/O between two levels of memory is the thing you count.[^10] Cache-oblivious algorithms followed in 1999.[^11] Complexity theory has had a working memory hierarchy for thirty-eight years. C++ still has no word for one.
 
-The single place the C++ standard admits a cache exists is `std::hardware_destructive_interference_size`, added in C++17. It is a compile-time constant, it bakes into the ABI, and it cannot be right across a chip whose cores have different line behaviour, which is why GCC warns about using it and many codebases ban it outright. One constant, and it does not work.
+The closest the C++ standard comes to admitting a cache exists is the pair `std::hardware_destructive_interference_size` and `std::hardware_constructive_interference_size`, added in C++17. Both are `constexpr`. That is the defect, and it is not a quality-of-implementation problem you can fix downstream.
+
+A `constexpr` has one value, fixed when the translation unit is compiled, for every machine the resulting binary will ever run on. A cache line is 64 bytes on most x86 and [128 bytes on Apple Silicon]({% post_url 2026-08-06-performance-analysis-apple-m4 %}). There is no value to choose. And the moment you use it where it is meant to be used, in an `alignas` or a struct member, it becomes part of your ABI. A library and its consumer compiled with different tuning flags then disagree about layout, and neither one is told.
+
+GCC will not let you use it quietly. `-Winterference-size` fires unless you pin the number yourself with `--param destructive-interference-size=N`.[^20] The compiler is asking the build system to answer a question the language claimed to have already answered. One constant, and it does not work.
 
 Meanwhile: `new` gives you a pointer with no notion of which NUMA node it landed on. `std::thread` has no affinity. `std::execution::par` will happily run your algorithm in parallel and will not tell you where. `numactl` is a command-line tool that exists because the language has nothing to say.
 
@@ -172,6 +176,8 @@ The silicon has been telling us what it needs for fifty years. It built a compil
 [^18]: **FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness.** Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra and Christopher Ré, NeurIPS 2022. Tiling and recomputation chosen against the GPU memory hierarchy rather than the FLOP count. ([arXiv:2205.14135](https://arxiv.org/abs/2205.14135))
 
 [^19]: **MLIR: Scaling Compiler Infrastructure for Domain Specific Computation.** Lattner, Amini, Bondhugula, Cohen, Davis, Pienaar, Riddle, Shpeisman, Vasilache and Zinenko, CGO 2021. The substrate Mojo is built on. Mojo's own language features, including compile-time parameters, value semantics and ownership, are documented in the Modular manual. ([CGO 2021](https://ieeexplore.ieee.org/document/9370308), [Mojo manual](https://docs.modular.com/mojo/manual/))
+
+[^20]: **GCC, `-Winterference-size` and `--param destructive-interference-size`.** GCC warns on use of `std::hardware_destructive_interference_size` unless the value is pinned explicitly, because the value it would otherwise select varies with the tuning target and so is not safe to bake into an interface. ([GCC warning options](https://gcc.gnu.org/onlinedocs/gcc/C_002b_002b-Dialect-Options.html), [GCC optimize options](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html))
 
 ---
 
