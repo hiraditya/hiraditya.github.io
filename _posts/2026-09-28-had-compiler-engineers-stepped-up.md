@@ -69,6 +69,10 @@ GCC will not let you use it quietly. `-Winterference-size` fires unless you pin 
 
 Meanwhile: `new` gives you a pointer with no notion of which NUMA node it landed on. `std::thread` has no affinity. `std::execution::par` will happily run your algorithm in parallel and will not tell you where. `numactl` is a command-line tool that exists because the language has nothing to say.
 
+Line the fixes up and the shape is hard to miss. `volatile` for memory that is not memory. `restrict` for aliasing. `alignas` for layout. `std::atomic` and a memory model for the existence of threads. `std::launder` for object identity the optimizer had assumed away. `std::assume_aligned` and `[[assume]]` for facts the compiler cannot prove and you have no other way to state. `hardware_destructive_interference_size` for caches.
+
+Every one of them is the same move. The model deleted something the programmer knew, and rather than change the model, the committee added a way to say it out loud. Opt-in, unchecked, and usually a decade after the hardware needed it. `memory_order_consume` is the limit case: it went into C++11 to express dependency ordering, no implementation ever shipped it as specified, they all promote it to acquire, and the committee's own paper recommends discouraging its use.[^21] Patching, all of it. Thirty years of patching a machine that stopped existing.
+
 ## So the hardware vendors did the language design
 
 When NVIDIA needed programmers to write code for a device with its own memory, it did not wait for a committee. CUDA in 2007 added `__global__`, `__device__`, `__host__` and `__shared__` to C++. OpenCL followed with four address-space qualifiers in the type system: `__global`, `__local`, `__constant`, `__private`.
@@ -178,6 +182,8 @@ The silicon has been telling us what it needs for fifty years. It built a compil
 [^19]: **MLIR: Scaling Compiler Infrastructure for Domain Specific Computation.** Lattner, Amini, Bondhugula, Cohen, Davis, Pienaar, Riddle, Shpeisman, Vasilache and Zinenko, CGO 2021. The substrate Mojo is built on. Mojo's own language features, including compile-time parameters, value semantics and ownership, are documented in the Modular manual. ([CGO 2021](https://ieeexplore.ieee.org/document/9370308), [Mojo manual](https://docs.modular.com/mojo/manual/))
 
 [^20]: **GCC, `-Winterference-size` and `--param destructive-interference-size`.** GCC warns on use of `std::hardware_destructive_interference_size` unless the value is pinned explicitly, because the value it would otherwise select varies with the tuning target and so is not safe to bake into an interface. ([GCC warning options](https://gcc.gnu.org/onlinedocs/gcc/C_002b_002b-Dialect-Options.html), [GCC optimize options](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html))
+
+[^21]: **Temporarily discourage memory_order_consume.** Hans Boehm, P0371R1, 2016. Adopted for C++17. The paper's case is that the specification as written was not implemented by anyone, that implementations map consume onto acquire, and that the ordering should be discouraged until a workable definition exists. ([P0371R1](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/p0371r1.html))
 
 ---
 
