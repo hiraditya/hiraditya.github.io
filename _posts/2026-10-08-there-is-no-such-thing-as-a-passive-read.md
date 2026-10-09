@@ -14,7 +14,7 @@ None of that is true.
 
 Physics does not permit a passive observer. To read any physical state—the position of a particle, the charge on a capacitor, the contents of a cache line—you must couple to it. Coupling requires exchanging momentum, charge, or photons. And the instant you exchange a physical quantity with a system, you kick its trajectory, destroy its unperturbed state, and dissipate free energy into the surrounding thermal bath.
 
-The Heisenberg uncertainty principle and the second law of thermodynamics are usually taught in separate classes. One belongs to quantum mechanics; the other belongs to statistical mechanics. But look at them through the lens of measurement, and they describe the exact same physical reality: *inspection is an intervention*.
+The Heisenberg uncertainty principle and the second law of thermodynamics are usually taught in separate classes. One belongs to quantum mechanics; the other belongs to statistical mechanics. They are distinct results, and neither implies the other. But look at them through the lens of measurement and they converge on the same conclusion: *inspection is an intervention*.
 
 The universe does not have a read-only mode. Every read is a write, and the invoice always comes due in entropy.
 
@@ -30,7 +30,7 @@ graph LR
     L["Photon Source<br/>(Wavelength &lambda;)"] -->|"Probe: E = h&nu;, p = h/&lambda;"| E["Target Electron<br/>(x, p)"]
     E -->|"Compton Scatter: &Delta;p &ge; h/&Delta;x"| D["Detector / Observer<br/>(Recorded Bit: Negentropy)"]
     E -->|"Recoil Kick: &Delta;v = &Delta;p / m"| S["Perturbed State<br/>(Destroyed Coherence)"]
-    D -->|"Dissipated Heat: Q &ge; k_B T ln 2"| B["Thermal Bath<br/>(&Delta;S_universe &gt; 0)"]
+    D -->|"Dissipated Heat: Q &ge; h&nu;"| B["Thermal Bath<br/>(&Delta;S_universe &gt; 0)"]
   end
 ```
 
@@ -40,7 +40,7 @@ $$\Delta x \approx \lambda$$
 
 Shorter wavelengths give sharper images. If the slits are separated by a distance $d$, your probe must have $\lambda \le d$, or the diffraction blur will make it impossible to tell which slit the electron traversed.
 
-Light is not a continuous, weightless fluid. As Einstein demonstrated with the photoelectric effect and Compton confirmed with X-ray scattering, light arrives as discrete quanta carrying momentum:[^2]
+Light is not a continuous, weightless fluid. As Einstein proposed to explain the photoelectric effect, Millikan established experimentally, and Compton confirmed with X-ray scattering, light arrives as discrete quanta carrying momentum:[^2]
 
 $$p = \frac{h}{\lambda}$$
 
@@ -48,11 +48,15 @@ When your probe photon strikes the electron, it does not glance off passively. I
 
 $$\Delta p \approx \frac{h}{\lambda} \sin \theta \approx \frac{h}{\Delta x}$$
 
-Multiply the spatial resolution by the momentum perturbation:
+Multiply the spatial resolution by the momentum perturbation and the wavelength cancels:
 
-$$\Delta x \, \Delta p \ge \frac{h}{4\pi} = \frac{\hbar}{2}$$
+$$\Delta x \, \Delta p \approx h$$
 
-This is the Heisenberg uncertainty relation.[^3] It is not a design flaw in your microscope. It is not an engineering limitation waiting for a clever patent. To pinpoint the electron's position, you need a high-energy, short-wavelength photon. But a short-wavelength photon carries a high momentum. The more accurately you measure where the electron is, the harder you kick its velocity:
+That is as far as the scattering argument goes, and it is as far as Heisenberg took it in 1927: an order-of-magnitude floor, not a sharp one. The exact bound,
+
+$$\sigma_x \sigma_p \ge \frac{\hbar}{2} = \frac{h}{4\pi}$$
+
+is a theorem about Fourier transform pairs rather than about photons, proved by Kennard and Weyl, and it is roughly twelve times tighter than the kick argument delivers.[^3] The microscope does not derive it. What the microscope shows is why you cannot evade it by building a better instrument. It is not a design flaw in your microscope. It is not an engineering limitation waiting for a clever patent. To pinpoint the electron's position, you need a high-energy, short-wavelength photon. But a short-wavelength photon carries a high momentum. The more accurately you measure where the electron is, the harder you kick its velocity:
 
 $$\Delta v = \frac{\Delta p}{m}$$
 
@@ -80,11 +84,11 @@ The electron's density matrix $\rho$ undergoes decoherence. The pure state colla
 
 $$\rho \longrightarrow \sum_k P_k \, \rho \, P_k$$
 
-By Klein's inequality, non-selective projective measurement strictly increases the von Neumann entropy of the observed system:
+By Klein's inequality, non-selective projective measurement never decreases the von Neumann entropy of the observed system:
 
 $$S(\rho_{\text{after}}) \ge S(\rho_{\text{before}})$$
 
-The measurement took a coherent, low-entropy quantum state and injected classical statistical uncertainty into its conjugate variable.
+Equality holds only when the state was already diagonal in the measurement basis, which is the case where you learn nothing you did not already have. Everywhere else the measurement takes a coherent, low-entropy quantum state and injects classical statistical uncertainty into its conjugate variable.
 
 ### Entropic uncertainty relations
 
@@ -110,7 +114,7 @@ $$H(A) + H(B) \ge \ln\left(\frac{1}{c}\right), \quad \text{where } c = \max_{j, 
 
 Look at that inequality. It does not speak of standard deviations. It sets an absolute mathematical floor on the sum of your ignorance about two conjugate properties.
 
-If you measure $A$ with extreme precision, $H(A)$ shrinks. The inequality forces $H(B)$ to balloon. You cannot extract Shannon information from one observable without pumping entropy into the other. Information is conserved across conjugate bases; you compress uncertainty along one axis by inflating it along another.
+If you measure $A$ with extreme precision, $H(A)$ shrinks. The inequality forces $H(B)$ to balloon. You cannot extract Shannon information from one observable without pumping entropy into the other. Nothing here is conserved: the sum is bounded from below and can be arbitrarily large. What the relation forbids is driving it down, so compressing uncertainty along one axis inflates it along another.
 
 ## Brillouin's negentropy principle: the cost of a bit
 
@@ -120,10 +124,10 @@ In 1951, Brillouin analyzed Maxwell's demon.[^6] James Clerk Maxwell had propose
 
 ```mermaid
 graph TD
-  A["Thermal Equilibrium<br/>Temperature T, Noise Floor k_B T"] --> B["Probe Photon Emitted<br/>Energy h&nu; &gt; k_B T ln 2"]
+  A["Thermal Equilibrium<br/>Temperature T, Noise Floor k_B T"] --> B["Probe Photon Emitted<br/>Energy h&nu; &gt; k_B T"]
   B --> C["Scatter off Target Particle<br/>Information Acquired: &Delta;I = 1 bit"]
   C --> D["Photon Absorbed by Detector<br/>Dissipation into Bath: &Delta;Q = h&nu;"]
-  D --> E["Entropy Increase of Bath<br/>&Delta;S_bath &ge; k_B ln 2"]
+  D --> E["Entropy Increase of Bath<br/>&Delta;S_bath &gt; k_B"]
   E --> F["Net Entropy of Universe:<br/>&Delta;S_universe = &Delta;S_bath - &Delta;I &gt; 0"]
 ```
 
@@ -133,27 +137,27 @@ If the chambers are in thermal equilibrium at temperature $T$, blackbody radiati
 
 To spot a molecule, the demon must switch on a flashlight.
 
-To stand out against the blackbody noise, the flashlight's photons must carry energy significantly above the thermal background:
+To stand out against the blackbody noise, the flashlight's photons must carry energy above the thermal background:
 
-$$h\nu > k_B T \ln 2$$
+$$h\nu > k_B T$$
 
 When that probe photon scatters off a molecule and lands in the demon's eye or photodetector, its energy is absorbed and degraded into thermal heat. The heat dumped into the reservoir is $\Delta Q = h\nu$. The resulting increase in thermodynamic entropy in the reservoir is:
 
-$$\Delta S_{\text{bath}} = \frac{\Delta Q}{T} \ge \frac{k_B T \ln 2}{T} = k_B \ln 2$$
+$$\Delta S_{\text{bath}} = \frac{\Delta Q}{T} > \frac{k_B T}{T} = k_B$$
 
 Brillouin established what he called the **Negentropy Principle of Information**:[^7]
 
 $$\Delta S_{\text{total}} = \Delta S_{\text{bath}} - \Delta I \ge 0$$
 
-Acquiring one bit of information ($\Delta I = k_B \ln 2$) requires dissipating at least $k_B \ln 2$ of thermodynamic entropy into the environment. You cannot learn something about the physical world without heating up the universe.
+Brillouin's $\Delta I$ is written in entropy units, so one bit of acquired information counts as $k_B \ln 2$ of negentropy against the $k_B$ or more the flashlight dumped into the bath. Shannon information is dimensionless; the conversion is Brillouin's own convention and it is what makes the two terms subtractable.
 
-Rolf Landauer completed this chain of reasoning in 1961.[^8] Landauer showed that while certain measurement interactions can theoretically be staged with minimal dissipation, any computing machine or observer must store that measurement in a physical register.
+Brillouin concluded from this that the cost is in the looking. That part did not survive. Rolf Landauer in 1961 and Charles Bennett afterwards located the unavoidable cost somewhere else: a measurement interaction can in principle be staged reversibly, at arbitrarily small dissipation, because it is logically reversible. What is not reversible is forgetting.[^8] Any observer must store the measurement in a physical register, and that register is finite.
 
-When that register is eventually reset or overwritten to prepare for the next read, logical irreversibility demands physical dissipation. Erasing one bit of information in a system at temperature $T$ must dissipate at least:
+When that register is reset or overwritten to prepare for the next read, logical irreversibility demands physical dissipation. This is where the $\ln 2$ enters, and it is per bit erased rather than per bit observed. Erasing one bit of information in a system at temperature $T$ must dissipate at least:
 
 $$Q_{\text{min}} = k_B T \ln 2$$
 
-Charles Bennett used Landauer's result in 1982 to finally exorcise Maxwell's demon.[^9] The demon can measure molecules, and it can sort them. But its brain is a finite physical memory. Eventually, the demon runs out of storage and has to erase its previous observations. That erasure cycle dumps the saved work straight back into the thermal bath as waste heat, balancing the second law down to the last decimal place.
+Bennett made that argument explicit in 1982 and finally exorcised the demon.[^9] The demon can measure molecules, and it can sort them. But its brain is a finite physical memory. Eventually, the demon runs out of storage and has to erase its previous observations. That erasure cycle dumps the saved work straight back into the thermal bath as waste heat, balancing the second law down to the last decimal place.
 
 ## Silicon does not lie: the anatomy of hardware reads
 
@@ -165,9 +169,13 @@ Talk to the engineers designing memory controllers, DRAM dies, or flash storage,
 
 Take the memory sitting in your workstation right now. A DDR5 DIMM stores bits in dynamic random-access memory (DRAM).
 
-A DRAM cell consists of a single access transistor and a microscopic capacitor (a 1T1C cell). The capacitor has a capacitance on the order of 25 to 30 femtofarads ($10^{-15}\text{ F}$). When fully charged to a core voltage of roughly $1.1\text{ V}$, that capacitor holds around 170,000 electrons:
+A DRAM cell consists of a single access transistor and a microscopic capacitor (a 1T1C cell). Textbooks quote 25 to 30 femtofarads ($10^{-15}\text{ F}$) for that capacitor, and the industry held roughly 30 fF across many generations by growing the capacitor vertically as its footprint shrank. That has stopped being true. Recent nodes, which is what a DDR5 part is built on, are below 10 fF per cell, and the sensing margin has been shrinking with them.
 
-$$Q = C \cdot V \approx 28\text{ fF} \times 1.1\text{ V} \approx 3.08 \times 10^{-14}\text{ C} \approx 192{,}000 \, e^{-}$$
+At 8 fF and a core voltage of $1.1\text{ V}$, a full cell holds:
+
+$$Q = C \cdot V \approx 8\text{ fF} \times 1.1\text{ V} \approx 8.8 \times 10^{-15}\text{ C} \approx 55{,}000 \, e^{-}$$
+
+Fifty-five thousand electrons is the entire physical representation of one bit in the machine you are reading this on.
 
 How does a memory controller read that cell?
 
@@ -181,9 +189,9 @@ sequenceDiagram
 
   Note over BL: Precharged to V_DD / 2
   WL->>Cell: Activate (Opens access transistor)
-  Cell->>BL: Charge Sharing (Dumps ~30 fF into ~150 fF)
-  Note over Cell: Charge destroyed! Voltage drops to near zero
-  Note over BL: Tiny delta V (~100 mV)
+  Cell->>BL: Charge Sharing (~8 fF cell into ~40 fF bitline)
+  Note over Cell: Data destroyed! Cell settles to bitline voltage (~V_DD / 2)
+  Note over BL: Tiny delta V (~90 mV)
   SA->>BL: Sense & Latch (Differential amplification)
   SA->>Cell: RESTORE (Drives BL to full V_DD, rewrites cell)
   Note over WL: Deassert after t_RAS (Cell recharged)
@@ -191,13 +199,17 @@ sequenceDiagram
 
 The bitline is precharged to an intermediate voltage, typically $V_{DD} / 2$. When the row decoder activates the wordline, the access transistor turns on.
 
-The tiny charge stored in the 1T1C capacitor immediately spills out onto the bitline. The bitline capacitance is ten times larger than the storage cell's capacitance. The charge from the cell barely nudges the bitline voltage—producing a delta of roughly 100 millivolts.
+The tiny charge stored in the 1T1C capacitor immediately spills out onto the bitline. The bitline carries perhaps four to eight times the cell's capacitance, so the charge from the cell barely nudges the bitline voltage. With a 1:5 ratio the swing is
 
-The moment that charge spills out onto the bitline, **the bit in the cell is gone**.
+$$\Delta V = \frac{V_{DD}}{2} \cdot \frac{C_{cell}}{C_{cell} + C_{BL}} \approx 0.55\text{ V} \times \frac{8}{48} \approx 90\text{ mV}$$
 
-The read destroyed the data. If the memory controller lost power at that exact microsecond, the stored bit would be wiped out.
+and that is the entire signal the sense amplifier gets to work with.
 
-To finish the read, the sense amplifier performs a regenerative latch operation. It detects the 100 mV imbalance, slams the bitline rail-to-rail (driving one side to $V_{DD}$ and the other to ground), and uses that amplified voltage to force the charge back through the access transistor into the storage capacitor.[^10]
+The cell does not drain to ground. It equalizes with the bitline, settling to within about 90 mV of $V_{DD}/2$ — and for a stored zero the cell voltage *rises* to get there. Either way it no longer holds a value that can be told apart from the precharge level. **The bit in the cell is gone.**
+
+The read destroyed the data. If the memory controller lost power in that window, roughly fifteen nanoseconds wide, the stored bit would be wiped out.
+
+To finish the read, the sense amplifier performs a regenerative latch operation. It detects that 90 mV imbalance, slams the bitline rail-to-rail (driving one side to $V_{DD}$ and the other to ground), and uses that amplified voltage to force the charge back through the access transistor into the storage capacitor.[^10]
 
 This is why every DRAM timing sheet specifies two critical parameters:
 - **$t_{RCD}$ (RAS to CAS Delay):** The time required to activate the row, dump the cell charge, and let the sense amplifier detect the voltage swing.
@@ -276,7 +288,7 @@ Consider what happens under the MESI (Modified, Exclusive, Shared, Invalid) or M
 
 Core 0 wants to read an address currently held by Core 1 in the `Modified` state.
 
-Core 0 issues a `Read` request on the interconnect fabric. This is not a passive query. Core 1 must intercept the snoop message, stall its pipeline, downgrade its cache line from `Modified` to `Shared`, and flush the dirty data out onto the interconnect mesh or back to the L3 directory.
+Core 0 issues a `Read` request on the interconnect fabric. This is not a passive query. Core 1 must intercept the snoop message, stall its pipeline, downgrade its cache line out of `Modified`, and push the dirty data onto the interconnect mesh. Under MESI the line drops to `Shared` and the data is written back to the L3 or memory. MOESI exists to avoid exactly that writeback: Core 1 moves to `Owned`, supplies the data to Core 0 directly, and stays responsible for it, so the trip to memory is deferred rather than taken.
 
 ```mermaid
 sequenceDiagram
@@ -290,7 +302,7 @@ sequenceDiagram
   Note over C1: Stall pipeline, downgrade to Shared
   C1->>Fabric: Data Response (Pushes dirty cache line)
   Fabric->>C0: Fill L1 Cache (State: Shared)
-  Fabric->>L3: Writeback Update
+  Fabric->>L3: Writeback (MESI only; MOESI defers via Owned)
   Note over Fabric: Dynamic power: P = C * V^2 * f dissipated as heat
 ```
 
@@ -312,7 +324,9 @@ You take out `gdb` and insert `printf` statements to trace the execution flow. T
 
 You deploy an eBPF tracepoint to capture kernel thread scheduling non-invasively. The latency spike smooths out.
 
-We joke about "Heisenbugs" as an amusing metaphor. But it is not a metaphor. It is the probe effect, and it obeys the exact kinematics Feynman laid out for the electron.
+We joke about "Heisenbugs" as an amusing metaphor, and as physics the joke is wrong. Nothing about a vanished race condition involves $\hbar$. The perturbations below are thousands of nanoseconds, twenty-odd orders of magnitude away from anything quantum, and they come from lock acquisition and cache pollution rather than from momentum transfer. The uncertainty principle is not operating here and does not need to be.
+
+What survives the deflation is the shape of the constraint. Feynman's electron and a traced thread are both systems you can only interrogate by coupling to them, and in both cases the coupling is strong enough to move the thing you wanted to measure. That is the probe effect, and it is classical back-action.
 
 When you insert an observability probe into a concurrent software system, you are shining Feynman's flashlight on the execution trace:
 
@@ -427,13 +441,13 @@ There are no passive reads. Everything you touch, you change.
 
 [^2]: **A Quantum Theory of the Scattering of X-rays by Light Elements.** Arthur H. Compton, Physical Review 21(5), 483–502, 1923. The experimental demonstration that photons carry discrete momentum $p = h/\lambda$. ([Phys. Rev.](https://doi.org/10.1103/PhysRev.21.483))
 
-[^3]: **The Physical Principles of the Quantum Theory.** Werner Heisenberg, University of Chicago Press, 1930. The original formulation of the gamma-ray microscope thought experiment. ([Archive](https://archive.org/details/physicalprincipl00heis))
+[^3]: **The Physical Principles of the Quantum Theory.** Werner Heisenberg, University of Chicago Press, 1930. Heisenberg's expanded treatment of the gamma-ray microscope. The original is *Uber den anschaulichen Inhalt der quantentheoretischen Kinematik und Mechanik*, Zeitschrift fur Physik 43, 172-198, 1927, which states the relation as an order-of-magnitude bound. The sharp inequality $\sigma_x \sigma_p \ge \hbar/2$ is due to Earle Kennard (1927) and, in its general form, Hermann Weyl (1928). ([Archive](https://archive.org/details/physicalprincipl00heis))
 
 [^4]: **Uncertainty Relations for Information Entropy in Wave Mechanics.** Iwo Białynicki-Birula and Jerzy Mycielski, Communications in Mathematical Physics 44(2), 129–132, 1975. Formulates quantum uncertainty in terms of Shannon entropy sums. ([CMP](https://doi.org/10.1007/BF01608825))
 
 [^5]: **Generalized Entropic Uncertainty Relations.** Hans Maassen and Jos B. M. Uffink, Physical Review Letters 60(12), 1103–1106, 1988. State-independent entropic uncertainty relation for non-commuting observables. ([PRL](https://doi.org/10.1103/PhysRevLett.60.1103))
 
-[^6]: **Physical Entropy and Information. II.** Léon Brillouin, Journal of Applied Physics 22(3), 338–343, 1951. The physical analysis of Maxwell's Demon through light scattering and energy dissipation. ([JAP](https://doi.org/10.1063/1.1699951))
+[^6]: **Maxwell's Demon Cannot Operate: Information and Entropy. I.** Léon Brillouin, Journal of Applied Physics 22(3), 334–337, 1951. The argument that the demon must illuminate the molecules it sorts, and that the probe photons must exceed the thermal background to be seen against it. The entropy accounting is developed in the companion paper, **Physical Entropy and Information. II**, same issue, 338–343. ([JAP II](https://doi.org/10.1063/1.1699951))
 
 [^7]: **Science and Information Theory.** Léon Brillouin, Academic Press, 1956. Chapters 16 ("The Negentropy Principle of Information") and 17 ("The Physical Limits of Observation"). ([Academic Press](https://doi.org/10.1016/C2013-0-07612-5))
 
@@ -443,12 +457,12 @@ There are no passive reads. Everything you touch, you change.
 
 [^10]: **DRAM Circuit Design: Fundamental and High-Speed Topics.** Brent Keeth, R. Jacob Baker, Brian Johnson, and Feng Lin, IEEE Press / Wiley-Interscience, 2nd Edition, 2007. Chapters 2 and 3: The 1T1C memory cell, destructive readout, and sense amplifier operation. ([IEEE Xplore](https://ieeexplore.ieee.org/book/5264381))
 
-[^11]: **Inside Solid State Drives (SSDs).** Nishant Sharma and Rino Micheloni, Springer, 2nd Edition, 2018. Chapter 2: NAND Flash Architecture, String Biasing, and Pass Voltage Mechanics. ([Springer](https://doi.org/10.1007/978-981-13-1084-3))
+[^11]: **Inside Solid State Drives (SSDs).** Rino Micheloni, Alessia Marelli and Kam Eshghi (eds.), Springer Series in Advanced Microelectronics vol. 37, 2nd Edition, 2018. NAND flash architecture, string biasing and pass-voltage mechanics. ([Springer](https://doi.org/10.1007/978-981-13-0599-3))
 
-[^12]: **Read Disturb Errors in Flash Memory: Characterization, Mitigation, and Recovery.** Yu Cai, Erich F. Haratsch, Onur Mutlu, and Ken Mai, Proceedings of the International Conference on Dependable Systems and Networks (DSN), 2015. Detailed measurement and physics of pass-voltage induced soft tunneling. ([DSN 2015](https://doi.org/10.1109/DSN.2015.48))
+[^12]: **Read Disturb Errors in MLC NAND Flash Memory: Characterization, Mitigation, and Recovery.** Yu Cai, Yixin Luo, Saugata Ghose, Erich F. Haratsch, Ken Mai and Onur Mutlu, Proceedings of the International Conference on Dependable Systems and Networks (DSN), 2015. Measurement and physics of pass-voltage induced soft tunneling, including the read-counter threshold that motivates scrubbing. The characterization is of 2Y-nm (20–24 nm) planar MLC parts rather than 3D NAND, so the mechanism carries over but the quoted thresholds do not. ([PDF](https://ghose.cs.illinois.edu/papers/15dsn_readdisturb.pdf), [arXiv:1805.03283](https://arxiv.org/abs/1805.03283))
 
 [^13]: **Computer Architecture: A Quantitative Approach.** John L. Hennessy and David A. Patterson, Morgan Kaufmann, 6th Edition, 2017. Chapter 5: Thread-Level Parallelism, Cache Coherence Protocols, and Interconnect Energy. ([Elsevier](https://doi.org/10.1016/C2015-0-00994-6))
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Gemini 3.8 Flash). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*
+*Disclaimer: Researched and drafted with AI assistance (Gemini 3.8 Flash, Claude Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The quantitative DRAM figures are order-of-magnitude values for a recent process node rather than measurements of a specific part, and vendors do not publish per-cell capacitance.*
