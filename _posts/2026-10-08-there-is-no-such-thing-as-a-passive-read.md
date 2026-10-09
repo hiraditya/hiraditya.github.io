@@ -4,7 +4,10 @@ date: 2026-10-08 07:00:00 -0700
 categories: [Systems, Theory]
 tags: [physics, entropy, information-theory, hardware, computer-architecture, quantum-mechanics, memory]
 mermaid: true
+math: true
 ---
+
+{% include katex.html %}
 
 Software engineers operate under a comforting fiction: reading a value is free.
 
