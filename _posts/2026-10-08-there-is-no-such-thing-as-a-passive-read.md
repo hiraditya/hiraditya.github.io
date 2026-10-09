@@ -8,13 +8,13 @@ mermaid: true
 
 Software engineers operate under a comforting fiction: reading a value is free.
 
-In C, we decorate pointers with `const` to assure the compiler that inspection produces no side effects. In functional programming, we celebrate pure functions because evaluating an expression leaves the universe untouched. In database theory, an ideal `SELECT` query runs in an isolated read replica without locking rows or rewriting storage blocks. In classical mechanics, an observer is a disembodied spirit taking notes on the positions and velocities of billiard balls while exerting zero force on the table.
+In C++, we decorate pointers with `const` to assure the compiler that inspection produces no side effects. In functional programming, we celebrate pure functions because evaluating an expression leaves the universe untouched. In database theory, an ideal `SELECT` query runs in an isolated read replica without locking rows or rewriting storage blocks. In classical mechanics, an observer is a disembodied spirit taking notes on the positions and velocities of billiard balls while exerting zero force on the table.
 
 None of that is true.
 
 Physics does not permit a passive observer. To read any physical state—the position of a particle, the charge on a capacitor, the contents of a cache line—you must couple to it. Coupling requires exchanging momentum, charge, or photons. And the instant you exchange a physical quantity with a system, you kick its trajectory, destroy its unperturbed state, and dissipate free energy into the surrounding thermal bath.
 
-The Heisenberg uncertainty principle and the second law of thermodynamics are usually taught in separate buildings. One belongs to quantum mechanics; the other belongs to statistical mechanics. But look at them through the lens of measurement, and they describe the exact same physical reality: *inspection is an intervention*.
+The Heisenberg uncertainty principle and the second law of thermodynamics are usually taught in separate classes. One belongs to quantum mechanics; the other belongs to statistical mechanics. But look at them through the lens of measurement, and they describe the exact same physical reality: *inspection is an intervention*.
 
 The universe does not have a read-only mode. Every read is a write, and the invoice always comes due in entropy.
 
