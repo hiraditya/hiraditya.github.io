@@ -305,7 +305,7 @@ sequenceDiagram
   Note over C1: Stall pipeline, downgrade to Shared
   C1->>Fabric: Data Response (Pushes dirty cache line)
   Fabric->>C0: Fill L1 Cache (State: Shared)
-  Fabric->>L3: Writeback (MESI only; MOESI defers via Owned)
+  Fabric->>L3: Writeback (MESI only, MOESI defers via Owned)
   Note over Fabric: Dynamic power: P = C * V^2 * f dissipated as heat
 ```
 
