@@ -23,7 +23,7 @@ He was right about the phenomenon. I think he was wrong about the mechanism, and
 
 Wirth treated hardware as a single number getting bigger. It never was.
 
-## Hardware did not scale. Some of it scaled.
+## Some of the machine scaled. Not the parts we built on.
 
 Moore's law was a statement about transistor count, nothing else.[^3] Dennard scaling is what converted those transistors into free single-thread performance by letting voltage fall with feature size, and it stopped working around 2005.[^4] After that, the transistors kept coming and the free lunch did not. We ended up with multicore, and eventually with dark silicon, where you have more transistors than you have power budget to switch.[^5]
 
@@ -44,7 +44,7 @@ Saying that software outpaced hardware is true but imprecise, and the imprecisio
 
 We spent a forty-year bull market in floating-point operations buying things that cost memory traffic.
 
-## The compounding is the mechanism
+## The software gap is bigger than twenty years of Moore's law
 
 Leiserson and co-authors put a concrete number on this in *Science* in 2020, and the number is worse than you expect.[^9] They took one task — multiply two 4096-by-4096 matrices — and wrote it seven ways on the same 18-core machine.
 
@@ -76,7 +76,7 @@ This is why appeals to discipline do not work and never have. Wirth asked for di
 
 Jevons worked this out in 1865, about coal.[^10] Make a resource cheaper and consumption rises to absorb the savings. Cheap compute did not produce lean software; it produced more software, structured into deeper towers of abstraction. In traditional systems, that compounding took forty years. In the machine learning stack, where compute is more expensive than it has ever been, the exact same tower appeared in eight.
 
-## The AI stack ran the same play in eight years
+## The people who knew the history built the tower anyway
 
 This is the path a matrix multiply takes to a GPU today.
 
@@ -99,7 +99,7 @@ They built it anyway. That is the evidence that matters. Not that naive programm
 
 Which is why I do not believe this stops.
 
-## Why accelerators make it worse
+## Specialized hardware does not collapse the layers
 
 The optimistic story is that specialized hardware ends the problem. The accelerator does one thing, the layers collapse, and the tax goes away. I think every mechanism runs the other direction.
 
@@ -121,7 +121,7 @@ The reply I get is that the compiler or the runtime will handle it. A runtime ca
 
 That bargain is exactly the one an out-of-order core already makes. I have [written at length]({% post_url 2026-09-28-had-compiler-engineers-stepped-up %}) about what it costs: most of a modern core's area and power goes to reconstructing facts that were free at the source level and got deleted on the way down. Doing it again at rack scale, for placement instead of for aliasing, is not a plan. It is the same mistake with a bigger power bill.
 
-## Why now and not ten years ago
+## The timing changed, not the diagnosis
 
 A decade ago, this argument would have failed on timing alone.
 
@@ -133,7 +133,7 @@ The author of the code changed as well. Increasingly the implementation is writt
 
 None of that was true in 2015. All of it is true now.
 
-## What I did about it
+## So I built a language
 
 I spent the last stretch building a language where a tensor's type carries its memory space, where crossing between spaces is an operation the compiler checks rather than a call into a vendor runtime, and where a host thread touching device memory fails at compile time. It is called Vx, it is at [vxlang.org](https://vxlang.org), and it is version 0.0.1 — the syntax is mostly settled, the standard library is thin, and there is no package manager yet.
 
