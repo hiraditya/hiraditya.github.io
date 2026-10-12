@@ -9,17 +9,15 @@ math: true
 
 {% include katex.html %}
 
-Windows 1.0 shipped in 1985 and asked for 256 KB of memory and two floppy drives.[^1] Windows 11 asks for 4 GB of memory and 64 GB of storage. That is a factor of sixteen thousand in memory and something north of eighty thousand in storage, for a program whose job description a user from 1985 would still recognize: draw some windows, run some programs, find my files.
+Windows 1.0 shipped in 1985 and asked for 256 KB of memory and two floppy drives.[^1] Windows 11 asks for 4 GB of memory and 64 GB of storage. That is a factor of sixteen thousand in memory and something north of eighty thousand in storage for a program whose basic job description a user from 1985 would still recognize: draw some windows, run some programs, find my files. The return on that expanded budget is real enough. Preemptive multitasking, a protected address space, Unicode, a network stack, a GPU compositor, full-disk encryption, and forty years of accumulated security work that 1985 did not know it needed. I would not give any of it up.
 
-Now ask what you got back. Not nothing. Preemptive multitasking, a protected address space, Unicode, a network stack, a GPU compositor, full-disk encryption, and forty years of accumulated security work that 1985 did not know it needed. That list is real and I would not give any of it up.
-
-But it is not sixteen thousand times of anything. Cold boot went from a couple of minutes to maybe fifteen seconds. Launching a text editor went from seconds to, on a bad day, seconds. Call it one order of magnitude of user-visible improvement against four orders of magnitude of hardware. The rest went somewhere.
+But none of it is sixteen thousand times of anything. Cold boot went from a couple of minutes to maybe fifteen seconds. Launching a text editor went from seconds to, on a bad day, seconds. That is roughly one order of magnitude of user-visible improvement against four orders of magnitude of hardware. The rest went into software. That complaint is not new.
 
 ## Wirth said this in 1995 and everyone agreed and nothing happened
 
-Niklaus Wirth wrote "A Plea for Lean Software" for *IEEE Computer* in February 1995.[^2] He quotes Martin Reiser's formulation, which is still the sharpest version anyone has managed: software manages to outgrow hardware in size and sluggishness. Wirth's own phrasing became Wirth's law. Software gets slower faster than hardware gets faster.
+Niklaus Wirth wrote "A Plea for Lean Software" for *IEEE Computer* in February 1995.[^2] He quoted Martin Reiser's formulation, which is still the sharpest version anyone has managed: software manages to outgrow hardware in size and sluggishness. Wirth's own phrasing became Wirth's law: software gets slower faster than hardware gets faster.
 
-The paper is thirty-one years old and it reads like it was written last week. Wirth blamed two things. Features nobody asked for, and the fact that abundant memory removes the pressure that would otherwise force a design decision.
+The paper is thirty-one years old and reads like it was written last week. Wirth blamed two things: features nobody asked for, and the fact that abundant memory removes the pressure that would otherwise force a design decision.
 
 He was right about the phenomenon. I think he was wrong about the mechanism, and the part he missed is the part that matters now.
 
@@ -27,9 +25,9 @@ Wirth treated hardware as a single number getting bigger. It never was.
 
 ## Hardware did not scale. Some of it scaled.
 
-Moore's law was a statement about transistor count, nothing else.[^3] Dennard scaling is what converted those transistors into free single-thread performance, by letting voltage fall with feature size, and it stopped working around 2005.[^4] After that the transistors kept coming and the free lunch did not, which is how we ended up with multicore, and then with dark silicon, where you have more transistors than you have power budget to switch.[^5]
+Moore's law was a statement about transistor count, nothing else.[^3] Dennard scaling is what converted those transistors into free single-thread performance by letting voltage fall with feature size, and it stopped working around 2005.[^4] After that, the transistors kept coming and the free lunch did not. We ended up with multicore, and eventually with dark silicon, where you have more transistors than you have power budget to switch.[^5]
 
-That much is well-trodden. Here is the part that gets left out of the retelling: the various things a computer is made of scaled at wildly different rates, and they still do.
+The subsystems of a computer scaled at wildly different rates, and they still do.
 
 | Dimension | Direction over the last two decades |
 | --- | --- |
@@ -40,17 +38,15 @@ That much is well-trodden. Here is the part that gets left out of the retelling:
 | Disk capacity | five to six orders of magnitude |
 | Disk seek latency | under 2x[^7] |
 
-Look at the spread between the first row and the rest. Arithmetic got cheap at a rate nothing else in the machine came close to matching. Wulf and McKee called this out in 1995 — the same year as Wirth's plea, which I find hard to read as coincidence — and the name they gave it has stuck: the memory wall.[^8]
+Arithmetic got cheap at a rate nothing else in the machine came close to matching. Wulf and McKee called this disparity out in 1995 — the same year as Wirth's plea, which I find hard to read as coincidence — and the name they gave it has stuck: the memory wall.[^8]
 
-So "software outpaced hardware" is true but imprecise, and the imprecision hides the whole problem. Software did not outgrow some uniform resource called hardware. **Software grew along exactly the dimensions that scaled worst.** Every abstraction layer you add costs you footprint, indirection, and data movement. Those are the three axes where the hardware gave you the least. Meanwhile the axis that scaled beautifully, raw arithmetic, is the one layering barely touches.
+Saying that software outpaced hardware is true but imprecise, and the imprecision hides the whole problem. Software did not outgrow some uniform resource called hardware. **Software grew along exactly the dimensions that scaled worst.** Every abstraction layer you add costs you footprint, indirection, and data movement. Those are the three axes where the hardware gave you the least. Meanwhile the axis that scaled beautifully, raw arithmetic, is the one layering barely touches.
 
 We spent a forty-year bull market in floating-point operations buying things that cost memory traffic.
 
 ## The compounding is the mechanism
 
-Leiserson and co-authors put a number on this in *Science* in 2020, and the number is worse than you expect.[^9]
-
-They took one task — multiply two 4096-by-4096 matrices — and wrote it seven ways on the same 18-core machine.
+Leiserson and co-authors put a concrete number on this in *Science* in 2020, and the number is worse than you expect.[^9] They took one task — multiply two 4096-by-4096 matrices — and wrote it seven ways on the same 18-core machine.
 
 | Version | Implementation | Running time (s) | GFLOPS | Speedup vs Python | Fraction of peak |
 | --- | --- | --- | --- | --- | --- |
@@ -64,9 +60,9 @@ They took one task — multiply two 4096-by-4096 matrices — and wrote it seven
 
 Sixty-two thousand times, on identical silicon, from nothing but telling the machine what you actually meant. The Python version reaches 0.0006% of the machine's peak.
 
-Sit with the magnitude for a second. The gap between the top and bottom row of that table is **larger than the entire Moore's law dividend over the period the table's hardware was built in.** We are not talking about leaving performance on the table. We are talking about leaving more performance on the table than the semiconductor industry delivered in twenty years of heroic effort.
+The gap between the top and bottom row of that table is **larger than the entire Moore's law dividend over the period the table's hardware was built in.** This is not just leaving performance on the table. It is leaving more performance on the table than the semiconductor industry delivered in twenty years of heroic effort.
 
-And the paper names the mechanism, which is the part I want. You have problem A. Someone already solved problem B. You solve A by reducing it to B, because that is cheaper than solving A. Then B was itself solved by reduction to C, and C to D. Each reduction is individually reasonable and individually costs you something:
+The mechanism is compounding reduction. You have problem A. Someone already solved problem B. You solve A by reducing it to B, because that is cheaper than solving A. Then B was itself solved by reduction to C, and C to D. Each reduction is individually reasonable, and each one costs you something:
 
 $$0.8 \times 0.8 = 0.64$$
 
@@ -78,11 +74,11 @@ Nobody chose a hundredfold slowdown. Twenty-two people each chose a 20% slowdown
 
 This is why appeals to discipline do not work and never have. Wirth asked for discipline in 1995. The industry nodded and went on layering, because layering is not a lapse in judgment. It is the only way anyone ships anything on a schedule.
 
-Jevons worked this out in 1865, about coal.[^10] Make a resource cheaper and consumption rises to absorb the savings. Cheap compute did not produce lean software. It produced more software.
+Jevons worked this out in 1865, about coal.[^10] Make a resource cheaper and consumption rises to absorb the savings. Cheap compute did not produce lean software; it produced more software, structured into deeper towers of abstraction. In traditional systems, that compounding took forty years. In the machine learning stack, where compute is more expensive than it has ever been, the exact same tower appeared in eight.
 
 ## The AI stack ran the same play in eight years
 
-Here is what it takes to get a matrix multiply onto a GPU today.
+This is the path a matrix multiply takes to a GPU today.
 
 ```mermaid
 graph TD
@@ -97,53 +93,53 @@ graph TD
 
 Eight levels, and each one exists to recover information the level above threw away. Dynamo exists because Python has no graph. Inductor exists because PyTorch eager has no fusion. Triton exists because nobody wants to write SASS, and because the information a good tiling decision needs was never written down in the Python.[^11][^12]
 
-I have walked through most of these individually — [what torch.compile sees]({% post_url 2026-07-22-how-torch-compile-works %}), [what Triton is actually doing]({% post_url 2026-07-21-triton-compiler-deep-dive %}), [what XLA buys and what it charges]({% post_url 2026-07-23-xla-review-and-critique %}). The pattern only shows up when you line them up. This is Leiserson's compounding reduction, built in eight years instead of forty, by people who knew the history.
+I have walked through most of these individually: [what torch.compile sees]({% post_url 2026-07-22-how-torch-compile-works %}), [what Triton is actually doing]({% post_url 2026-07-21-triton-compiler-deep-dive %}), and [what XLA buys and what it charges]({% post_url 2026-07-23-xla-review-and-critique %}). The pattern only shows up when you line them up. This is Leiserson's compounding reduction, built in eight years instead of forty, by people who knew the history.
 
 They built it anyway. That is the evidence that matters. Not that naive programmers accidentally created a tower, but that the most performance-literate community in software, working on the most expensive compute on earth, with every incentive to keep it flat, produced an eight-layer tower regardless.
 
 Which is why I do not believe this stops.
 
-## Three reasons accelerators make it worse
+## Why accelerators make it worse
 
-The optimistic story is that specialized hardware ends the problem. The accelerator does one thing, the layers collapse, the tax goes away. I think every mechanism actually runs the other direction.
+The optimistic story is that specialized hardware ends the problem. The accelerator does one thing, the layers collapse, and the tax goes away. I think every mechanism runs the other direction.
 
-**Specialization multiplies dialects.** Hennessy and Patterson's Turing lecture argued we are entering a golden age for computer architecture, driven by domain-specific designs.[^13] They are right, and a golden age for architecture is a proliferation event for software. Every new architecture arrives with its own toolchain, its own intrinsics, its own memory model. Look at what is shipping right now: Grace and Blackwell in one coherent domain in GB200 NVL72, Trainium and Inferentia at AWS alongside Graviton, TPU at Google, Maia and Cobalt at Microsoft, MTIA at Meta, BlueField DPUs doing the networking, CXL pooling memory across a rack, and three or four tiers of memory on a single package. That is not a forecast. That is a purchase order. The layers are no longer stacking vertically in one tower. They are fanning out sideways, one tower per vendor, and the application sits on top trying to be portable across all of them.
+Specialization multiplies dialects. Hennessy and Patterson's Turing lecture argued we are entering a golden age for computer architecture, driven by domain-specific designs.[^13] They are right, and a golden age for architecture is a proliferation event for software. Every new architecture arrives with its own toolchain, its own intrinsics, and its own memory model. Look at what is shipping right now. Nvidia packages Grace and Blackwell into one coherent domain in GB200 NVL72. AWS runs Trainium and Inferentia alongside Graviton. Google has TPU, Microsoft has Maia and Cobalt, Meta has MTIA. BlueField DPUs handle networking, CXL pools memory across a rack, and single packages carry three or four tiers of memory. That is not a forecast. That is a purchase order. Software layers are no longer stacking vertically in a single tower. They are fanning out sideways, one tower per vendor, while the application on top is expected to be portable across all of them.
 
-**The scaling asymmetry widens.** Compute at 3.0x every two years against bandwidth at 1.6x and interconnect at 1.4x means the ratio deteriorates by roughly 1.9x and 2.1x per two-year step.[^6] Training compute for large models has been growing at something like 750x every two years, which no supply of bandwidth is going to meet.[^6] The bottleneck is moving further toward data movement every year, and data movement is precisely the thing no mainstream programming language can express.
+The scaling asymmetry widens. Compute scaling at 3.0x every two years against DRAM bandwidth at 1.6x and interconnect at 1.4x means the ratio deteriorates by roughly 1.9x and 2.1x per two-year step.[^6] Training compute for large models has been growing at something like 750x every two years, which no supply of bandwidth is going to meet.[^6] Every generation shifts the bottleneck further toward communication, while mainstream programming languages remain incapable of expressing data movement.
 
-**Hiding a cost is not removing it.** An asynchronous copy, a unified-memory page fault, a cache-coherent link between a CPU and an accelerator — each of these makes a transfer invisible in the source text. None of them makes it free. A page fault across an interconnect is one of the most expensive events in the machine, and in the source it looks like a dereference. [There is no address]({% post_url 2026-08-19-there-is-no-address %}) and [no such thing as a passive read]({% post_url 2026-10-08-there-is-no-such-thing-as-a-passive-read %}) are the same observation from two directions: the abstraction that makes placement invisible is the abstraction that makes placement unmanageable.
+Hardware and runtime designers paper over this by hiding the transfers. An asynchronous copy, a unified-memory page fault, or a cache-coherent link between a CPU and an accelerator makes data movement invisible in the source text. None of them makes it free. A page fault across an interconnect is one of the most expensive events in the machine, but in the source it looks like an ordinary pointer dereference. [There is no address]({% post_url 2026-08-19-there-is-no-address %}) and [no such thing as a passive read]({% post_url 2026-10-08-there-is-no-such-thing-as-a-passive-read %}) describe the same failure from two directions: the abstraction that makes placement invisible is the abstraction that makes placement unmanageable.
 
 ## The variable that matters is the one we cannot name
 
-Put the two halves together. The dominant cost in a modern system is where data lives and how often it moves. The hardware is getting more heterogeneous, which means more places data can live and more kinds of moves between them. And the rate at which movement gets cheaper is roughly half the rate at which arithmetic does.
-
-So placement is the performance variable. Not instruction selection, not register pressure, not even parallelism. Placement.
+The dominant cost in a modern system is where data lives and how often it moves. The hardware is getting more heterogeneous, multiplying both the physical tiers where data can reside and the varieties of interconnect between them. Because movement gets cheaper at roughly half the rate of arithmetic, placement is the performance variable. Not instruction selection, not register pressure, not even parallelism. Placement.
 
 Leiserson's paper says this out loud, and the verb it uses is the one I keep coming back to: "architectures are likely to become increasingly heterogeneous, incorporating both general-purpose and special-purpose circuitry. To improve performance, programs will need to **expose** more parallelism and locality for the hardware to exploit."[^9]
 
 Expose. Not *have inferred on their behalf*. Exposing is something a program does in its text, which makes it a language problem, and languages are the one layer of this stack nobody has been willing to touch.
 
-The reply I get is that the compiler or the runtime will handle it. A runtime can handle it, in the sense that it can discover at execution time what the source refused to state. It then pays for that discovery on every run, forever, on every machine. That bargain is exactly the one an out-of-order core already makes, and I have [written at length]({% post_url 2026-09-28-had-compiler-engineers-stepped-up %}) about what it costs: most of a modern core's area and power goes to reconstructing facts that were free at the source level and got deleted on the way down. Doing it again at rack scale, for placement instead of for aliasing, is not a plan. It is the same mistake with a bigger power bill.
+The reply I get is that the compiler or the runtime will handle it. A runtime can handle it, in the sense that it can discover at execution time what the source refused to state. It then pays for that discovery on every run, forever, on every machine.
+
+That bargain is exactly the one an out-of-order core already makes. I have [written at length]({% post_url 2026-09-28-had-compiler-engineers-stepped-up %}) about what it costs: most of a modern core's area and power goes to reconstructing facts that were free at the source level and got deleted on the way down. Doing it again at rack scale, for placement instead of for aliasing, is not a plan. It is the same mistake with a bigger power bill.
 
 ## Why now and not ten years ago
 
-I think the timing argument is stronger than the problem argument, and it has three parts.
+A decade ago, this argument would have failed on timing alone.
 
-Heterogeneity used to be a transient. From roughly 2007 to 2015 you could rationally bet that one vendor's dialect would win, learn it, and be done. That bet is closed. Four hyperscalers now design their own accelerators and none of them is going to stop, because the whole point of building your own silicon is that it is yours. Multi-vendor heterogeneity is a permanent feature of the landscape, which changes what a language is worth: a language that models placement abstractly is only valuable when there is more than one place.
+From roughly 2007 to 2015, heterogeneity looked like a transient phase. You could rationally bet that one vendor's dialect would win, learn it, and be done. That bet is closed. Four hyperscalers now design their own accelerators and none of them is going to stop, because the whole point of building your own silicon is that it is yours. Multi-vendor heterogeneity is a permanent feature of the landscape, which changes what a language is worth. A language that models placement abstractly only earns its keep when there is more than one place.
 
-The economics inverted. When a machine cost four thousand dollars, programmer convenience dominated every other term. At the scale where a training cluster is a line item on an earnings call, a few percent of placement efficiency is worth more than a lot of convenience. That is a genuinely new condition and it is what makes an unfamiliar language a rational purchase rather than an indulgence.
+At the same time, the underlying economics inverted. When a machine cost four thousand dollars, programmer convenience dominated every other term. At the scale where a training cluster is a line item on an earnings call, a few percent of placement efficiency is worth more than a lot of convenience. That inversion is what makes an unfamiliar language a rational purchase rather than an indulgence.
 
-And the author changed. Increasingly the code is written by a model, and a model's first draft is confident and plausible and sometimes wrong in ways that reviewers do not catch. I have argued that [a type system is a search oracle]({% post_url 2026-09-01-a-type-system-is-a-search-oracle %}) — that what you want from a language, when a generator is producing the code, is the largest fraction of your specification the compiler can decide for you. Placement is specification. If a model puts a tensor in the wrong memory, I want that to be a compile error, not a 40% regression someone finds in a flame graph next quarter.
+The author of the code changed as well. Increasingly the implementation is written by a model, and a model's first draft is confident, plausible, and occasionally wrong in ways that code reviewers miss. I have argued that [a type system is a search oracle]({% post_url 2026-09-01-a-type-system-is-a-search-oracle %}) — that what you want from a language, when a generator produces the code, is the largest fraction of your specification the compiler can decide for you. Placement is part of that specification. If a model puts a tensor in the wrong memory, I want that to be a compile error, not a 40% regression someone discovers in a flame graph next quarter.
 
-Those three conditions arrived at roughly the same time. They were not true in 2015.
+None of that was true in 2015. All of it is true now.
 
 ## What I did about it
 
 I spent the last stretch building a language where a tensor's type carries its memory space, where crossing between spaces is an operation the compiler checks rather than a call into a vendor runtime, and where a host thread touching device memory fails at compile time. It is called Vx, it is at [vxlang.org](https://vxlang.org), and it is version 0.0.1 — the syntax is mostly settled, the standard library is thin, and there is no package manager yet.
 
-I am not claiming it is the answer. Sequoia, X10, Chapel, and Legion all got the diagnosis right years ago and none of them is what people write today, so the base rate for this kind of project is unkind.
+I am not claiming it is the answer. Sequoia, X10, Chapel, and Legion all got the diagnosis right years ago, and none of them is what people write today. The historical base rate for this kind of project is unkind.
 
-What I am claiming is that the diagnosis is correct and that the layer that needs the work is the language. Wirth's law is not going to be repealed by discipline. It was never a discipline problem. Software grows along the dimensions the hardware gave us least, and the hardware is about to give us even less along those same dimensions, across more kinds of memory, on more vendors' silicon, at a widening ratio. The only variable anyone controls is what the source text is permitted to say about where things are.
+What I am claiming is that the diagnosis is correct and that the layer that needs the work is the language. Wirth's law is not going to be repealed by discipline; it was never a discipline problem. As hardware diverges across more tiers of memory and more vendors' silicon, the penalty for ignoring data movement will only compound. The only variable anyone actually controls is what the source text is permitted to say about where things live.
 
 Right now it is permitted to say almost nothing. That is a choice, and it is old enough to revisit.
 
@@ -179,4 +175,4 @@ Right now it is permitted to say almost nothing. That is a choice, and it is old
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The Windows and disk-drive figures are industry-typical rather than measurements I took, and footnotes 1 and 7 say so explicitly. Vx is my own project, so discount the closing section accordingly.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5, Gemini 3.1 Pro). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The Windows and disk-drive figures are industry-typical rather than measurements I took, and footnotes 1 and 7 say so explicitly. Vx is my own project, so discount the closing section accordingly.*
