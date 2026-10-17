@@ -496,7 +496,9 @@ I think the trade is worth it. The alternative is what rustc has now: a comment 
 
 ## One relation, read from one place
 
-C, C++ and Rust all tightened their evaluation order, and all three still ship bugs and errata about it. GCC still computes `*c` too early. The C++26 standard specifies one order for the constant evaluator and leaves another open for generated code. rustc's checker evaluates a receiver twice. Each of those is a second copy of the relation, built by a component that could have read the first one. Put the relation in the language, record it once during lowering, and the diamond in `is_active` becomes a set lookup.
+C, C++ and Rust all tightened their evaluation order, and all three still ship bugs and errata about it. GCC still computes `*c` before the call that re-points `c`. The C++26 standard fixes one order for the constant evaluator and leaves the run-time order open. rustc's borrow checker evaluates a method receiver at the reservation and again at the call.
+
+In each case, two components follow different evaluation orders. GCC's generated code disagrees with the C++17 rule. The C++ constant evaluator disagrees with the generated code. rustc's borrow checker disagrees with the MIR that codegen consumes. The fix is to define the dominance relation once, in the language, for every expression tree. The compiler records that relation while it lowers the tree, and codegen, the constant evaluator and the borrow checker all read the same record. In rustc, the dominator query in `is_active` then becomes a simple membership test: is this location inside the argument window that lowering recorded?
 
 ## References
 
