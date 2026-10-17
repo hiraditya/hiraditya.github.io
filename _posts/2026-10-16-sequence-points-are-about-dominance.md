@@ -265,7 +265,7 @@ Clang 21.1 and MSVC 19.51 print `559`. GCC 15.2 prints `555` at `-O0` and `-O2` 
 
 GCC and rustc made the same mistake in different layers. An operand that names a place has no side effects of its own, so each implementation treated its evaluation as something that could happen whenever convenient. GCC computed it too early. rustc's checker computed it too late. But a place has inputs. `*c` reads `c` and `(*p)` reads `p`, while another operand writes that input. A sequencing rule that orders only side effects misses this. The dominance relation has to cover the reads that compute a place, not only the writes.
 
-There is a quieter cousin in Rust that is not a bug at all:
+Take [#164163](https://github.com/rust-lang/rust/issues/164163) and delete the shared borrow `s = &p[0]`. The argument still re-points `p`, but nothing is left to dangle, so this version is not a bug at all:
 
 ```rust
 let mut p: &mut Vec<u64> = &mut a;
@@ -365,7 +365,7 @@ impl<'tcx> ReservationWindow<'tcx> {
 
 The first check is one set lookup per query instead of two dominator walks. The second is one pass over the assignments inside the argument operands, and in most calls there are none. Neither check needs to know that `break` exists because the tree already put the `break` target outside the window.
 
-The second check also rejects the quieter cousin, `p.push({ p = &mut b; 0 })`. I count that as a feature. A program whose meaning depends on the reader remembering that the receiver went first is a program I want flagged in review anyway. If that proves too strict, the precise alternative is to keep loans that overlap the reservation alive through kills inside the window. That accepts the cousin and still rejects [#164163](https://github.com/rust-lang/rust/issues/164163).
+The second check also rejects `p.push({ p = &mut b; 0 })`, the sound program that re-points `p` without borrowing anything. I count that as a feature. A program whose meaning depends on the reader remembering that the receiver went first is a program I want flagged in review anyway. If that proves too strict, the precise alternative is to keep loans that overlap the reservation alive through kills inside the window. That accepts `p.push({ p = &mut b; 0 })` and still rejects [#164163](https://github.com/rust-lang/rust/issues/164163).
 
 ## What a fixed evaluation order costs: registers, destructor order, threads, and rejected programs
 
@@ -476,7 +476,7 @@ The program states where the parallelism is, and the checker proves the parts in
 
 ### Programs that become errors
 
-This cost is real. Rule 2 rejects the quieter cousin from earlier, which compiles today:
+This cost is real. Rule 2 rejects the sound re-pointing program from earlier, which compiles today:
 
 ```rust
 // Rejected under rule 2: the argument re-points the receiver's base, `p`.
