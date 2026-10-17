@@ -410,7 +410,7 @@ Java requires left-to-right evaluation, and it states the rule as an as-if guara
 
 ### Destructor order: the Windows x64 ABI destroys arguments in the callee
 
-This is the strongest objection. In the Microsoft x64 C++ ABI, the callee destroys its by-value arguments, left to right. Build the arguments right to left, and they are destroyed in reverse order of construction, as C++ programmers expect. Build them left to right, and they are destroyed in the order they were built.
+This is the strongest objection, and it is the rule behind the `EmitCallArgs` comment quoted earlier: the callee destroys its arguments left to right. Build the arguments right to left, and they are destroyed in reverse order of construction, as C++ programmers expect. Build them left to right, and they are destroyed in the order they were built.
 
 A probe that prints every construction and destruction makes this visible:
 
@@ -436,7 +436,7 @@ take(Noisy(1), Noisy(2));
 | clang-cl 22.1, Microsoft x64 | make 2 1, drop 1 2 | make 1 2, **drop 1 2** |
 | MSVC 19.51, Microsoft x64 | make 2 1, drop 1 2 | **make 2 1**, drop 1 2 |
 
-On the Itanium ABI the caller destroys the arguments, so every construction order gets reverse destruction. On the Microsoft ABI, the shift forces a choice, and the two compilers choose differently. clang-cl keeps the C++17 order and gives up reverse destruction. Richard Smith's 2016 commit says so directly: "Instead of ignoring the evaluation order rule, ignore the 'destroy parameters in reverse construction order' rule for the small number of problematic cases."[^31] MSVC keeps reverse destruction and builds the operands right to left, which C++17 does not allow. It does say so, with warning C4866, "compiler may not enforce left-to-right evaluation order for call to operator_name". But the warning is off by default.[^32]
+On the Itanium ABI the caller destroys the arguments, so every construction order gets reverse destruction. On the Microsoft ABI, the shift forces a choice, and the two compilers choose differently. clang-cl keeps the C++17 order and gives up reverse destruction, a trade Richard Smith made on purpose in 2016 for "the small number of problematic cases."[^31] MSVC keeps reverse destruction and builds the operands right to left, which C++17 does not allow. Its only signal is warning C4866, "compiler may not enforce left-to-right evaluation order for call to operator_name", and that warning is off by default.[^32]
 
 Clang's choice is the right one. A destruction order that is not the reverse of construction surprises far fewer programs than an argument order that changes with the target. A language that fixes the order everywhere makes that trade once, in its specification, instead of once per compiler.
 
