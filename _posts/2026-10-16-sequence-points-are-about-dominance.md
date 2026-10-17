@@ -28,7 +28,7 @@ pub fn main() {
 }
 ```
 
-On my machine it prints `2`. Only `b` ever held a 2, so a reference created as `&a[0]` is reading `b`'s data. The allocator most likely reused `a`'s freed buffer. This is rust-lang/rust#164163, filed on October 11 and marked P-high three days later.[^1] A bisection in the thread finds it in the first nightlies that enabled two-phase borrows in 2018. Two months earlier, rust-lang/rust#160598 showed the same machinery accepting a shared borrow of an `Option` while a `&mut` into it was still live. The trigger was a `break` inside a method argument, and a variant in the thread segfaults.[^2]
+Built with rustc 1.95 on aarch64 macOS, it prints `2`. Only `b` ever held a 2, so a reference created as `&a[0]` is reading `b`'s data. The allocator most likely reused `a`'s freed buffer. This is [rust-lang/rust#164163](https://github.com/rust-lang/rust/issues/164163), filed on October 11 and marked P-high three days later.[^1] A bisection in the thread finds it in the first nightlies that enabled two-phase borrows in 2018. Two months earlier, [rust-lang/rust#160598](https://github.com/rust-lang/rust/issues/160598) showed the same machinery accepting a shared borrow of an `Option` while a `&mut` into it was still live. The trigger was a `break` inside a method argument, and a variant in the thread segfaults.[^2]
 
 Rust is the language that did what C and C++ argued about for thirty years. It has no `++` or `--`, and the old Rust FAQ explains why: "They require knowledge of evaluation order, and often lead to subtle bugs and undefined behavior in C and C++."[^3] Assignment returns `()`. Operands are evaluated left to right, as written. And both bugs are still about evaluation order. Not about the order the machine runs things in, because Rust specifies that. They are about which evaluations the borrow checker believes have happened at a given point.
 
@@ -71,7 +71,7 @@ C89 and C99 did not have a relation. They had points. The main ones were the end
 
 C++11 replaced the points with the relation. Clark Nelson's N1944 gave the reason in 2006: "A rigorous definition of sequencing in the context of a single thread is an essential prerequisite for any definition of concurrent semantics." Its revision, N2239, was voted into the working paper in April 2007.[^6] Happens-before, the core of the C++11 memory model, is built on top of sequenced-before. WG14 adopted the same model for C through Nelson's N1252, whose motivation reads "In a nutshell, the answer is parallel programming."[^7] C11 kept the old term as well. 5.1.2.3p3 says "The presence of a sequence point between the evaluation of expressions A and B implies that every value computation and side effect associated with A is sequenced before every value computation and side effect associated with B," and Annex C still lists the points.
 
-One author, one vocabulary, and still two graphs. C11's footnote 84 says its rule "renders undefined statement expressions such as `i = ++i + 1;`". C++11 makes the same expression well defined. CWG 222 (opened in 1999) and CWG 637 settled it. In C++, assignment and prefix `++` yield lvalues, and C++11's [expr.ass] sequences the assignment "before the value computation of the assignment expression." The committee recorded that "There was no real support in the CWG for weakening the resolution of issue 222."[^8] C has no such clause. Same words, same author, different dominance relation.
+One author, one vocabulary, and still two graphs. C11's footnote 84 says its rule "renders undefined statement expressions such as `i = ++i + 1;`". C++11 makes the same expression well defined. [CWG 222](https://cplusplus.github.io/CWG/issues/222.html) (opened in 1999) and [CWG 637](https://cplusplus.github.io/CWG/issues/637.html) settled it. In C++, assignment and prefix `++` yield lvalues, and C++11's [expr.ass] sequences the assignment "before the value computation of the assignment expression." The committee recorded that "There was no real support in the CWG for weakening the resolution of issue 222."[^8] C has no such clause. Same words, same author, different dominance relation.
 
 C++17 added edges where idiomatic code kept breaking. P0145R3, by Gabriel Dos Reis, Herb Sutter and Jonathan Caves, opens with a chain from Stroustrup's *The C++ Programming Language*:[^9]
 
@@ -83,9 +83,9 @@ The paper's comment is blunt: "This code has been reviewed by C++ experts world-
 
 Three months later, Hyman Rosen's P0431R0 named the cost in one line: "a() = b() and a().operator=(b()) are different."[^12] For the same function, the operator form evaluates `b()` first and the call form evaluates `a()` first. P0431 asked for strict left to right. It was not adopted.
 
-The C++26 cycle kept going. CWG 2867, accepted as a defect report in June 2024, orders the initialization of structured bindings. In November 2024, CWG 2944 made a throw-expression indivisible relative to surrounding evaluations, the way a function call already was.[^13] And reflection forced the largest step. P2996R13 adds this to [intro.execution]: "During the evaluation of an expression as a core constant expression, suboperands and subexpressions that are otherwise unsequenced or indeterminately sequenced are evaluated in lexical order." The rationale says "Strengthening order of evaluation for core constant expressions removes the need for more IFNDR," and "All four major implementations already conform to this rule." CWG 3176 then had to specify how default arguments fit into that lexical order and was accepted in June 2026.[^14]
+The C++26 cycle kept going. [CWG 2867](https://cplusplus.github.io/CWG/issues/2867.html), accepted as a defect report in June 2024, orders the initialization of structured bindings. In November 2024, [CWG 2944](https://cplusplus.github.io/CWG/issues/2944.html) made a throw-expression indivisible relative to surrounding evaluations, the way a function call already was.[^13] And reflection forced the largest step. P2996R13 adds this to [intro.execution]: "During the evaluation of an expression as a core constant expression, suboperands and subexpressions that are otherwise unsequenced or indeterminately sequenced are evaluated in lexical order." The rationale says "Strengthening order of evaluation for core constant expressions removes the need for more IFNDR," and "All four major implementations already conform to this rule." [CWG 3176](https://cplusplus.github.io/CWG/issues/3176.html) then had to specify how default arguments fit into that lexical order and was accepted in June 2026.[^14]
 
-Each revision added edges for the shapes that had hurt someone. The Stroustrup chain hurt someone. `std::cout << f() << g()` hurt nearly everyone. I don't fault the committee for picking those shapes first. But a relation assembled one idiom at a time has no invariant you can check. Compilers still fill in whatever freedom remains. I wrote one probe per expression form and ran it on the three compilers most people ship with:
+Each revision added edges for the shapes that had hurt someone. The Stroustrup chain hurt someone. `std::cout << f() << g()` hurt nearly everyone. I don't fault the committee for picking those shapes first. But a relation assembled one idiom at a time has no invariant you can check. Compilers still fill in whatever freedom remains. One probe per expression form, run on the three compilers most people ship with, shows what they do with that freedom:
 
 ```cpp
 static int trace;
@@ -124,7 +124,7 @@ Every cell conforms. In C++14, GCC and MSVC printed a `std::cout` chain in oppos
 
 The Rust Reference states the rule in one sentence: "The operands of these expressions are evaluated prior to applying the effects of the expression. Expressions taking multiple operands are evaluated left to right as written in the source code."[^15] Then come the exceptions. In assignment, "The assigned value operand is evaluated first, followed by the assignee expression." Compound assignment evaluates the right side first when both operands are primitive, and the left side first when the operator goes through a trait. The Reference adds a note, "This is unusual. Elsewhere left to right evaluation is the norm," and a warning: "Avoid writing code that depends on the evaluation order of operands in compound assignments as it can be unusual and surprising."[^16] When a language reference warns readers away from its own rule, the rule was written to match an implementation.
 
-Those exceptions are cosmetic. The real tension is `vec.push(vec.len())`. Left to right means the receiver goes first, and the receiver of `push` is `&mut vec`. So the exclusive borrow exists while `vec.len()` runs, and plain exclusivity rejects an obviously correct program. Rust before 2018 did reject it. RFC 2025 fixed it with *two-phase borrows*.[^17] The autoref `&mut vec` is *reserved* when the receiver is evaluated, and it behaves like a shared borrow until the call. At the call it is *activated* and becomes a real `&mut`. The rustc dev guide lists the borrows that get this treatment: the autoref of a `&mut self` receiver, a mutable reborrow in function arguments, and the implicit `&mut` of an overloaded compound assignment.[^18]
+Those exceptions are cosmetic. The real tension is `vec.push(vec.len())`. Left to right means the receiver goes first, and the receiver of `push` is `&mut vec`. So the exclusive borrow exists while `vec.len()` runs, and plain exclusivity rejects an obviously correct program. Rust before 2018 did reject it. RFC 2025 fixed it with *two-phase borrows*.[^17] The autoref `&mut vec` is *reserved* when the receiver is evaluated, and it behaves like a shared borrow until the call. At the call it is *activated* and becomes a real `&mut`. rustc's source calls these two points R and A, and the rest of this post does too. The rustc dev guide lists the borrows that get this treatment: the autoref of a `&mut self` receiver, a mutable reborrow in function arguments, and the implicit `&mut` of an overloaded compound assignment.[^18]
 
 The RFC considered the alternative of evaluating the receiver after the arguments. Backward compatibility ruled that out for code such as `a().foo(b())`. It was candid about the price of the design it chose: "this change slightly widens the gap between the surface language and the underlying 'desugared' view that MIR takes, and in general that is to be avoided."
 
@@ -176,7 +176,7 @@ if reserve_location.dominates(location, dominators) {
 }
 ```
 
-Those two bullets state a sequencing rule as a dominance relation inside a comment. The Reference says the receiver is evaluated before the arguments and the arguments before the call. It never says what happens when an argument does not finish. In Rust an argument can leave halfway, because `break`, `continue`, `return` and `?` are all expressions. That is #160598:
+Those two bullets state a sequencing rule as a dominance relation inside a comment. The Reference says the receiver is evaluated before the arguments and the arguments before the call. It never says what happens when an argument does not finish. In Rust an argument can leave halfway, because `break`, `continue`, `return` and `?` are all expressions. That is [#160598](https://github.com/rust-lang/rust/issues/160598):
 
 ```rust
 #![forbid(unsafe_code)]
@@ -202,16 +202,16 @@ It compiles on 1.95 and prints `Some(1) Some(2)`. A shared reference watched its
 
 ```mermaid
 graph TD
-  R["bb0: _7 = &mut v (reserve)"] --> M{"switchInt(true)"}
+  R["R, the reservation<br/>bb0: _7 = &mut v"] --> M{"switchInt(true)"}
   M -->|"true arm"| T["bb4: _8 = 1"]
   M -->|"false arm"| B["bb6: break 'b"]
-  T --> A["bb9: Option::insert(move _7, move _8) (activate)"]
+  T --> A["A, the activation<br/>bb9: Option::insert(move _7, move _8)"]
   A --> W["bb10: r = Some(..)"]
-  W --> J["bb12: let s = &v"]
+  W --> J["join<br/>bb12: let s = &v"]
   B --> J
 ```
 
-The edge from `bb6` to `bb12` leaves the diamond without passing through A. At `bb12`, R dominates and A does not, so the query reports "between the two." But on the path through `bb10`, the `&mut` is active and stored in `r`. The `break` never has to execute. Its edge in the CFG is enough.
+The edge from `bb6` to `bb12` leaves the diamond without passing through the activation A in `bb9`. At the join in `bb12`, the reservation R dominates and A does not, so the query reports "between the two." But on the path through `bb10`, the `&mut` is active and stored in `r`. The `break` never has to execute. Its edge in the CFG is enough.
 
 GCC's manual documents the same hole for GCC's own expression-level control flow. Of statement expressions, it says: "Jumping out of a statement expression is permitted, but if the statement expression is part of a larger expression then it is unspecified which other subexpressions of that expression have been evaluated."[^20] GCC chose "unspecified." Rust lets any expression jump, yet the borrow checker assumed an argument could not.
 
@@ -219,7 +219,7 @@ The write-up in the issue proposes replacing the second dominance test with a re
 
 ## A place is not a value
 
-#164163 has no interesting control flow. In its MIR, `p` is `_7`, the reservation is `_11 = &mut (*_7)`, and the call consumes `_11`. So codegen uses the address `*p` had at R, which is `a`. That matches the Reference.
+[#164163](https://github.com/rust-lang/rust/issues/164163) has no interesting control flow. In its MIR, `p` is `_7`, the reservation is `_11 = &mut (*_7)`, and the call consumes `_11`. So codegen uses the address `*p` had at R, which is `a`. That matches the Reference.
 
 The checker does something else at the activation. At A, `check_activations` calls `access_place` on `borrow.borrowed_place`, which is the path `(*p)`.[^21] Between R and A, the assignment `p = &mut b` ran, and the borrow dataflow handles an assignment to a whole local like this:
 
@@ -261,7 +261,7 @@ int main() {
 }
 ```
 
-Clang 21.1 and MSVC 19.51 print `559`. GCC 15.2 prints `555` at `-O0` and `-O2` because it stores through the old `c`. On GCC PR 119466, Jonathan Wakely diagnosed it: "It seems that GCC evaluates the left operand *c before the right operand func(a, c), so the assignment is done to the wrong location." Jakub Jelinek guessed the cause: "Bet this is just that *c has no side-effects." An older report, PR 91987, showed `x << (x = 3, 2)` going wrong in 2019 because the left operand was gimplified "to a VAR_DECL which satisfies the predicate, yet is a user variable that can be overwritten in the expression that needs to be sequenced after it."[^23] That case is fixed in GCC 15.2. The report is still open for the cases that are not.
+Clang 21.1 and MSVC 19.51 print `559`. GCC 15.2 prints `555` at `-O0` and `-O2` because it stores through the old `c`. On [GCC PR 119466](https://gcc.gnu.org/bugzilla/show_bug.cgi?id=119466), Jonathan Wakely diagnosed it: "It seems that GCC evaluates the left operand *c before the right operand func(a, c), so the assignment is done to the wrong location." Jakub Jelinek guessed the cause: "Bet this is just that *c has no side-effects." An older report, [PR 91987](https://gcc.gnu.org/bugzilla/show_bug.cgi?id=91987), showed `x << (x = 3, 2)` going wrong in 2019 because the left operand was gimplified "to a VAR_DECL which satisfies the predicate, yet is a user variable that can be overwritten in the expression that needs to be sequenced after it."[^23] That case is fixed in GCC 15.2. The report is still open for the cases that are not.
 
 GCC and rustc made the same mistake in different layers. An operand that names a place has no side effects of its own, so each implementation treated its evaluation as something that could happen whenever convenient. GCC computed it too early. rustc's checker computed it too late. But a place has inputs. `*c` reads `c` and `(*p)` reads `p`, while another operand writes that input. A sequencing rule that orders only side effects misses this. The dominance relation has to cover the reads that compute a place, not only the writes.
 
@@ -303,17 +303,17 @@ int main() {
 }
 ```
 
-GCC 15.2 prints 12 and then 21. MSVC 19.51 does the same at `/Od` and at `/O2`. Clang 21.1 prints 12 twice on Linux. Point Clang at `x86_64-pc-windows-msvc`, and its IR calls `step(2)` before `step(1)` while still folding `folded` to 12. One function, one compiler, one set of flags, two answers. Every one of them conforms. And since P2996, C++26 *requires* the 12 and still permits the 21. The standard now specifies two relations for one expression, one for each consumer.
+GCC 15.2 prints 12 and then 21. MSVC 19.51 does the same at `/Od` and at `/O2`. Clang 21.1 prints 12 twice on Linux. clang-cl 22.1, the same front end on the Microsoft ABI, prints 12 and then 21. One function, one compiler, one set of flags, two answers. Every one of them conforms. And since P2996, C++26 *requires* the 12 and still permits the 21. The standard now specifies two relations for one expression, one for each consumer.
 
 Clang's source says plainly where the run-time order comes from. In `EmitCallArgs`: "We must evaluate arguments from right to left in the MS C++ ABI, because arguments are destroyed left to right in the callee." The constant evaluator in `ExprConstant.cpp` never asks which ABI it is on.[^24] The copies have not always agreed even on what the standard fixes. Before Clang 12, the constant evaluator did not fully implement P0145. Richard Smith reduced one report to `(res = 5) |= (res *= 2);`, "which returns 10 when constant-evaluated and 5 when code is generated." The fix landed as "[c++17] Implement P0145R3 during constant evaluation."[^25]
 
-Warnings are a third copy. GCC's manual for `-Wsequence-point` says C++17 makes its own examples well defined, "But this option will still warn about them, to help people avoid writing code that is undefined in C and earlier revisions of C++." That is a defensible choice for a warning. It also means the diagnostic is built on a different graph from the one codegen uses. When GCC fixed braced-init-list ordering in PR 51253, Wakely noted on the bug that G++ still warned about the test cases even though it now generated the right code.[^26]
+Warnings are a third copy. GCC's manual for `-Wsequence-point` says C++17 makes its own examples well defined, "But this option will still warn about them, to help people avoid writing code that is undefined in C and earlier revisions of C++." That is a defensible choice for a warning. It also means the diagnostic is built on a different graph from the one codegen uses. When GCC fixed braced-init-list ordering in [PR 51253](https://gcc.gnu.org/bugzilla/show_bug.cgi?id=51253), Wakely noted on the bug that G++ still warned about the test cases even though it now generated the right code.[^26]
 
-I have made this mistake myself. In Vx, my own language, the two code generators disagreed on the order of indexed assignment and of struct literals. One test program printed `1 2 3 4 3 6 5` with one generator and `2 1 3 4 3 5 6` with the other. Meanwhile, the borrow checker carried a separate model of assignment order.[^27] Translating rustc's borrow-checker bug reports into Vx turned #164163 into Vx #1800. There, a plain argument was enough to free a buffer under a live reference.[^28] Neither problem was a missing check. Each part of the compiler had its own copy of the relation.
+I have made this mistake myself. In Vx, my own language, the two code generators disagreed on the order of indexed assignment and of struct literals. One test program printed `1 2 3 4 3 6 5` with one generator and `2 1 3 4 3 5 6` with the other. Meanwhile, the borrow checker carried a separate model of assignment order.[^27] Translating rustc's borrow-checker bug reports into Vx turned [#164163](https://github.com/rust-lang/rust/issues/164163) into [Vx #1800](https://github.com/vx-lang/Vx/issues/1800). There, a plain argument was enough to free a buffer under a live reference.[^28] Neither problem was a missing check. Each part of the compiler had its own copy of the relation.
 
 ## Every expression tree gets a sequence
 
-I want one rule from a language: every possible expression tree has one well-defined sequence, and the language states it as a dominance relation, not as a list of idioms. The specification I have proposed for Vx in #1846 is built on the same idea.
+I want one rule from a language: every possible expression tree has one well-defined sequence, and the language states it as a dominance relation, not as a list of idioms. The specification I have proposed for Vx in [#1846](https://github.com/vx-lang/Vx/pull/1846) is built on the same idea.
 
 1. **The order is a function of the tree alone.** It does not depend on the ABI, the target, the optimization level, or whether the expression runs at compile time. Operands go left to right, each operand completes before the next starts, and the operation comes last. The operator form and the call form of an operation have the same order, which was P0431's point.
 2. **A place has inputs, and they are part of the order.** Computing a place reads the pointers and indices it goes through. Those reads are sequenced like any other read, and a later operand that writes one of them conflicts with any pending use of the place.
@@ -365,19 +365,136 @@ impl<'tcx> ReservationWindow<'tcx> {
 
 The first check is one set lookup per query instead of two dominator walks. The second is one pass over the assignments inside the argument operands, and in most calls there are none. Neither check needs to know that `break` exists because the tree already put the `break` target outside the window.
 
-The second check also rejects the quieter cousin, `p.push({ p = &mut b; 0 })`. I count that as a feature. A program whose meaning depends on the reader remembering that the receiver went first is a program I want flagged in review anyway. If that proves too strict, the precise alternative is to keep loans that overlap the reservation alive through kills inside the window. That accepts the cousin and still rejects #164163.
+The second check also rejects the quieter cousin, `p.push({ p = &mut b; 0 })`. I count that as a feature. A program whose meaning depends on the reader remembering that the receiver went first is a program I want flagged in review anyway. If that proves too strict, the precise alternative is to keep loans that overlap the reservation alive through kills inside the window. That accepts the cousin and still rejects [#164163](https://github.com/rust-lang/rust/issues/164163).
 
-## What it costs
+## What a fixed evaluation order costs: registers, destructor order, threads, and rejected programs
 
-There are three serious arguments for leaving order open.
+Four objections come up whenever someone asks for a fixed order. Each one has a cost you can measure, and only one of them is large.
 
-The first is optimization. Unsequenced operands let a compiler choose the order that needs fewer registers, which is the classic Sethi-Ullman argument. Under as-if, the compiler keeps that freedom for every operand without side effects, and those are the operands where register pressure decisions usually live. It loses the freedom only when operands write memory or call functions that might. Those are the cases where open order produced the bugs above. Java specifies left-to-right evaluation, and it phrases the rule as an as-if guarantee: the operands "appear to be evaluated in a specific evaluation order, namely, from left to right."[^30] Nobody blames HotSpot's performance on that sentence.
+### Registers: one value has to survive a call
 
-The second is the ABI, and it is the strongest of the three. In the Microsoft x64 C++ ABI, the callee destroys its arguments left to right. Evaluating them right to left keeps destruction in the reverse order of construction. Clang and MSVC resolve the conflict in opposite directions for the same ABI. Since a 2016 change by Richard Smith, Clang keeps the language order and gives up the destruction order: "Instead of ignoring the evaluation order rule, ignore the 'destroy parameters in reverse construction order' rule for the small number of problematic cases."[^31] On the same ABI, MSVC documents warning C4866 ("compiler may not enforce left-to-right evaluation order for call to operator_name") for operator calls that pass an operand by value.[^32] Clang gives up the destruction order. In that case, MSVC gives up the evaluation order and warns. Clang's choice is the right one. A destructor order that is not the reverse of construction surprises far fewer programs than an argument order that changes with the target.
+The classic argument is Sethi-Ullman. If the order is open, the compiler can evaluate the operand that needs more registers first. A fixed order keeps that freedom for every operand without side effects, because under as-if no program can see the difference. The freedom is lost only when an operand calls a function or writes memory. So that is the case to look at:
 
-The third is concurrency, and it rests on a misunderstanding. A total order within one thread says nothing about two threads. That is the job of happens-before, and C++11 built happens-before on sequenced-before for exactly that reason. A construct that runs work in parallel should say so in its syntax so the checker can prove that its parts are independent. Sequential code should never have an open order.
+```c
+int g(int *p);
 
-The rejected programs are the last cost, and they are real. Rule 2 turns some programs that Rust accepts today into errors, as the cousin shows. I think the trade is worth it. The alternative is what rustc has now: a comment that states an assumption about post-dominance, two soundness holes where the assumption failed, and a fix that adds a reachability walk to every query inside the window.
+// 1. Left to right, as a fixed order would require: load *p, then call g.
+int load_first(int *p) { return *p + g(p); }
+
+// 2. The other order, which C's open rule also allows: call g, then load *p.
+int call_first(int *p) { return g(p) + *p; }
+```
+
+GCC 15.2 and Clang 21.1 at `-O2` compile both functions to the same shape:
+
+```nasm
+load_first:
+        push    rbx
+        mov     ebx, DWORD PTR [rdi]    ; keep *p alive across the call
+        call    g
+        add     eax, ebx
+        pop     rbx
+        ret
+call_first:
+        push    rbx
+        mov     rbx, rdi                ; keep p alive across the call
+        call    g
+        add     eax, DWORD PTR [rbx]
+        pop     rbx
+        ret
+```
+
+Either way, one value has to survive the call, so either way the function saves one callee-saved register. The order changes which value is kept, not how many. And both compilers already evaluate `load_first` in source order, although C would let them call `g` first.
+
+Java requires left-to-right evaluation, and it states the rule as an as-if guarantee: the operands "appear to be evaluated in a specific evaluation order, namely, from left to right."[^30] Nobody blames HotSpot's performance on that sentence.
+
+### Destructor order: the Windows x64 ABI destroys arguments in the callee
+
+This is the strongest objection. In the Microsoft x64 C++ ABI, the callee destroys its by-value arguments, left to right. Build the arguments right to left, and they are destroyed in reverse order of construction, as C++ programmers expect. Build them left to right, and they are destroyed in the order they were built.
+
+A probe that prints every construction and destruction makes this visible:
+
+```cpp
+struct Noisy {
+  int id;
+  explicit Noisy(int i) : id(i) { std::printf("make %d\n", id); }
+  Noisy(const Noisy&) = delete;  // 1. No copies, so the trace shows only these objects.
+  ~Noisy() { std::printf("drop %d\n", id); }
+};
+
+void take(Noisy, Noisy);       // 2. A plain call. C++17 leaves the argument order open.
+int operator<<(Noisy, Noisy);  // 3. A shift. C++17 requires left to right.
+
+take(Noisy(1), Noisy(2));
+(void)(Noisy(1) << Noisy(2));
+```
+
+| Compiler and ABI | `take(Noisy(1), Noisy(2))` | `Noisy(1) << Noisy(2)` |
+| --- | --- | --- |
+| GCC 15.2, Itanium | make 2 1, drop 1 2 | make 1 2, drop 2 1 |
+| Clang 21.1, Itanium | make 1 2, drop 2 1 | make 1 2, drop 2 1 |
+| clang-cl 22.1, Microsoft x64 | make 2 1, drop 1 2 | make 1 2, **drop 1 2** |
+| MSVC 19.51, Microsoft x64 | make 2 1, drop 1 2 | **make 2 1**, drop 1 2 |
+
+On the Itanium ABI the caller destroys the arguments, so every construction order gets reverse destruction. On the Microsoft ABI, the shift forces a choice, and the two compilers choose differently. clang-cl keeps the C++17 order and gives up reverse destruction. Richard Smith's 2016 commit says so directly: "Instead of ignoring the evaluation order rule, ignore the 'destroy parameters in reverse construction order' rule for the small number of problematic cases."[^31] MSVC keeps reverse destruction and builds the operands right to left, which C++17 does not allow. It does say so, with warning C4866, "compiler may not enforce left-to-right evaluation order for call to operator_name". But the warning is off by default.[^32]
+
+Clang's choice is the right one. A destruction order that is not the reverse of construction surprises far fewer programs than an argument order that changes with the target. A language that fixes the order everywhere makes that trade once, in its specification, instead of once per compiler.
+
+### Threads: sequenced-before is only the single-thread half
+
+A total order inside one thread says nothing about two threads. It was never meant to. C++11 builds happens-before from two kinds of edges: sequenced-before inside a thread, and synchronizes-with between threads.
+
+```mermaid
+graph LR
+  subgraph T1["thread 1"]
+    w1["data = 42"] -->|"sequenced before"| s1["ready.store(true, release)"]
+  end
+  subgraph T2["thread 2"]
+    l2["ready.load(acquire) returns true"] -->|"sequenced before"| r2["read data"]
+  end
+  s1 -->|"synchronizes with"| l2
+```
+
+A fixed evaluation order adds edges inside each box. It cannot add or remove the arrow between the boxes. That arrow comes from the release store and the acquire load, and the evaluation order leaves it alone.
+
+Parallel work inside one function is a different case, and it should be visible in the syntax. Rust already works this way:
+
+```rust
+let mut v = vec![5, 3, 9, 1, 7, 2];
+let mid = v.len() / 2;
+// 1. Split the vector into two disjoint `&mut` halves.
+let (left, right) = v.split_at_mut(mid);
+std::thread::scope(|s| {
+    // 2. The two closures run at the same time, and the code says so.
+    s.spawn(|| left.sort());
+    // 3. The borrow checker accepts this because the halves cannot overlap.
+    s.spawn(|| right.sort());
+});
+```
+
+The program states where the parallelism is, and the checker proves the parts independent. Sequential code does not need an open order to allow any of this.
+
+### Programs that become errors
+
+This cost is real. Rule 2 rejects the quieter cousin from earlier, which compiles today:
+
+```rust
+// Rejected under rule 2: the argument re-points the receiver's base, `p`.
+p.push({ p = &mut b; 0 });
+```
+
+The fix is to say which vector gets the push. This version compiles today and prints the same `[1, 0] [2, 9]`:
+
+```rust
+let first = &mut *p;  // 1. Name the vector that gets the push. It is `a`.
+p = &mut b;           // 2. Re-point `p` in its own statement.
+first.push(0);
+p.push(9);
+```
+
+I think the trade is worth it. The alternative is what rustc has now: a comment that assumes post-dominance, two soundness holes where the assumption failed, and a fix that adds a reachability walk to every query inside the window.
+
+## One relation, read from one place
 
 C, C++ and Rust all tightened their evaluation order, and all three still ship bugs and errata about it. GCC still computes `*c` too early. The C++26 standard specifies one order for the constant evaluator and leaves another open for generated code. rustc's checker evaluates a receiver twice. Each of those is a second copy of the relation, built by a component that could have read the first one. Put the relation in the language, record it once during lowering, and the diamond in `is_active` becomes a set lookup.
 
@@ -449,4 +566,4 @@ C, C++ and Rust all tightened their evaluation order, and all three still ship b
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5.5, Gemini 4 Argon). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The Rust programs were compiled with rustc 1.95 on aarch64 macOS. The C++ probes ran on Compiler Explorer with GCC 15.2, Clang 21.1 and MSVC 19.51 for x86-64, plus local Clang IR for the Windows target. Vx is my own project, so discount those paragraphs accordingly.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5.5, Gemini 4 Argon). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. The Rust programs were compiled with rustc 1.95 on aarch64 macOS. The C++ probes ran on Compiler Explorer with GCC 15.2, Clang 21.1, clang-cl 22.1 and MSVC 19.51 for x86-64. Vx is my own project, so discount those paragraphs accordingly.*
