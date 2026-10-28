@@ -391,4 +391,4 @@ Part 2 takes vLLM's arrangement apart one process at a time: one streamed chat r
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5.5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. Process layouts, code paths and line counts come from reading vLLM 0.32.0, SGLang 0.5.22, Mini-SGLang and nano-vllm at the commits cited.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5.5, Gemini 4 Argon). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. Process layouts, code paths and line counts come from reading vLLM 0.32.0, SGLang 0.5.22, Mini-SGLang and nano-vllm at the commits cited.*
