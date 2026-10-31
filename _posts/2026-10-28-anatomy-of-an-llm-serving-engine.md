@@ -4,8 +4,6 @@ date: 2026-10-28 15:00:00 -0700
 categories: [Systems, Inference]
 tags: [inference, llm-serving, vllm, sglang, kv-cache, architecture]
 mermaid: true
-# Held back until the A100 numbers replace the TODO table in "Where one request's time goes".
-published: false
 ---
 
 *Part 1 of a ten-part series on serving engines from the inside. Pinned to vLLM 0.32.0 ([`5df63a7`](https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be)) and SGLang 0.5.22 ([`baa9bef`](https://github.com/sgl-project/sglang/tree/baa9befa381511cd4d56f83980951e5a45fffc6d)). Both projects ship every couple of weeks, so every file reference below points at those commits.*
@@ -314,16 +312,9 @@ if __name__ == "__main__":
     main()
 ```
 
-The code makes one prediction before any numbers come in. Only the input side and the final output's trip back sit inside the frontend-plus-IPC residual. Every earlier output crosses ZMQ and gets detokenized while the engine is already computing the next token. So that residual should stay flat as the output grows from 1 to 256 tokens, and grow only slightly with prompt length, because tokenizing 2,048 tokens costs more than tokenizing 128. If it grows with output length, the frontend's event loop is falling behind the engine even at a concurrency of one. That is the failure Part 2 goes looking for under load.
+I haven't run the script on a GPU, so there are no measurements here. The code does support one prediction. Only the input side and the final output's trip back sit inside the frontend-plus-IPC residual. Every earlier output crosses ZMQ and gets detokenized while the engine is already computing the next token. So that residual should stay flat as the output grows from 1 to 256 tokens, and grow only slightly with prompt length, because tokenizing 2,048 tokens costs more than tokenizing 128. If it grows with output length, the frontend's event loop is falling behind the engine even at a concurrency of one. That is the failure Part 2 goes looking for under load.
 
-<!-- TODO(A100 run): replace this table with split_latency.py medians. Record the model, dtype and launch command beside it. -->
-
-| Prompt / output tokens | Queue | Prefill | Decode | Frontend + IPC | HTTP + final detok | Client total |
-|---|---|---|---|---|---|---|
-| 128 / 1 | TBD | TBD | TBD | TBD | TBD | TBD |
-| 2048 / 1 | TBD | TBD | TBD | TBD | TBD | TBD |
-| 128 / 256 | TBD | TBD | TBD | TBD | TBD | TBD |
-| 2048 / 256 | TBD | TBD | TBD | TBD | TBD | TBD |
+I haven't found a published split for the current engine. The nearest is vLLM's own profile of Llama 3 8B on one H100, which put the HTTP API server at 33% of execution time, scheduling at 29% and GPU execution at 38%.[^perf060] That profile is why v0.6.0 moved the API server into its own process, so it predates the layout described above and says nothing about today's residual. It does show the residual was large enough to be worth a process of its own.
 
 SGLang records `sglang:queue_time_seconds` in the scheduler process and its TTFT, inter-token and end-to-end histograms in the main process. That is enough for a coarser version of the same split. The head-to-head comparison belongs in Part 9, where both engines run the same workloads.
 
@@ -383,6 +374,7 @@ Part 2 takes vLLM's arrangement apart one process at a time: one streamed chat r
 
 [^sgl-overlap]: **SGLang `Scheduler.event_loop_overlap`.** "A scheduler loop that overlaps the CPU processing and GPU computation." ([scheduler.py#L1975](https://github.com/sgl-project/sglang/blob/baa9befa381511cd4d56f83980951e5a45fffc6d/python/sglang/srt/managers/scheduler.py#L1975))
 
+[^perf060]: **vLLM blog, "vLLM v0.6.0: 2.7x Throughput Improvement and 5x Latency Reduction," 2024-09-05.** The profile that put the HTTP API server at 33%, scheduling at 29% and GPU execution at 38% of execution time, and the decision to split the API server into its own process connected over ZMQ. ([vllm.ai](https://vllm.ai/blog/2024-09-05-perf-update))
 [^llmd]: **vLLM docs, "llm-d."** How llm-d deploys vLLM and consumes its KV-cache events for prefix-aware routing. ([docs.vllm.ai](https://docs.vllm.ai/en/stable/deployment/integrations/llm-d/))
 
 [^sgl-rs]: **SGLang embedded Rust server.** The launch-path comment and the scheduler's ingress switch. ([engine.py#L1292](https://github.com/sgl-project/sglang/blob/baa9befa381511cd4d56f83980951e5a45fffc6d/python/sglang/srt/entrypoints/engine.py#L1292), [scheduler.py#L2354](https://github.com/sgl-project/sglang/blob/baa9befa381511cd4d56f83980951e5a45fffc6d/python/sglang/srt/managers/scheduler.py#L2354), [request_receiver.py#L117](https://github.com/sgl-project/sglang/blob/baa9befa381511cd4d56f83980951e5a45fffc6d/python/sglang/srt/managers/scheduler_components/request_receiver.py#L117))
@@ -391,4 +383,4 @@ Part 2 takes vLLM's arrangement apart one process at a time: one streamed chat r
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5.5, Gemini 4 Argon). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. Process layouts, code paths and line counts come from reading vLLM 0.32.0, SGLang 0.5.22, Mini-SGLang and nano-vllm at the commits cited.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5.5, Claude Sonnet 5.5, Gemini 4 Argon). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. Process layouts, code paths and line counts come from reading vLLM 0.32.0, SGLang 0.5.22, Mini-SGLang and nano-vllm at the commits cited.*
