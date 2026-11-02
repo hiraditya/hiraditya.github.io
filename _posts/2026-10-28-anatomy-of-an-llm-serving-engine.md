@@ -98,20 +98,22 @@ flowchart TB
 
 In vLLM, the engine core sends the batch to the workers on every step. In SGLang, rank 0 sends rank 1 only the *new requests*, and each rank works out the batch on its own.
 
+Cutting those five layers into operating-system processes is not cosmetic packaging. In a Python and CUDA runtime, a process boundary is three boundaries at once: a GIL boundary, an address-space boundary that turns pointer passes into serialization or shared-memory copies, and an authority boundary that decides whether two GPUs are steered by one controller or have to compute identical schedules independently.
+
 ## vLLM: the engine core keeps the ledger, the workers keep the bytes
 
-With the default single API server, the `vllm serve` process is the API server. Its `AsyncLLM` launches the engine core as a child process named `EngineCore`. The engine core's busy loop is short enough to describe in one line: drain the input queue, then call `step()`, which runs `scheduler.schedule()`, `model_executor.execute_model()`, and `scheduler.update_from_output()`.[^core] Everything that happens to a request between tokenization and detokenization happens inside that loop or below it.
+With the default single API server, the `vllm serve` process is the API server. Its `AsyncLLM` launches the engine core as a child process named `EngineCore`. The engine core's busy loop fits in one line: drain the input queue, then call `step()`, which runs `scheduler.schedule()`, `model_executor.execute_model()`, and `scheduler.update_from_output()`.[^core] Everything that happens to a request between tokenization and detokenization happens inside that loop or below it.
 
-The worker count depends on tensor parallelism, and here the docs and the code disagree. The architecture overview says "There is **1 worker process per GPU**" and gives the process total as `A + DP + N`.[^arch] But `ParallelConfig` picks the `uni` executor backend whenever `world_size == 1`, and `UniProcExecutor` builds the worker inside the engine core process. So a single-GPU `vllm serve` is two processes, not three. At `-tp 2` the backend becomes `mp`, `MultiprocExecutor` spawns `VllmWorker-0` and `VllmWorker-1`, and the count is four.[^exec]
+The worker count depends on tensor parallelism, and here the docs and the code disagree. The architecture overview says "There is **1 worker process per GPU**" and gives the process total as `A + DP + N`.[^arch] But `ParallelConfig` picks the `uni` executor backend whenever `world_size == 1`, and `UniProcExecutor` builds the worker inside the engine core process. So a single-GPU `vllm serve` is two processes, not three. At `-tp 2` the backend becomes `mp`, `MultiprocExecutor` spawns `VllmWorker-0` and `VllmWorker-1`, and the count jumps to four.[^exec]
 
-This matters more than a process count suggests. At TP=1, vLLM's scheduler and its forward pass share an address space and a GIL, which is the SGLang arrangement. At TP=2 they don't. The same flag changes the engine's shape, not just its parallelism. A profile taken on one GPU tells you less about the two-GPU deployment than it seems.
+This is a classic benchmarking trap. At TP=1, vLLM's scheduler and its forward pass share an address space and a GIL—the same arrangement SGLang uses. At TP=2 they do not. Passing `-tp 2` changes the engine's process topology, not just its tensor parallelism. A CPU profile taken on one GPU misses the entire engine-to-worker IPC path that appears the moment you add a second GPU.
 
-The two hops carry different traffic and use different transports:
+At TP≥2, a request crosses two process boundaries on its way to the GPU, and the two hops use different transports because their traffic has different shapes:
 
-- **API server to engine core:** ZMQ, with `ROUTER`/`DEALER` sockets for requests going in and `PUSH`/`PULL` for outputs coming back, and msgspec msgpack on the wire. The engine core runs socket I/O on two dedicated threads that feed `queue.Queue`s, so deserializing a large prompt does not stall the busy loop.
-- **Engine core to workers:** `MessageQueue` in `shm_broadcast.py`, a shared-memory ring buffer with one writer and many readers. The engine core writes each step's `SchedulerOutput` once and every worker reads the same bytes. Each worker answers on its own one-to-one queue, and only one rank returns the `execute_model` result.[^ipc]
+- **API server to engine core:** ZMQ `ROUTER`/`DEALER` sockets for requests going in, `PUSH`/`PULL` sockets for outputs coming back, and `msgspec` msgpack on the wire. Because prompts can be tens of thousands of tokens, the engine core runs socket I/O on two dedicated background threads that feed `queue.Queue`s, keeping msgpack deserialization off the scheduling loop.
+- **Engine core to workers:** `MessageQueue` in `shm_broadcast.py`, a shared-memory ring buffer with one writer and $N$ readers. The engine core writes each step's `SchedulerOutput` once and every worker reads the same bytes. Each worker answers on its own one-to-one queue, and only one rank returns the `execute_model` result.[^ipc]
 
-KV memory follows the same split, and the startup sequence shows it most clearly. Condensed from `EngineCore._initialize_kv_caches`, with the elastic-EP and non-causal-attention branches removed:
+KV memory follows the same process split, and `EngineCore._initialize_kv_caches` shows who owns what as the engine comes up (condensed below with the elastic-EP and non-causal-attention branches removed):
 
 ```python
 # Condensed from vllm/v1/engine/core.py @ 5df63a7. Runs in the EngineCore process.
@@ -142,29 +144,31 @@ def _initialize_kv_caches(self, vllm_config):
     return scheduler_kv_cache_config
 ```
 
-After step 4 the workers never make another memory decision. The `BlockPool` in the engine core holds the free-block queue and the block-hash map that prefix caching queries. On every step the scheduler sends block IDs down inside `SchedulerOutput`: `NewRequestData.block_ids` for requests scheduled for the first time, and `CachedRequestData.new_block_ids` for running requests that grew past a block boundary. The model runner writes keys and values wherever those IDs point.[^kv] The worker has the memory. The engine core decides what it means.
+After step 4 the workers never make another memory decision. The `BlockPool` in the engine core holds the free-block queue and the block-hash map that prefix caching queries. On every step the scheduler sends block IDs down inside `SchedulerOutput`: `NewRequestData.block_ids` for newly admitted requests, and `CachedRequestData.new_block_ids` for running requests that grew past a block boundary. The model runner writes keys and values wherever those IDs point.[^kv] The worker has the memory. The engine core decides what it means.
 
-The KV connector, the interface that disaggregated deployments use to move KV between engines, is split along the same line. `KVConnectorRole.SCHEDULER` is commented "Connector running in the scheduler process" and `KVConnectorRole.WORKER` "Connector running in the worker process". The two halves talk through `SchedulerOutput.kv_connector_metadata` going down and the connector output coming back.[^events] A connector author writes both halves and keeps them consistent across a process boundary. That contract sits on top of the byte-layout problem in [The KV Cache Has No ABI]({% post_url 2026-08-18-the-kv-cache-has-no-abi %}).
+Putting process boundaries between layers has a direct consequence: **whenever a feature needs state from two layers that live in different processes, either the component splits in half or it pays a round-trip delay.** Two places in vLLM show both outcomes:
 
-L1 lives entirely in the API server process. Chat-template rendering goes to an executor so it doesn't block the event loop, `InputProcessor` turns the result into an `EngineCoreRequest`, and on the way back `OutputProcessor` runs an `IncrementalDetokenizer` per request.[^fe] Stop strings are checked there too. That creates the first leak in the layering.
-
-A stop string is defined on text, and only the frontend has text. When `OutputProcessor` matches one, the engine core doesn't know yet. It still holds the request's blocks and may schedule another step for it. The frontend has to send an abort back across ZMQ (step 3 in the output handler's loop) before the scheduler frees anything.[^stop] Stop *tokens* don't have this problem, because the engine core sees token IDs and can finish the request itself. In a high-concurrency deployment, where the blocks held by a finished request could go to another request, prefer stop tokens whenever the model's vocabulary allows it.
+1. **Splitting a component across the engine-to-worker boundary (`KVConnector`).** Moving KV between disaggregated engines requires knowing *which* logical blocks to transfer (L3 state in `EngineCore`) and *where* the GPU memory pointers live (L4 state in `VllmWorker`). Because neither process has both, vLLM splits the interface in two: `KVConnectorRole.SCHEDULER` runs in the scheduler process, `KVConnectorRole.WORKER` runs in the worker process, and the two halves talk on every step through `SchedulerOutput.kv_connector_metadata`.[^events] Every connector author writes both halves and keeps them consistent across a process boundary, on top of the byte-layout mismatches in [The KV Cache Has No ABI]({% post_url 2026-08-18-the-kv-cache-has-no-abi %}).
+2. **Paying a round-trip delay across the frontend-to-engine boundary (stop strings vs. stop tokens).** L1 lives in the API server process: chat-template rendering runs on an executor, `InputProcessor` builds an `EngineCoreRequest`, and on the way back `OutputProcessor` runs an `IncrementalDetokenizer` per request.[^fe] Stop *tokens* are cheap because `EngineCore` sees token IDs as soon as sampling finishes and frees the request's blocks immediately. Stop *strings* are defined on text, and only `OutputProcessor` in the API server has text. When `OutputProcessor` matches a stop string, `EngineCore` doesn't know yet—it still holds the request's blocks and may schedule another step before the API server's abort arrives over ZMQ (step 3 in `async_llm.py`'s output handler).[^stop] In a high-concurrency deployment, where blocks freed by a finished request immediately unblock waiting requests, prefer stop tokens whenever the model's vocabulary allows it.
 
 ## SGLang: every tensor-parallel rank runs the whole engine
 
-SGLang's launcher describes its own layout in one docstring: "Launch the TokenizerManager in the main process, the Scheduler in a subprocess, and the DetokenizerManager in another subprocess."[^sgl-launch] The HTTP server shares the main process with `TokenizerManager`. There is one scheduler process per tensor-parallel rank. So `--tp-size 1` is three processes and `--tp-size 2` is four. `--dp-size 2` adds a `DataParallelController` process, which launches the per-rank schedulers itself.
+SGLang makes the opposite cut. Its launcher starts `TokenizerManager` (and the HTTP server) in the main process, one `Scheduler` subprocess per tensor-parallel rank, and a `DetokenizerManager` subprocess.[^sgl-launch] So `--tp-size 1` is three processes and `--tp-size 2` is four (`--dp-size 2` adds a `DataParallelController` parent that launches the per-rank schedulers).
 
-What matters is what sits inside a scheduler process. The class docstring reads "A scheduler that manages a tensor parallel GPU worker", and it builds that worker in-process: `Scheduler` constructs a `TpModelWorker`, which constructs a `ModelRunner`.[^sgl-sched] L2, L3 and L4 share one process per GPU. Nothing crosses a process boundary between deciding on a batch and running it.
+What matters is what sits inside each scheduler process. The class docstring reads `"A scheduler that manages a tensor parallel GPU worker"`, and it builds that worker in-process: `Scheduler` constructs a `TpModelWorker`, which constructs a `ModelRunner`.[^sgl-sched] L2, L3, and L4 share one process per GPU. Nothing crosses a process boundary between choosing a batch, allocating KV slots, and launching the CUDA kernels.
 
-That means tensor parallelism replicates the scheduler. Each rank's `Scheduler.__init__` builds its own `ReqToTokenPool`, its own `TokenToKVPoolAllocator` and its own `RadixCache`. Only rank 0 has ZMQ sockets. When requests arrive, rank 0 receives them and calls `broadcast_pyobj`, which pickles them into a byte tensor and runs `dist.broadcast` over a gloo CPU group to every other rank.[^sgl-bcast] From there, every rank runs the same scheduling code on the same inputs and reaches the same decision without being told. No batch is sent per step. The ledgers agree because the computation is deterministic, and a `rank_consensus_checker` exists for when it isn't.
+Why co-locate all three layers in one process? Because it turns CPU-GPU overlap from an IPC protocol into local state. In `Scheduler.event_loop_overlap`, the scheduler launches batch $N$ on a compute stream and immediately processes batch $N-1$'s results on the CPU while batch $N$ runs on the GPU.[^sgl-overlap] Because the scheduler and the model runner share an address space, the mechanism is two CUDA streams and an in-process future map, not a serialization boundary. vLLM 0.32 gets a similar overlap from `AsyncScheduler`, its default scheduler, but past TP=1 it has to pipeline across the shared-memory ring buffer.
 
-The memory pool has two levels of indirection, which the module header lays out: "ReqToTokenPool maps a request to its token locations. TokenToKVPoolAllocator manages the indices to kv cache data. KVCache actually holds the physical kv cache."[^sgl-pool] The radix tree sits on top and maps token prefixes to slots in that pool.[^sglang-paper] Part 7 argues that the tree is a scheduling policy and not just a cache. For this post the point is ownership. The ledger and the bytes live in the same process, and there are as many copies of the ledger as there are GPUs.
+The price of co-locating the scheduler with each GPU worker is **state replication**. Each rank's `Scheduler.__init__` builds its own `ReqToTokenPool` (mapping requests to token locations), its own `TokenToKVPoolAllocator` (managing indices into physical KV data), and its own `RadixCache` prefix tree on top.[^sgl-pool][^sglang-paper] Only rank 0 binds ZMQ sockets to the frontend. When requests arrive, rank 0 receives them and calls `broadcast_pyobj`, which pickles them into a byte tensor and runs `dist.broadcast` over a Gloo CPU group to every other rank.[^sgl-bcast] After that ingress broadcast, no batch is sent per step. Every rank runs the same scheduling code on its local copy of the queues and radix tree, relying on determinism to reach the exact same batch and slot assignments (with a `rank_consensus_checker` for when it doesn't).
 
-Memory sizing differs in a way that catches anyone moving between the two engines. vLLM's `--gpu-memory-utilization` is a ceiling on everything vLLM allocates, and KV gets whatever is left after weights, activations, and the CUDA graph estimate. SGLang's `--mem-fraction-static` is the share for *static* memory, meaning weights plus the KV pool. The rest is held back as runtime slack, `slack_gb = pre_model_load_memory * (1 - mem_fraction_static)`, and the KV pool gets the free memory left after the model loads, minus that slack.[^sgl-size] Setting both knobs to 0.9 does not give you the same KV pool. The two engines agree on one thing: the pool is sized to the poorest GPU, taking the minimum across ranks.
+Even the one piece of work SGLang pushes into a sidecar process—`DetokenizerManager`—follows from co-locating L2 and L4. Because the scheduler process is on the critical path of kernel launch and rank consensus, running per-request decode state and `batch_decode` string calls inside it would jitter the GPU overlap loop. Moving detokenization to its own subprocess keeps string work off both the scheduler loop and the HTTP event loop (whereas vLLM runs detokenization on the API server's event loop, yielding with `await asyncio.sleep(0)` between chunks).
 
-Detokenization runs in its own process. The source gives no reason, so this is my reading: it keeps per-request decode state and `batch_decode` calls off both the HTTP event loop and the scheduler loop. vLLM does the same work on the API server's event loop, in chunks with an `await asyncio.sleep(0)` between them so a large output batch doesn't starve other requests.
+One operational trap catches anyone moving configurations between the two engines: memory sizing. Both engines size their KV pool to the poorest GPU across ranks, but their flags measure different denominators:
 
-The overlap scheduler is where SGLang's arrangement pays off. `event_loop_overlap` launches batch N on the GPU, then processes batch N−1's results on the CPU while N runs.[^sgl-overlap] Because the scheduler and the model runner share a process, the mechanism is two CUDA streams and a future map, not a protocol. vLLM 0.32 gets a similar overlap from `AsyncScheduler`, its default scheduler, but past TP=1 it has to do so across a process boundary. Part 3 measures what that costs.
+- **vLLM's `--gpu-memory-utilization`** is a ceiling on *everything* vLLM allocates; KV gets whatever is left after weights, profiled activations, and the CUDA graph estimate.
+- **SGLang's `--mem-fraction-static`** is the target share for *static* memory only (weights plus the KV pool). The rest is held back as runtime slack, `slack_gb = pre_model_load_memory * (1 - mem_fraction_static)`, and the KV pool gets the free memory left after the model loads minus that slack.[^sgl-size]
+
+Setting both knobs to `0.9` on the same machine does not give you the same KV pool.
 
 ## Two answers to who owns memory
 
@@ -178,159 +182,56 @@ The overlap scheduler is where SGLang's arrangement pays off. `event_loop_overla
 | Detokenization | API server event loop | Separate process |
 | Memory knob | `--gpu-memory-utilization`, a total ceiling | `--mem-fraction-static`, a static share |
 
-Each design pays somewhere. vLLM pays for serialization and a shared-memory hop on every step once TP is above 1, and its scheduler can never touch a GPU tensor directly. SGLang pays CPU time for N copies of the scheduler, and it stakes correctness on N processes making bit-identical decisions. A tie-break that iterates a `set` of request-ID strings would be enough to break it. SGLang starts its schedulers with the `spawn` method, so each is a fresh interpreter, and CPython randomizes string hashes per interpreter unless `PYTHONHASHSEED` is pinned. Any policy that reads the wall clock has the same problem. Neither raises an error. The ranks hang in a collective, or each rank's attention heads quietly read keys from a different request.
+Each design pays somewhere. vLLM pays for serialization and a shared-memory hop on every step once TP is above 1, and its scheduler can never touch a GPU tensor directly. SGLang pays CPU time for $N$ copies of the scheduler, and it stakes correctness on $N$ processes making bit-identical decisions. A tie-break that iterates a `set` of request-ID strings is enough to break it. SGLang starts its schedulers with the `spawn` method, so each is a fresh interpreter, and CPython randomizes string hashes per interpreter unless `PYTHONHASHSEED` is pinned. Any policy that reads the wall clock has the same bug. Neither raises an error: the ranks hang in a collective, or each rank's attention heads quietly read keys from a different request.
 
-I prefer vLLM's split as architecture, because it gives the KV ledger exactly one owner per data-parallel rank. That owner is also the natural place to tell a router what is cached, and vLLM uses it that way. `BlockPool` queues `BlockStored` and `BlockRemoved` events, and `Scheduler.update_from_output` publishes them on a ZMQ PUB socket when `--kv-events-config` turns them on.[^events] One ledger, one event stream, one thing for llm-d to subscribe to.[^llmd] SGLang's single-process loop is easier to make fast. vLLM's split is easier to reason about when the cluster layer starts asking questions.
+I prefer vLLM's split as architecture, because it gives the KV ledger a single authoritative owner per data-parallel rank. That owner is also the natural place to tell a cluster router what is cached, and vLLM uses it that way. `BlockPool` queues `BlockStored` and `BlockRemoved` events, and `Scheduler.update_from_output` publishes them on a ZMQ PUB socket when `--kv-events-config` turns them on.[^events] One ledger, one event stream, one source for llm-d to subscribe to.[^llmd] SGLang's single-process loop is easier to make fast on one node. vLLM's split is easier to reason about when the cluster layer starts asking questions.
 
 ## Where one request's time goes
 
-This experiment stays at low load: one request at a time, with the engine idle in between. In that regime throughput isn't the interesting question. The question is how much of a request's latency is spent outside the engine core, in L1 and the hops around it.
+Having L1 and L2 in separate processes raises an immediate question: how much of a request's wall-clock latency is spent outside the engine core—in tokenization, ZMQ sockets, msgpack serialization, and detokenization?
 
-vLLM exposes enough per-request histograms to answer that, as long as you know what each one measures. The definitions are in `vllm/v1/metrics/stats.py`:[^stats]
+At low load (one request in flight at a time, with the server idle in between), you do not need to patch vLLM to measure this. vLLM's Prometheus histograms in `vllm/v1/metrics/stats.py` expose enough internal timestamps to isolate the process-boundary overhead from the outside:[^stats]
 
 - `vllm:request_queue_time_seconds` is first `SCHEDULED` minus `QUEUED`. Both are engine-core monotonic timestamps.
 - `vllm:request_prefill_time_seconds` is first token minus first `SCHEDULED`.
 - `vllm:request_decode_time_seconds` is last token minus first token.
 - `vllm:request_inference_time_seconds` is last token minus first `SCHEDULED`, so it equals prefill plus decode.
-- `vllm:e2e_request_latency_seconds` is frontend wall-clock time from `arrival_time` to the moment the frontend dequeues the final output batch. `arrival_time` is stamped when rendering starts, before tokenization.
+- `vllm:e2e_request_latency_seconds` is frontend wall-clock time from `arrival_time` (stamped when chat-template rendering starts, before tokenization) to the moment the frontend dequeues the final output batch from ZMQ.
 
-The code and the docs disagree on one definition. The code keeps the *first* `SCHEDULED` event (the comment says `# ignore preemptions`), while `docs/design/metrics.md` says "most recent `SCHEDULED`". So the time a preempted request spends waiting again counts as prefill or decode, not queue. And e2e stops before the final batch is detokenized, so it excludes the last detokenization and the HTTP response write.
+Reading `stats.py` next to `docs/design/metrics.md` turns up two subtleties that matter whenever you interpret these metrics in production:
 
-That yields two residuals, each covering a different stretch of the path:
+1. **Preemption hides inside inference time, not queue time.** The code keeps only the *first* `SCHEDULED` event (with an explicit `# ignore preemptions` comment), whereas `docs/design/metrics.md` says "most recent `SCHEDULED`". If a request is preempted mid-generation and sits in the waiting queue again before resuming, that second wait is billed to prefill or decode, not queue time.
+2. **`e2e` stops before the final detokenization and HTTP write.** Because `e2e_request_latency_seconds` stops the clock as soon as the frontend dequeues the final batch from the engine core, it excludes the last `IncrementalDetokenizer` pass and writing the HTTP response.
 
-- **e2e − queue − inference** covers tokenization and input processing, msgpack and ZMQ in both directions, and the time a request sits in the engine core's input queue until the busy loop drains it. That last part is up to one step.
-- **client wall time − e2e** covers HTTP parsing before rendering, the final detokenization, writing the response, and the loopback socket.
-
-Prometheus histograms aggregate observations, so a single scrape can't give per-request values. With exactly one request in flight, though, the change in a histogram's `_sum` between two scrapes *is* that request's value, and the change in `_count` proves exactly one observation landed:
+Prometheus histograms aggregate observations across requests, so a single scrape cannot report per-request latency. With a single request in flight, however, the delta in each histogram's `_sum` between two scrapes *is* that request's exact observation (verified by asserting each `_count` increased by `1`). That splits client wall time into engine-core work and two outer residuals (full harness in `~/go/utils/vllm/split_latency.py`):
 
 ```python
-#!/usr/bin/env python3
-"""Split single-request latency on a running vLLM 0.32 server into the
-engine core's share and the two residuals around it.
+# Differential scrape across one in-flight request (see ~/go/utils/vllm/split_latency.py)
+d = {k: after[m, "_sum"] - before[m, "_sum"] for k, m in HISTOGRAMS.items()}
 
-Usage: python split_latency.py --model <served-model-name>
-"""
-import argparse
-import json
-import statistics
-import time
-import urllib.request
+# 1. Input tokenization, msgpack + ZMQ both ways, and up to one step waiting
+#    for EngineCore's busy loop to drain its input queue.
+frontend_ipc = d["e2e"] - d["queue"] - d["inference"]
 
-from prometheus_client.parser import text_string_to_metric_families
-
-# 1. Queue, prefill, decode and inference come from engine-core timestamps.
-#    e2e comes from the API server's wall clock.
-HISTOGRAMS = {
-    "queue": "vllm:request_queue_time_seconds",
-    "prefill": "vllm:request_prefill_time_seconds",
-    "decode": "vllm:request_decode_time_seconds",
-    "inference": "vllm:request_inference_time_seconds",
-    "e2e": "vllm:e2e_request_latency_seconds",
-}
-
-# 2. (prompt tokens, output tokens). One output token leaves little besides
-#    prefill and overhead. 256 output tokens show how far decode outweighs it.
-SHAPES = [(128, 1), (2048, 1), (128, 256), (2048, 256)]
-REPS = 20
-
-
-def scrape(base):
-    # 3. Read every histogram's _sum and _count. Summing across label sets
-    #    folds in the model_name and engine labels.
-    text = urllib.request.urlopen(f"{base}/metrics").read().decode()
-    out = {}
-    for family in text_string_to_metric_families(text):
-        for sample in family.samples:
-            for suffix in ("_sum", "_count"):
-                if sample.name.endswith(suffix):
-                    key = (sample.name[: -len(suffix)], suffix)
-                    out[key] = out.get(key, 0.0) + sample.value
-    return out
-
-
-def one_request(base, model, prompt_len, max_tokens):
-    # 4. /v1/completions skips the chat template, so L1's input side is
-    #    tokenization alone. " the" is close to one token per repeat on
-    #    Llama- and Qwen-family tokenizers. The usage field has the exact count.
-    body = {
-        "model": model,
-        "prompt": " the" * prompt_len,
-        "max_tokens": max_tokens,
-        "temperature": 0.0,
-        "ignore_eos": True,  # 5. vLLM extension: pin the output length.
-    }
-    req = urllib.request.Request(
-        f"{base}/v1/completions",
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    t0 = time.perf_counter()
-    with urllib.request.urlopen(req) as resp:
-        usage = json.loads(resp.read())["usage"]
-    return time.perf_counter() - t0, usage
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--base", default="http://localhost:8000")
-    ap.add_argument("--model", required=True)
-    args = ap.parse_args()
-
-    # 6. One warm-up request, so lazy imports and allocator growth stay out of
-    #    the first shape's numbers.
-    one_request(args.base, args.model, 128, 8)
-
-    for prompt_len, max_tokens in SHAPES:
-        rows = []
-        for _ in range(REPS):
-            before = scrape(args.base)
-            client_s, usage = one_request(args.base, args.model, prompt_len, max_tokens)
-            # 7. The response can go out before the stats logger records the
-            #    finished request. Wait briefly, then prove one observation landed.
-            time.sleep(0.2)
-            after = scrape(args.base)
-            for m in HISTOGRAMS.values():
-                n = after.get((m, "_count"), 0) - before.get((m, "_count"), 0)
-                assert n == 1, f"{m}: {n} observations between scrapes"
-            d = {k: after.get((m, "_sum"), 0.0) - before.get((m, "_sum"), 0.0)
-                 for k, m in HISTOGRAMS.items()}
-            # 8. Tokenization, msgpack and ZMQ both ways, engine input-queue wait.
-            d["frontend_ipc"] = d["e2e"] - d["queue"] - d["inference"]
-            # 9. HTTP parsing, final detokenization, response write, socket.
-            d["http_detok"] = client_s - d["e2e"]
-            d["client"] = client_s
-            rows.append(d)
-        med = {k: statistics.median(r[k] for r in rows) * 1e3 for k in rows[0]}
-        print(json.dumps({
-            "prompt_tokens": usage["prompt_tokens"],
-            "completion_tokens": usage["completion_tokens"],
-            **{f"{k}_ms": round(v, 3) for k, v in med.items()},
-        }))
-
-
-if __name__ == "__main__":
-    main()
+# 2. HTTP request parsing before rendering, final detokenization, response write, socket.
+http_detok = client_s - d["e2e"]
 ```
 
-I haven't run the script on a GPU, so there are no measurements here. The code does support one prediction. Only the input side and the final output's trip back sit inside the frontend-plus-IPC residual. Every earlier output crosses ZMQ and gets detokenized while the engine is already computing the next token. So that residual should stay flat as the output grows from 1 to 256 tokens, and grow only slightly with prompt length, because tokenizing 2,048 tokens costs more than tokenizing 128. If it grows with output length, the frontend's event loop is falling behind the engine even at a concurrency of one. That is the failure Part 2 goes looking for under load.
+Tracing which operations sit inside `frontend_ipc` gives a sharp, testable invariant. Only the prompt's trip *in* and the final token's trip *out* sit inside `frontend_ipc`. Every earlier token crosses ZMQ and gets detokenized on the API server's event loop *while the engine core is already running the next forward pass on the GPU*.
 
-I haven't found a published split for the current engine. The nearest is vLLM's own profile of Llama 3 8B on one H100, which put the HTTP API server at 33% of execution time, scheduling at 29% and GPU execution at 38%.[^perf060] That profile is why v0.6.0 moved the API server into its own process, so it predates the layout described above and says nothing about today's residual. It does show the residual was large enough to be worth a process of its own.
-
-SGLang records `sglang:queue_time_seconds` in the scheduler process and its TTFT, inter-token and end-to-end histograms in the main process. That is enough for a coarser version of the same split. The head-to-head comparison belongs in Part 9, where both engines run the same workloads.
+At a concurrency of one, `frontend_ipc` should therefore stay flat as output length grows from 1 to 256 tokens, and grow only slightly with prompt length (tokenizing 2,048 tokens takes longer than tokenizing 128). If `frontend_ipc` ever grows with output length, the frontend's asyncio event loop is falling behind the GPU decode step rate and queueing ZMQ chunks in memory. That exact bottleneck is why vLLM v0.6.0 moved the HTTP API server into its own process in the first place—after a profile of Llama 3 8B on one H100 showed the API server taking 33% of wall time against 29% for scheduling and 38% for GPU execution[^perf060]—and why high-throughput deployments scale `--api-server-count` independently of the engine core.
 
 ## The frontend is the layer that moves
 
-If this model is right, the layers should hold still while process boundaries move. October 2026 gives an unusually clean test: both engines now ship experimental Rust frontends, and they built them in opposite directions.
+If this five-layer model is right, the layers should hold still while process boundaries move around them. Recent work in both repositories gives a clean test: both engines now ship experimental Rust frontends, and they used Rust to move the L1 boundary in opposite directions.
 
-vLLM's `vllm-frontend-rs`, moved into the main repository from Inferact's, aims "to rebuild the northbound serving layer in Rust while still talking to the core Python vLLM engine process(es) via ZMQ over the existing engine boundary." The crates in its architecture diagram are L1, piece by piece: an axum HTTP server, chat-template rendering with reasoning and tool parsing, a tokenizer and incremental detokenizer, and a ZMQ and MessagePack client for the engine. `VLLM_USE_RUST_FRONTEND=1` turns it on, and the README calls it experimental and not feature-complete.[^vllm-rs] The process boundary stays exactly where it was. Only the language above it changes.
+vLLM's `vllm-frontend-rs`, moved into the main repository from Inferact's, aims "to rebuild the northbound serving layer in Rust while still talking to the core Python vLLM engine process(es) via ZMQ over the existing engine boundary." Every crate in its architecture diagram maps to L1: an `axum` HTTP server, chat-template rendering with reasoning and tool parsing, a tokenizer and incremental detokenizer, and a ZMQ + MessagePack client for the engine (`VLLM_USE_RUST_FRONTEND=1`).[^vllm-rs] The process boundary stays where it was. Only the language above the ZMQ socket changes so L1 stops contending on Python's GIL and asyncio loop.
 
-SGLang's version deletes the boundary instead. With `SGLANG_RUST_SERVER=1`, "The embedded Rust server (started inside the rank-0 scheduler) owns the API server, tokenization, and detokenization." The scheduler code puts the consequence plainly: "The rust server *is* the ingress source", and the request receiver drains an in-process ring buffer instead of a ZMQ socket.[^sgl-rs] L1 moves into the same process as L2, L3 and L4. The Python `TokenizerManager` and the detokenizer process are not started at all.
+SGLang used Rust to delete the process boundary instead. With `SGLANG_RUST_SERVER=1`, "The embedded Rust server (started inside the rank-0 scheduler) owns the API server, tokenization, and detokenization." As the scheduler source puts it, "The rust server *is* the ingress source", and the request receiver drains an in-process ring buffer instead of a ZMQ socket.[^sgl-rs] L1 collapses into the same OS process as L2, L3, and L4. The Python `TokenizerManager` and the detokenizer subprocess are not started at all.
 
-Then the Model Gateway, in gRPC mode, moves L1 up a level: "The gRPC router tokenizes inputs locally, supports tool-call parsing, and streams responses."[^gateway] Now tokenization happens in L5, before the request reaches any engine.
+Then the Model Gateway, in gRPC mode, pulls L1 in the other direction—up into L5: "The gRPC router tokenizes inputs locally, supports tool-call parsing, and streams responses."[^gateway] Tokenization now happens in the cluster router before the request reaches any engine replica.
 
-So in SGLang 0.5.22 the same layer runs in one of three processes, depending on two settings: the main process by default, the rank-0 scheduler with the embedded Rust server, or the gateway in gRPC mode. The layer's job and state are the same each time. What changes is which other layers it shares an address space with, and which hops a request pays for. That is the decision each engine is actually making, and it is the axis the rest of this series follows.
-
-Part 2 takes vLLM's arrangement apart one process at a time: one streamed chat request, every process it crosses, and the point at which `--api-server-count` starts to matter.
+Depending on two settings, SGLang 0.5.22 runs the exact same L1 logic in the main process, inside the rank-0 scheduler process, or up in the gateway. The layer's job and state never change. What changes is which other layers share its address space, and which IPC hops a request pays for on the critical path. That is the architectural decision each engine is making, and it is the axis the rest of this series follows.
 
 ## References
 
@@ -383,4 +284,4 @@ Part 2 takes vLLM's arrangement apart one process at a time: one streamed chat r
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5.5, Claude Sonnet 5.5, Gemini 4 Argon). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above. Process layouts, code paths and line counts come from reading vLLM 0.32.0, SGLang 0.5.22, Mini-SGLang and nano-vllm at the commits cited.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5.5, Claude Sonnet 5.5, Gemini 4 Argon). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*
