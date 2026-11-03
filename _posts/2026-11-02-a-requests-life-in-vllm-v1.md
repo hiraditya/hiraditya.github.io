@@ -4,7 +4,6 @@ date: 2026-11-02 21:00:00 -0800
 categories: [Systems, Inference]
 tags: [inference, llm-serving, vllm, zmq, asyncio, architecture]
 mermaid: true
-published: false
 ---
 
 *Part 2 of a ten-part series on serving engines from the inside. Pinned to vLLM 0.32.0 ([`5df63a7`](https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be)). [Part 1]({% post_url 2026-10-28-anatomy-of-an-llm-serving-engine %}) named the five layers and where vLLM and SGLang cut them into processes. This part follows one streamed chat request through vLLM's cut.*
@@ -62,7 +61,7 @@ sequenceDiagram
 
 **Into the API server.** uvicorn runs on `uvloop`, and the chat route lands in `OpenAIServingChat.create_chat_completion`. Rendering comes first. `render_chat_async` stamps `arrival_time`, then runs the chat template and the tokenizer on the renderer's thread pool so they don't block the event loop.[^render] That pool has one worker by default (`--renderer-num-workers`), so every request's template and tokenization in one API server goes through a single thread.[^renderer-workers] The thread keeps that work off the event loop's call stack. It does not take it off the GIL, because a Jinja chat template is Python.
 
-**Across to the engine.** `AsyncLLM.generate` calls `add_request`, which builds the `EngineCoreRequest` and registers the request with `OutputProcessor` before its first `await`, so every other task on the loop sees it at once. Then `add_request_async` encodes the request with msgspec and calls `send_multipart` on the client's ZMQ socket, with the engine's identity as the first frame.[^add] The API server's job for this request is now to wait.
+**Across to the engine.** `AsyncLLM.generate` calls `add_request` to build the `EngineCoreRequest` and register the request with `OutputProcessor`. That happens before `add_request` reaches its first `await`, so every other task on the loop sees the request at once. Then `add_request_async` encodes the request with msgspec and calls `send_multipart` on the client's ZMQ socket, with the engine's identity as the first frame.[^add] The API server's job for this request is now to wait.
 
 **Inside the engine core.** Part 1 described the two I/O threads. The input thread does more than decode. It calls `preprocess_add_request`, which turns the wire struct into the scheduler's `Request` and computes the prompt's block hashes for prefix caching. The docstring says why: so "request initialization [runs] in parallel with Model forward".[^input] Aborts take a fast path. The input thread puts each abort on both the ordinary input queue and a separate `aborts_queue`, and the busy loop drains `aborts_queue` right after each forward pass, before it processes that pass's output.[^aborts] With async scheduling, which is on unless the configuration rules it out, the busy loop runs `step_with_batch_queue` and keeps up to two batches in flight.[^batchq] Part 3 takes that loop apart.
 
@@ -102,7 +101,7 @@ async def output_handler():
         logger_manager.record(...)
 ```
 
-Each request's `generate()` coroutine waits on its collector, yields the `RequestOutput` to `chat_completion_stream_generator`, and that generator builds a `ChatCompletionStreamResponse`, calls `model_dump_json`, and yields `data: {...}\n\n` for uvicorn to write. After the last token comes `data: [DONE]`.[^sse]
+Each request's `generate()` coroutine waits on its collector and yields the `RequestOutput` to `chat_completion_stream_generator`. That generator builds a `ChatCompletionStreamResponse`, calls `model_dump_json`, and yields `data: {...}\n\n` for uvicorn to write. After the last token comes `data: [DONE]`.[^sse]
 
 Count what ran on the event loop for one token of one request: a share of a msgpack decode, a detokenizer step, a stop-string scan, a Pydantic object, a JSON dump and a socket write. None of that depends on the model. All of it scales with output tokens per second across every stream the process holds.
 
@@ -128,7 +127,7 @@ def put(self, output):
         self.output.add(output, aggregate=self.aggregate)
 ```
 
-I think this is the right design for a machine where the GPU costs more than the CPU feeding it. A frontend process that falls behind should never stall a batch on the GPU. But it turns frontend saturation into a quiet failure. The engine's step rate stays the same and its own metrics look healthy. What changes is on the client side, and it takes one of two shapes. A backlog that spans several engine steps comes out as clumps, several tokens in one SSE event. A loop that is simply out of CPU keeps streaming to the requests it already has and makes new ones wait, so the engine's batch stops growing. A latency dashboard that reports time per output token will miss both.
+I think this is the right design for a machine where the GPU costs more than the CPU feeding it. A frontend process that falls behind should never stall a batch on the GPU. But it turns frontend saturation into a quiet failure. The engine's step rate stays the same and its own metrics look healthy. What changes is on the client side, and it takes one of two shapes. A backlog that spans several engine steps comes out as clumps of several tokens in one SSE event. A loop that is simply out of CPU keeps streaming to the requests it already has and makes new ones wait, so the engine's batch stops growing. A latency dashboard that reports time per output token will miss both.
 
 The lag also feeds itself through stop strings. A stop string is matched in the output handler, so the ABORT leaves the API server only after every batch queued ahead of it has been processed. If `outputs_queue` is k steps deep, the engine has already decoded k more steps for a request the client is finished with. Those tokens come back over ZMQ and add to the backlog. Stop tokens don't have this problem, because the engine sees them as soon as it samples them.
 
@@ -167,7 +166,7 @@ This is a trap for benchmarks and for proxies. The unit of balance is a TCP conn
 
 Each API server is also its own engine client. The supervisor gives each one its own pair of ZMQ listeners and a `client_index`. Every `EngineCoreRequest` carries that index, and the engine's output thread routes each request's tokens back to the API server holding its HTTP connection.[^multi-client] Prometheus switches to multiprocess mode so the `vllm:` metrics aggregate across servers.
 
-With data parallelism, every API server can send to every engine core. `DPLBAsyncMPClient` picks an engine for each new request by score. The score is the larger of the coordinator's latest `waiting + running` count for that engine and this client's own in-flight count to it multiplied by the number of clients. Waiting requests add a penalty that grows from zero at 50% KV-cache usage to three times the waiting count at 100%.[^dplb] The coordinator publishes those counts no more often than once every 100 ms.[^coord-interval] Nothing in that score knows which engine already holds a request's prefix in its cache. Prefix-aware routing is the cluster layer's job, and it is why llm-d subscribes to the KV events from Part 1.
+With data parallelism, every API server can send to every engine core. `DPLBAsyncMPClient` picks an engine for each new request by score. For each engine, the score takes the coordinator's latest `waiting + running` count, or this client's own in-flight count to that engine multiplied by the number of clients, whichever is larger. Waiting requests add a penalty that grows from zero at 50% KV-cache usage to three times the waiting count at 100%.[^dplb] The coordinator publishes those counts no more often than once every 100 ms.[^coord-interval] Nothing in that score knows which engine already holds a request's prefix in its cache. Prefix-aware routing is the cluster layer's job, and it is why llm-d subscribes to the KV events from Part 1.
 
 The Rust frontend changes this picture. With `VLLM_USE_RUST_FRONTEND`, `vllm serve` ignores `--api-server-count` and starts one frontend process, because, in the code's own comment, it is "multithreaded".[^serve-default] Part 1 described where that frontend sits. The per-token work is the same. The difference is that it is no longer pinned to one event loop per process.
 
@@ -181,7 +180,7 @@ The trace above gives a prediction that a GPU isn't needed to test. The API serv
 | `EngineCoreRequest` encode and ZMQ send | Incremental detokenizer step and stop-string scan |
 | Collector, request state and `generate()` coroutine setup | `RequestOutput`, chunk object, `model_dump_json`, SSE write |
 
-An engine's output rate grows with batch size. The per-token column doesn't shrink as the batch grows. So each API server process has an output rate, in tokens per second, above which its event loop can't keep up, and that ceiling depends on the CPU, not the GPU. My prediction was that tokens per SSE event would rise above one at the same point.
+An engine's output rate grows with batch size. The per-token column doesn't shrink as the batch grows. So each API server process has an output rate in tokens per second above which its event loop can't keep up. That ceiling depends on the CPU, not the GPU. My prediction was that tokens per SSE event would rise above one at the same point.
 
 vLLM's repository already has most of what it takes to measure the ceiling. `rust/src/mock-engine` is "a small engine-side process for frontend stress testing". It joins the frontend's startup handshake, treats prefill as instant and returns random tokens until each request reaches `max_tokens`, and its README documents running it behind the Python frontend.[^mock] As shipped, it steps as fast as it can, which no GPU does. A 19-line patch adds a fixed step clock.[^patch] At 10 ms per step, every running request gets exactly 100 tokens per second, and the engine's output rate is its batch size times 100. `vllm-bench`, the Rust load generator in the same tree, drives the frontend in a closed loop.[^bench]
 
@@ -226,9 +225,9 @@ The engine batch is the client's token rate divided by 100. Every token the engi
 
 One Python API server tops out at about 37,000 streamed tokens per second on this machine, or 27 µs of API server CPU time per token at saturation. An M4 performance core is fast per thread, so treat that as an optimistic figure for a server CPU. Below the ceiling the frontend is invisible: an 11 ms TTFT, a token every 10 ms, one token per event.
 
-The prediction held for throughput and failed for the symptom. Tokens per event never left 1.0, and the `return_token_ids` probe running alongside the load agreed. The saturated server kept streaming to the requests it already had at almost exactly the engine's pace. New requests paid instead. TTFT went from 11 ms to 827 ms at 512 clients and 4.4 s at 1,024, and the engine's batch stopped growing at about 370, however many clients were waiting.
+The prediction held for throughput and failed for the symptom. Tokens per event never left 1.0, and the `return_token_ids` probe running alongside the load agreed. The saturated server kept streaming to the requests it already had at almost exactly the engine's pace. New requests paid instead. TTFT went from 11 ms to 827 ms at 512 clients and 4.4 s at 1,024. The engine's batch stopped growing at about 370, however many clients were waiting.
 
-vLLM's own TTFT histogram saw almost all of that wait. In a pass that scraped `/metrics`, its mean at 512 clients was 658 ms against the client's 678 ms. That metric runs from the `arrival_time` stamp at the top of `render_chat_async` to the moment the output handler starts on the batch carrying the first token, so the time went after the request was accepted and parsed and before its first token was processed.[^ttft-metric] The first place I'd look is the single renderer thread, which needs the GIL that the busy event loop holds. I haven't instrumented it further.
+vLLM's own TTFT histogram saw almost all of that wait. In a pass that scraped `/metrics`, its mean at 512 clients was 658 ms against the client's 678 ms. That metric runs from the `arrival_time` stamp at the top of `render_chat_async` to the moment the output handler starts on the batch carrying the first token.[^ttft-metric] So the wait happened after the request was accepted and parsed and before its first token was processed. The first place I'd look is the single renderer thread, which needs the GIL that the busy event loop holds. I haven't instrumented it further.
 
 This is the failure I'd worry about on a GPU. The engine isn't stalled. It's starved. A batch capped at 370 by the frontend is throughput the GPU could have had, and the evidence lands in TTFT, the metric everyone reads as prefill and scheduling. The engine's waiting queue won't show it, because the waiting requests haven't reached the engine. The ceiling is a token rate, so the batch it allows scales with step time: about 370 running requests at 10 ms per step, about 1,100 at 30 ms. Small models with fast steps hit it first.
 
@@ -242,9 +241,9 @@ More frontend fixes the ceiling. Here are the three frontends at 1,024 clients:
 | Two Python API servers | 62,960 | 630 | 1,308 ms | 6% | 1.91 cores |
 | Rust frontend | 102,211 | 1,022 | 10 ms | 0% | 1.53 cores |
 
-Two API servers kept up through 512 clients, at 51,000 tokens per second with an 18 ms median TTFT, and reached 63,000 at 1,024. That's 1.7 times one server's ceiling, on a machine with four performance cores that was also running the load generator and the mock engine. `vllm-bench` holds one connection per in-flight request, which is the easy case for connection-level balancing, and from 32 clients up the two servers' CPU time stayed within 1.5% of each other.
+Two API servers kept up through 512 clients, at 51,000 tokens per second with an 18 ms median TTFT, and reached 63,000 at 1,024. That's 1.7 times one server's ceiling, on a machine with four performance cores that was also running the load generator and the mock engine. `vllm-bench` holds one connection per in-flight request, which is the easy case for connection-level balancing. From 32 clients up, the two servers' CPU time stayed within 1.5% of each other.
 
-The Rust frontend never reached a ceiling. It held a 10 ms median TTFT and one token per event up to 2,048 clients and 204,000 tokens per second, on 2.4 cores spread across its threads, while the load generator used 1.6. That's about 12 µs of CPU per token, against 27 µs for the Python server. The sweep stopped at 2,048 clients, so its ceiling on this machine is somewhere above that.
+The Rust frontend never reached a ceiling. It held a 10 ms median TTFT and one token per event up to 2,048 clients and 204,000 tokens per second. It used 2.4 cores spread across its threads, while the load generator used 1.6. That's about 12 µs of CPU per token, against 27 µs for the Python server. The sweep stopped at 2,048 clients, so its ceiling on this machine is somewhere above that.
 
 So count API servers the way you count GPUs, from a ceiling measured on your own CPU with the mock engine, and watch TTFT rather than inter-token latency for the symptom. Or move to the Rust frontend, if your flags allow it. At the pinned commit it refuses 57 `vllm serve` flags, among them `--tokenizer`, `--middleware`, `--otlp-traces-endpoint` and the external and hybrid DP load-balancing modes. It accepts and ignores nine more.[^rs-unsupported]
 
@@ -314,4 +313,4 @@ So count API servers the way you count GPUs, from a ceiling measured on your own
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5.5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5.5, Gemini 4 Argon). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*
