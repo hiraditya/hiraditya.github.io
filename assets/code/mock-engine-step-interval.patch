@@ -1,0 +1,56 @@
+diff --git a/rust/src/mock-engine/src/engine.rs b/rust/src/mock-engine/src/engine.rs
+index 8685357..e57f557 100644
+--- a/rust/src/mock-engine/src/engine.rs
++++ b/rust/src/mock-engine/src/engine.rs
+@@ -12,6 +12,7 @@ use rmpv::Value;
+ use serde::Serialize;
+ use tokio::sync::mpsc;
+ use tokio::task::yield_now;
++use tokio::time::{Duration, Interval, MissedTickBehavior, interval};
+ use tokio_util::sync::CancellationToken;
+ use tracing::{debug, info, warn};
+ use vllm_engine_core_client::protocol::output::{
+@@ -395,6 +396,13 @@ pub(crate) async fn run_engine_loop(
+     output_tx: mpsc::Sender<EngineOutput>,
+     shutdown: CancellationToken,
+ ) -> Result<()> {
++    // Local patch: an optional fixed step clock. Delay (not Burst) so a slow step pushes the
++    // next one back instead of firing a catch-up burst, like a real GPU step.
++    let mut ticker: Option<Interval> = (opt.step_interval_us > 0).then(|| {
++        let mut t = interval(Duration::from_micros(opt.step_interval_us));
++        t.set_missed_tick_behavior(MissedTickBehavior::Delay);
++        t
++    });
+     let mut engine = Engine {
+         engine_index,
+         opt,
+@@ -414,7 +422,12 @@ pub(crate) async fn run_engine_loop(
+
+             // If there are active requests, step them once after yielding to the scheduler to
+             // avoid blocking the engine loop while still making steady progress on request outputs.
+-            _ = yield_now(), if !engine.active_requests.is_empty() => {
++            _ = async {
++                match ticker.as_mut() {
++                    Some(t) => { t.tick().await; }
++                    None => yield_now().await,
++                }
++            }, if !engine.active_requests.is_empty() => {
+                 engine.step()
+             }
+         };
+diff --git a/rust/src/mock-engine/src/lib.rs b/rust/src/mock-engine/src/lib.rs
+index 63b1d43..abf6c41 100644
+--- a/rust/src/mock-engine/src/lib.rs
++++ b/rust/src/mock-engine/src/lib.rs
+@@ -45,6 +45,11 @@ pub struct Opt {
+     /// Log a summary line for each request.
+     #[arg(long)]
+     pub log_requests: bool,
++
++    /// Fixed wall-clock time per engine step in microseconds (0 = step as fast as possible).
++    /// Local patch for frontend-ceiling experiments: emulates a GPU decode step.
++    #[arg(long, default_value_t = 0)]
++    pub step_interval_us: u64,
+ }
+
+ /// Run one mock engine until shutdown or transport failure.
