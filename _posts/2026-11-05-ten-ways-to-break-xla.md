@@ -6,7 +6,81 @@ tags: [xla, jax, stablehlo, hlo, compilers, llvm, testing]
 mermaid: true
 ---
 
-This line of JAX has three outcomes on jax 0.11.0, depending on the machine it runs on:
+Here is jax 0.12.0.1, the current release, taking the arctangent of a very small number:
+
+```python
+import numpy as np, jax, jax.numpy as jnp
+
+x = np.float32(1e-40)                         # 1. A subnormal float32.
+print(jax.jit(jnp.arctan)(x))                 # 2. The value on its own.
+print(jax.jit(jnp.arctan)(np.full(8, x)))     # 3. The same value, eight times.
+print(np.arctan(x))                           # 4. NumPy, for reference.
+```
+
+```text
+nan
+[1.e-40 1.e-40 1.e-40 1.e-40 1.e-40 1.e-40 1.e-40 1.e-40]
+1e-40
+```
+
+On its own the value comes back as NaN. As one of eight it comes back right. Nothing changed but the shape.
+
+That's one arctangent with two answers. It's also a fair summary of how XLA breaks. It almost never breaks because one component is careless. It breaks at the seams, where two components that each look reasonable disagree about who checks what. Here the scalar goes through glibc's `atan2f` in a floating-point mode glibc doesn't handle, and the vector doesn't (case 9). Each of the ten cases below has an input you can paste and the output it produced. Case 2 is fixed in the current release. The other nine are open issues on openxla/xla or jax-ml/jax, and eight of them were filed on 2026-11-05 with the reproducers shown here.
+
+All JAX outputs come from that release on an x86-64 Ubuntu 26.04 machine. It pins XLA `d867969` (2026-10-15). Where a case changed since jax 0.11.0, both versions are shown. The HLO outputs come from `hlo-opt` and `run_hlo_module` built from source at XLA `907e39b` (2026-11-04), the build described in [Hacking on XLA]({% post_url 2026-11-05-hacking-on-xla-a-custom-pass %}).[^xla-src] Throughout, XLA's own interpreter serves as the reference. `run_hlo_module --reference_platform=interpreter` runs a module on the CPU backend and on the interpreter and reports where they disagree. The [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}) covers what each stage of the compiler is for. This post is about its edges.
+
+```mermaid
+flowchart TB
+    J["JAX: index normalization, case 1"] --> S["StableHLO"]
+    S -->|"StableHLO folder: case 2"| P["HLO pass pipeline"]
+    P -->|"algebraic simplifier: cases 3, 4"| P
+    P -->|"while simplifier: 5, copy insertion: 6"| C["CPU codegen"]
+    C -->|"YNNPACK: cases 7, 8"| R["CPU runtime"]
+    C -->|"libm under flush-to-zero: case 9"| R
+    R -->|"std::sort: case 10"| O["result"]
+```
+
+## 1. Index with an int8
+
+The first one never reaches XLA. JAX lets you index with any integer type, and it accepts negative indices the way NumPy does:
+
+```python
+import numpy as np, jax, jax.numpy as jnp
+from jax import lax
+
+x = jnp.arange(300)
+i = jnp.int8(-1)
+print(x[i], jnp.take(x, i), lax.dynamic_index_in_dim(x, i, keepdims=False))
+print(lax.dynamic_slice(x, [i], [5]))
+print(np.arange(300)[np.int8(-1)])
+x.at[i].set(-5)
+```
+
+```text
+43 43 43
+[43 44 45 46 47]
+299
+OverflowError: Python integer 300 out of bounds for int8
+```
+
+Reading `x[-1]` returns element 43 with no error and no warning. It does the same under `jit` and in eager mode, on jax 0.11.0 and 0.12.0.1. Writing through `.at` raises. An int16 or int32 index gives 299 everywhere.
+
+To turn -1 into 299, JAX adds the axis size to the index, and it computes that sum in the index's own dtype:[^jax-slicing]
+
+```python
+# jax/_src/lax/slicing.py, _dynamic_slice_indices
+if allow_negative_index:
+  d_arr = lax.convert_element_type(d, _dtype(i))    # 1. 300 in int8 is 44
+  result.append(lax.select(i < 0, i + d_arr, i))    # 2. -1 + 44 = 43
+```
+
+`jnp` indexing has its own copy of the same logic in `_normalize_index` using `lax._const(index, axis_size)`. The `.at` path builds the same constant through `normalize_indices`. There, NumPy refuses to put 300 in an int8 and raises, which is why reading and writing fail differently.[^jax-indexing] JAX already knows how to guard this. `jnp.ravel_multi_index` checks that its index dtype can hold the flattened size and says so: "dtype=dtype('int8') not large enough to hold flattened index". The normalization paths don't. Reported as jax-ml/jax#42354.[^jax42354]
+
+Narrow index types aren't exotic. They come out of quantized lookup tables and compressed token streams, and unsigned ones are fine because they skip normalization. A silently wrong element is the worst way this could fail.
+
+## 2. Divide a constant by zero
+
+jax 0.12.0.1 fixed this one. On jax 0.11.0, this program has three outcomes, depending on the machine it runs on:
 
 ```python
 import jax, jax.numpy as jnp
@@ -23,26 +97,7 @@ On an x86-64 Linux box the process dies before anything executes:
 Floating point exception (core dumped)
 ```
 
-On an Apple-silicon Mac it prints `0`. Pass the 7 and the 0 in as arguments instead of literals, and both machines print `-1`.
-
-That's one integer division with three answers: a crash, zero and minus one. It's also a fair summary of how XLA breaks. It almost never breaks because one component is careless. It breaks at the seams, where two components that each look reasonable disagree about who checks what. Each of the ten cases below has an input you can paste and the output it produced. Case 1 is fixed in the current release. The other nine are open issues on openxla/xla or jax-ml/jax, and eight of them were filed on 2026-11-05 with the reproducers shown here.
-
-The JAX outputs come from jax 0.12.0.1, the current release, on an x86-64 Ubuntu 26.04 machine. It pins XLA `d867969` (2026-10-15). Where a case changed since jax 0.11.0, both versions are shown. The HLO outputs come from `hlo-opt` and `run_hlo_module` built from source at XLA `907e39b` (2026-11-04), the build described in [Hacking on XLA]({% post_url 2026-11-05-hacking-on-xla-a-custom-pass %}).[^xla-src] Throughout, XLA's own interpreter serves as the reference. `run_hlo_module --reference_platform=interpreter` runs a module on the CPU backend and on the interpreter and reports where they disagree. The [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}) covers what each stage of the compiler is for. This post is about its edges.
-
-```mermaid
-flowchart TB
-    J["JAX: index normalization, case 2"] --> S["StableHLO"]
-    S -->|"StableHLO folder: case 1"| P["HLO pass pipeline"]
-    P -->|"algebraic simplifier: cases 3, 4"| P
-    P -->|"while simplifier: 5, copy insertion: 6"| C["CPU codegen"]
-    C -->|"YNNPACK: cases 7, 8"| R["CPU runtime"]
-    C -->|"libm under flush-to-zero: case 9"| R
-    R -->|"std::sort: case 10"| O["result"]
-```
-
-## 1. Divide a constant by zero
-
-Here is the backtrace of the x86 crash:
+On an Apple-silicon Mac it prints `0`. Pass the 7 and the 0 in as arguments instead of literals, and both machines print `-1`. Here is the backtrace of the x86 crash:
 
 ```text
 Thread 1 "python" received signal SIGFPE, Arithmetic exception.
@@ -78,47 +133,9 @@ XLA's HLO evaluator, which does XLA's own constant folding, agrees and returns -
 // must not be folded.
 ```
 
-jax 0.11.0 doesn't have the guard, because its XLA pin carries StableHLO `c2ceaecc9e`, five commits before the fix. jax 0.12.0.1 does, and the line at the top of this post prints `-1` there.
+jax 0.11.0 doesn't have the guard, because its XLA pin carries StableHLO `c2ceaecc9e`, five commits before the fix. jax 0.12.0.1 does, and the same program prints `-1` there.
 
 The lesson isn't about division. A constant folder is a second implementation of every operation it folds. It runs on the build machine's hardware, inside the compiler's process, with the compiler's undefined behavior.
-
-## 2. Index with an int8
-
-The next one never reaches XLA. JAX lets you index with any integer type, and it accepts negative indices the way NumPy does:
-
-```python
-import numpy as np, jax, jax.numpy as jnp
-from jax import lax
-
-x = jnp.arange(300)
-i = jnp.int8(-1)
-print(x[i], jnp.take(x, i), lax.dynamic_index_in_dim(x, i, keepdims=False))
-print(lax.dynamic_slice(x, [i], [5]))
-print(np.arange(300)[np.int8(-1)])
-x.at[i].set(-5)
-```
-
-```text
-43 43 43
-[43 44 45 46 47]
-299
-OverflowError: Python integer 300 out of bounds for int8
-```
-
-Reading `x[-1]` returns element 43 with no error and no warning. It does the same under `jit` and in eager mode, on jax 0.11.0 and 0.12.0.1. Writing through `.at` raises. An int16 or int32 index gives 299 everywhere.
-
-To turn -1 into 299, JAX adds the axis size to the index, and it computes that sum in the index's own dtype:[^jax-slicing]
-
-```python
-# jax/_src/lax/slicing.py, _dynamic_slice_indices
-if allow_negative_index:
-  d_arr = lax.convert_element_type(d, _dtype(i))    # 1. 300 in int8 is 44
-  result.append(lax.select(i < 0, i + d_arr, i))    # 2. -1 + 44 = 43
-```
-
-`jnp` indexing has its own copy of the same logic in `_normalize_index` using `lax._const(index, axis_size)`. The `.at` path builds the same constant through `normalize_indices`. There, NumPy refuses to put 300 in an int8 and raises, which is why reading and writing fail differently.[^jax-indexing] JAX already knows how to guard this. `jnp.ravel_multi_index` checks that its index dtype can hold the flattened size and says so: "dtype=dtype('int8') not large enough to hold flattened index". The normalization paths don't. Reported as jax-ml/jax#42354.[^jax42354]
-
-Narrow index types aren't exotic. They come out of quantized lookup tables and compressed token streams, and unsigned ones are fine because they skip normalization. A silently wrong element is the worst way this could fail.
 
 ## 3. Compare a NaN with zero
 
@@ -365,7 +382,7 @@ A segfault is at least loud. An out-of-bounds read that returns plausible floats
 
 ## 9. Take the arctangent of a tiny number
 
-XLA:CPU runs its kernels with subnormal floats flushed to zero. `1e-40 * 2` under `jit` is 0. Most functions are consistent with that and treat a subnormal input as zero. These aren't:
+XLA:CPU runs its kernels with subnormal floats flushed to zero. `1e-40 * 2` under `jit` is 0. Most functions are consistent with that and treat a subnormal input as zero. The arctangent from the top of this post isn't, and it has company:
 
 ```python
 import numpy as np, jax, jax.numpy as jnp
@@ -389,7 +406,7 @@ arctan2(x, 0)  scalar:          nan   8-vector:          nan
 pow(x, 0.5)    scalar: 2.646978e-23   8-vector:          0.0
 ```
 
-Either answer would be defensible: the true value, or the value with the input flushed to zero. NaN isn't either, and neither is `2.6e-23` for the square root of 1e-40. The result also depends on whether the value sits in a scalar or a vector. The functions that misbehave also feed others: `jnp.angle` and `jnp.log` of a purely imaginary subnormal such as `1e-45j` come back with NaN imaginary parts.
+Either answer would be defensible: the true value, or the value with the input flushed to zero. NaN isn't either, and neither is `2.6e-23` for the square root of 1e-40. The functions that misbehave also feed others: `jnp.angle` and `jnp.log` of a purely imaginary subnormal such as `1e-45j` come back with NaN imaginary parts.
 
 On the scalar path, the CPU backend emits a call to the C library. `EmitAtan2` declares `atan2f`, and XLA's JIT binds both `atan2f` and `powf` to libm.[^atan2-emit] glibc's implementations misbehave in the floating-point mode the kernel runs in. A short C program on the same machine shows it, with no XLA involved:
 
@@ -461,7 +478,7 @@ None of these came from reading release notes. Four methods produced them:
 - **Differential runs.** The same `jit` program ran with and without the YNNPACK fusions (`--xla_cpu_experimental_ynn_fusion_type=-reduce,-individual_dot,-individual_convolution`), over 338 elementwise-then-reduce and dot programs fed NaN, ±inf, ±0, subnormals and integer limits. 156 differed. Most were accumulation-order noise. The structural ones gave case 7 and several already-known issues.
 - **A random-expression fuzzer** for the algebraic simplifier. It built 1,500 expressions over about two dozen operations and ran each on a grid of special values with the simplifier on and off. 22 changed class, from finite to inf, from a number to NaN, or in sign. Many traced back to division reassociation, already reported as #50214. Case 4 was new.
 - **Reading the guards.** Case 3 came from reading what `IsNonNegative` promises and where it is used. Case 5 came from the dump of a reported loop. Case 8 came from re-running the reproducer of a closed issue on a newer build.
-- **Edge-case sweeps.** Narrow index dtypes, narrow float types, complex functions and subnormal inputs, each against NumPy, gave cases 2 and 9.
+- **Edge-case sweeps.** Narrow index dtypes, narrow float types, complex functions and subnormal inputs, each against NumPy, gave cases 1 and 9.
 
 Many of the differential findings were already in the tracker or already fixed on `main`. One example is a sum over `relu(x)` that dropped NaN in jax 0.12.0.1. It was fixed by `a48dbccb66` on 2026-10-20, five days after that release's XLA pin. Every case above was checked against both trackers, and the XLA ones against `907e39b`, before it was filed.
 
@@ -469,11 +486,11 @@ Many of the differential findings were already in the tracker or already fixed o
 
 Put the ten side by side and three seams keep coming up.
 
-**One operation, two implementations.** Integer division has a StableHLO folder, an HLO evaluator and a CPU emitter (case 1). Reductions have XLA's loop emitter and YNNPACK (case 7). Convolutions have Eigen and YNNPACK (case 8). `atan2` has a vectorized intrinsic and a libm call (case 9). `std::sort` has libstdc++ and libc++ (case 10). In every case the two disagree, and which one runs depends on a size threshold, a channel count, a vector width or a build toolchain. A fix that lands in one implementation leaves the other broken, as #48713 shows. I don't think the answer is fewer implementations, because the libraries are where the speed comes from. The answer is a differential test per dispatch decision: anything that chooses between two implementations should have a test that runs both on the same edge cases.
+**One operation, two implementations.** Integer division has a StableHLO folder, an HLO evaluator and a CPU emitter (case 2). Reductions have XLA's loop emitter and YNNPACK (case 7). Convolutions have Eigen and YNNPACK (case 8). `atan2` has a vectorized intrinsic and a libm call (case 9). `std::sort` has libstdc++ and libc++ (case 10). In every case the two disagree, and which one runs depends on a size threshold, a channel count, a vector width or a build toolchain. A fix that lands in one implementation leaves the other broken, as #48713 shows. I don't think the answer is fewer implementations, because the libraries are where the speed comes from. The answer is a differential test per dispatch decision: anything that chooses between two implementations should have a test that runs both on the same edge cases.
 
 **Algebra over the reals.** Cases 3, 4 and 5 are rewrites whose preconditions hold over the reals. A non-negative number is at least zero, `a / b^c = a · b^-c`, and loops terminate. Floats have NaN, subnormals and a finite range, and programs can loop forever. The simplifier is being brought back to IEEE semantics one rule at a time: four rewrites were put behind fast-math between July and October.[^fastmath-gates] Each rule needed its own bug report first. A test that runs every rewrite on NaN, ±0, ±inf, subnormals and the largest finite value would catch most of these in one pass. The fuzzer above found a new one with 1,500 random expressions.
 
-**Contracts that live in prose, or nowhere.** An index dtype must be able to hold the axis length (case 2). Some passes may never be disabled (case 6). A comparator must be a strict weak ordering (case 10). Nothing in the stack writes these down where a tool can see them. Some can't be checked cheaply. All of them can be documented, and the checkable ones belong in the verifier or the frontend.
+**Contracts that live in prose, or nowhere.** An index dtype must be able to hold the axis length (case 1). Some passes may never be disabled (case 6). A comparator must be a strict weak ordering (case 10). Nothing in the stack writes these down where a tool can see them. Some can't be checked cheaply. All of them can be documented, and the checkable ones belong in the verifier or the frontend.
 
 Other open issues in the tracker fit the same three seams, and anyone hunting should know them:
 - **Aborts:** comparing a float6 value with a constant aborts the process (#51829). So does CSE on a duplicate constant with a control successor (#50549).
