@@ -74,7 +74,7 @@ if allow_negative_index:
   result.append(lax.select(i < 0, i + d_arr, i))    # 2. -1 + 44 = 43
 ```
 
-`jnp` indexing has its own copy of the same logic in `_normalize_index` using `lax._const(index, axis_size)`. The `.at` path builds the same constant through `normalize_indices`. There, NumPy refuses to put 300 in an int8 and raises, which is why reading and writing fail differently.[^jax-indexing] JAX already knows how to guard this. `jnp.ravel_multi_index` checks that its index dtype can hold the flattened size and says so: "dtype=dtype('int8') not large enough to hold flattened index". The normalization paths don't. Reported as jax-ml/jax#42354.[^jax42354]
+`jnp` indexing has its own copy of the same logic in `_normalize_index` using `lax._const(index, axis_size)`. The `.at` path builds the same constant through `normalize_indices`. There, NumPy refuses to put 300 in an int8 and raises, which is why reading and writing fail differently.[^jax-indexing] JAX already knows how to guard this. `jnp.ravel_multi_index` checks that its index dtype can hold the flattened size and says so: "dtype=dtype('int8') not large enough to hold flattened index". The normalization paths don't. Reported as [jax-ml/jax#42354](https://github.com/jax-ml/jax/issues/42354).[^jax42354]
 
 Narrow index types aren't exotic. They come out of quantized lookup tables and compressed token streams, and unsigned ones are fine because they skip normalization. A silently wrong element is the worst way this could fail.
 
@@ -166,7 +166,7 @@ Under IEEE comparison every ordered comparison with NaN is false. Eager mode and
 
 `IsNonNegative` returns true for `exp`, for `abs` of a float, and for `x * x` of a float.[^isnonneg] Each of those is "not negative", and NaN is not negative. The same predicate guards the `sqrt`, `pow` and `rsqrt` rewrites, where "not negative" is the right question. Folding a comparison to `true` asks a different one: "is this greater than or equal to zero?" NaN fails it. At `907e39b`, with `x = {nan, 1, -1, -inf}`, the CPU backend returns `{1, 1, 1, 1}` for `exp(x) >= 0` and the interpreter returns `{0, 1, 1, 1}`.
 
-This bites code that uses a comparison as a validity check, like `jnp.all(jnp.exp(logits) >= 0)` or a mask built from `v * v >= 0`. Under `jit`, the NaNs pass. Two open pull requests, #51911 and #51912, extend `IsNonNegative` and add more comparison folds on top of it. Reported as openxla/xla#52417.[^i52417]
+This bites code that uses a comparison as a validity check, like `jnp.all(jnp.exp(logits) >= 0)` or a mask built from `v * v >= 0`. Under `jit`, the NaNs pass. Two open pull requests, [#51911](https://github.com/openxla/xla/pull/51911) and [#51912](https://github.com/openxla/xla/pull/51912), extend `IsNonNegative` and add more comparison folds on top of it. Reported as [openxla/xla#52417](https://github.com/openxla/xla/issues/52417).[^i52417]
 
 ## 4. Divide by a power
 
@@ -204,7 +204,7 @@ if (!ShapeUtil::ElementIsIntegral(divide->shape()) &&
     Match(divide, m::Divide(m::Op(&a), m::Power(m::Op(&b), m::Op(&c))))) {
 ```
 
-Its neighbor, `A / exp(B) => A * exp(-B)`, has the same overflow-and-underflow problem and was put behind `enable_fast_math()` on 2026-09-02.[^fastmath-gates] This one was missed. Reported as openxla/xla#52418.[^i52418]
+Its neighbor, `A / exp(B) => A * exp(-B)`, has the same overflow-and-underflow problem and was put behind `enable_fast_math()` on 2026-09-02.[^fastmath-gates] This one was missed. Reported as [openxla/xla#52418](https://github.com/openxla/xla/issues/52418).[^i52418]
 
 ## 5. Write an infinite loop that does nothing
 
@@ -252,7 +252,7 @@ if (ShapeUtil::IsEmptyTuple(new_while_shape)) {
 }
 ```
 
-"The value of the while loop is simply equal to the value of `init`" holds only if the loop terminates. C++ makes that assumption explicit: an implementation may assume every thread eventually terminates or performs I/O, a volatile access, or a synchronization or atomic operation.[^cpp-progress] XLA's semantics don't state it, but this pass relies on it. The issue was filed in August with a different symptom: the same program converted to StableHLO hangs. So whether it terminates depends on which format it arrived in. The root cause above is now posted on the issue.
+"The value of the while loop is simply equal to the value of `init`" holds only if the loop terminates. C++ makes that assumption explicit: an implementation may assume every thread eventually terminates or performs I/O, a volatile access, or a synchronization or atomic operation.[^cpp-progress] XLA's semantics don't state it, but this pass relies on it. The issue was filed in August with a different symptom: the same program converted to StableHLO hangs. So whether it terminates depends on which format it arrived in. The root cause above is now [posted on the issue](https://github.com/openxla/xla/issues/47354#issuecomment-6662218722).
 
 ## 6. Turn off copy insertion
 
@@ -295,7 +295,7 @@ while.2.header.i:
 }
 ```
 
-Copy insertion isn't an optimization. It's how XLA turns a functional program into one that can update buffers in place, and every later stage assumes it ran. A misspelled name is the opposite trap. `--xla_disable_hlo_passes=copy-insertoin` disables nothing and warns about nothing, so the loop finishes in 19 ms. That one is reported as openxla/xla#52413.[^i52413]
+Copy insertion isn't an optimization. It's how XLA turns a functional program into one that can update buffers in place, and every later stage assumes it ran. A misspelled name is the opposite trap. `--xla_disable_hlo_passes=copy-insertoin` disables nothing and warns about nothing, so the loop finishes in 19 ms. That one is reported as [openxla/xla#52413](https://github.com/openxla/xla/issues/52413).[^i52413]
 
 ## 7. Cast to int8 before a sum
 
@@ -333,7 +333,7 @@ if (HasAtLeastMinElements(instr->shape(), kMinElements)) {
 }
 ```
 
-Inside the YNNPACK fusion, the round trip through int8 or uint8 disappears, so neither the truncation nor the saturation happens. int16 isn't a YNNPACK type and stays on XLA's own emitter. int32 is a YNNPACK type, and its round trip survives. At `907e39b` the HLO version of the int8 sum gives 15155.2 on the CPU backend and 12288 on the interpreter. Removing `reduce` from `--xla_cpu_experimental_ynn_fusion_type` brings back the right answer. An open issue, #49978, reports the same fusion dropping a bf16 round trip. That one can be argued as excess precision. Dropping an integer cast can't, since it changes integer semantics. Reported as openxla/xla#52419.[^i52419]
+Inside the YNNPACK fusion, the round trip through int8 or uint8 disappears, so neither the truncation nor the saturation happens. int16 isn't a YNNPACK type and stays on XLA's own emitter. int32 is a YNNPACK type, and its round trip survives. At `907e39b` the HLO version of the int8 sum gives 15155.2 on the CPU backend and 12288 on the interpreter. Removing `reduce` from `--xla_cpu_experimental_ynn_fusion_type` brings back the right answer. An open issue, [#49978](https://github.com/openxla/xla/issues/49978), reports the same fusion dropping a bf16 round trip. That one can be argued as excess precision. Dropping an integer cast can't, since it changes integer semantics. Reported as [openxla/xla#52419](https://github.com/openxla/xla/issues/52419).[^i52419]
 
 ## 8. Crop a convolution with negative padding
 
@@ -378,7 +378,7 @@ ENTRY e {
 }
 ```
 
-A segfault is at least loud. An out-of-bounds read that returns plausible floats isn't. Both came from a code path that gradient computations reach without anyone writing negative padding by hand. A backend with two convolution implementations needs every convolution fix applied twice. Reported as openxla/xla#52411.[^i52411]
+A segfault is at least loud. An out-of-bounds read that returns plausible floats isn't. Both came from a code path that gradient computations reach without anyone writing negative padding by hand. A backend with two convolution implementations needs every convolution fix applied twice. Reported as [openxla/xla#52411](https://github.com/openxla/xla/issues/52411).[^i52411]
 
 ## 9. Take the arctangent of a tiny number
 
@@ -418,7 +418,7 @@ _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
 // FTZ+DAZ on:  atan2f(x,1)=-nan        atan2f(x,0)=-nan   powf(x,0.5)=2.64698e-23
 ```
 
-`2.64698e-23` is exactly what XLA returned. `atanf` and `asinf` return 0 under the same mode, but JAX never calls them. It lowers `arctan(x)` to the HLO `atan2(x, 1)` and `arcsin(x)` to `atan2(x, sqrt(...))`, so both inherit the NaN. At `907e39b`, the HLO `atan2(1e-40, 1)` returns `-nan` on the CPU backend and `9.99995e-41` on the interpreter. The flush-to-zero mode itself is deliberate, and a 2025 request for an option to disable it was closed.[^ftz-request] The bug is in calling code that wasn't built for that mode. Reported as openxla/xla#52420.[^i52420]
+`2.64698e-23` is exactly what XLA returned. `atanf` and `asinf` return 0 under the same mode, but JAX never calls them. It lowers `arctan(x)` to the HLO `atan2(x, 1)` and `arcsin(x)` to `atan2(x, sqrt(...))`, so both inherit the NaN. At `907e39b`, the HLO `atan2(1e-40, 1)` returns `-nan` on the CPU backend and `9.99995e-41` on the interpreter. The flush-to-zero mode itself is deliberate, and a 2025 request for an option to disable it was closed.[^ftz-request] The bug is in calling code that wasn't built for that mode. Reported as [openxla/xla#52420](https://github.com/openxla/xla/issues/52420).[^i52420]
 
 ## 10. Write `<=` in a sort comparator
 
@@ -469,35 +469,50 @@ while (__comp(__pivot, __last))
 
 The pivot is meant to stop the first loop, because `comp(pivot, pivot)` is false for any valid comparator. With `<=` on equal elements it's true, so `__first` walks off the end of the buffer. The always-true comparator never reads its operands, so the same loop increments an index forever without touching memory. That's why it hangs instead of segfaulting.
 
-jaxlib 0.12.0.1 and the `907e39b` build behave differently. The `<=` sort completes in both, and the always-true comparator still hangs in both. In jaxlib 0.12.0.1 the hang starts at 17 elements. Undefined behavior means the outcome is whatever the standard library and its build happen to do. Nothing in the stack checks the comparator. Checking it in general would be hard, because strict weak ordering is a property of a function, not of its type. But a debug-build `!comp(x, x)` check would catch these two. The documentation doesn't say that a bad comparator is undefined behavior, and that is what it is. Reported as openxla/xla#52412.[^i52412]
+jaxlib 0.12.0.1 and the `907e39b` build behave differently. The `<=` sort completes in both, and the always-true comparator still hangs in both. In jaxlib 0.12.0.1 the hang starts at 17 elements. Undefined behavior means the outcome is whatever the standard library and its build happen to do. Nothing in the stack checks the comparator. Checking it in general would be hard, because strict weak ordering is a property of a function, not of its type. But a debug-build `!comp(x, x)` check would catch these two. The documentation doesn't say that a bad comparator is undefined behavior, and that is what it is. Reported as [openxla/xla#52412](https://github.com/openxla/xla/issues/52412).[^i52412]
 
 ## How these were found
 
 None of these came from reading release notes. Four methods produced them:
 
 - **Differential runs.** The same `jit` program ran with and without the YNNPACK fusions (`--xla_cpu_experimental_ynn_fusion_type=-reduce,-individual_dot,-individual_convolution`), over 338 elementwise-then-reduce and dot programs fed NaN, ±inf, ±0, subnormals and integer limits. 156 differed. Most were accumulation-order noise. The structural ones gave case 7 and several already-known issues.
-- **A random-expression fuzzer** for the algebraic simplifier. It built 1,500 expressions over about two dozen operations and ran each on a grid of special values with the simplifier on and off. 22 changed class, from finite to inf, from a number to NaN, or in sign. Many traced back to division reassociation, already reported as #50214. Case 4 was new.
+- **A random-expression fuzzer** for the algebraic simplifier. It built 1,500 expressions over about two dozen operations and ran each on a grid of special values with the simplifier on and off. 22 changed class, from finite to inf, from a number to NaN, or in sign. Many traced back to division reassociation, already reported as [#50214](https://github.com/openxla/xla/issues/50214). Case 4 was new.
 - **Reading the guards.** Case 3 came from reading what `IsNonNegative` promises and where it is used. Case 5 came from the dump of a reported loop. Case 8 came from re-running the reproducer of a closed issue on a newer build.
 - **Edge-case sweeps.** Narrow index dtypes, narrow float types, complex functions and subnormal inputs, each against NumPy, gave cases 1 and 9.
 
-Many of the differential findings were already in the tracker or already fixed on `main`. One example is a sum over `relu(x)` that dropped NaN in jax 0.12.0.1. It was fixed by `a48dbccb66` on 2026-10-20, five days after that release's XLA pin. Every case above was checked against both trackers, and the XLA ones against `907e39b`, before it was filed.
+Many of the differential findings were already in the tracker or already fixed on `main`. One example is a sum over `relu(x)` that dropped NaN in jax 0.12.0.1. It was fixed by `a48dbccb66` on 2026-10-20, five days after that release's XLA pin. Every case above was checked against both trackers, and the XLA ones against `907e39b`, before it was filed. Here is where each one stands:
+
+| Case | Issue | Status |
+|---|---|---|
+| 1. Index with an int8 | [jax-ml/jax#42354](https://github.com/jax-ml/jax/issues/42354) | Open |
+| 2. Divide a constant by zero | None needed | Fixed by StableHLO `402df0a`, in jax 0.12.0.1 |
+| 3. Compare a NaN with zero | [openxla/xla#52417](https://github.com/openxla/xla/issues/52417) | Open |
+| 4. Divide by a power | [openxla/xla#52418](https://github.com/openxla/xla/issues/52418) | Open |
+| 5. An infinite loop that does nothing | [openxla/xla#47354](https://github.com/openxla/xla/issues/47354) | Open since 2026-08-16, [root cause added](https://github.com/openxla/xla/issues/47354#issuecomment-6662218722) |
+| 6. Misspelled pass names | [openxla/xla#52413](https://github.com/openxla/xla/issues/52413) | Open |
+| 7. Cast to int8 before a sum | [openxla/xla#52419](https://github.com/openxla/xla/issues/52419) | Open |
+| 8. Negative padding in YNNPACK | [openxla/xla#52411](https://github.com/openxla/xla/issues/52411) | Open |
+| 9. Arctangent of a tiny number | [openxla/xla#52420](https://github.com/openxla/xla/issues/52420) | Open |
+| 10. `<=` in a sort comparator | [openxla/xla#52412](https://github.com/openxla/xla/issues/52412) | Open |
+
+The build post turned up one more: [openxla/xla#52414](https://github.com/openxla/xla/issues/52414), the pass README that still tells you to implement `Run`.
 
 ## The pattern
 
 Put the ten side by side and three seams keep coming up.
 
-**One operation, two implementations.** Integer division has a StableHLO folder, an HLO evaluator and a CPU emitter (case 2). Reductions have XLA's loop emitter and YNNPACK (case 7). Convolutions have Eigen and YNNPACK (case 8). `atan2` has a vectorized intrinsic and a libm call (case 9). `std::sort` has libstdc++ and libc++ (case 10). In every case the two disagree, and which one runs depends on a size threshold, a channel count, a vector width or a build toolchain. A fix that lands in one implementation leaves the other broken, as #48713 shows. I don't think the answer is fewer implementations, because the libraries are where the speed comes from. The answer is a differential test per dispatch decision: anything that chooses between two implementations should have a test that runs both on the same edge cases.
+**One operation, two implementations.** Integer division has a StableHLO folder, an HLO evaluator and a CPU emitter (case 2). Reductions have XLA's loop emitter and YNNPACK (case 7). Convolutions have Eigen and YNNPACK (case 8). `atan2` has a vectorized intrinsic and a libm call (case 9). `std::sort` has libstdc++ and libc++ (case 10). In every case the two disagree, and which one runs depends on a size threshold, a channel count, a vector width or a build toolchain. A fix that lands in one implementation leaves the other broken, as [#48713](https://github.com/openxla/xla/issues/48713) shows. I don't think the answer is fewer implementations, because the libraries are where the speed comes from. The answer is a differential test per dispatch decision: anything that chooses between two implementations should have a test that runs both on the same edge cases.
 
 **Algebra over the reals.** Cases 3, 4 and 5 are rewrites whose preconditions hold over the reals. A non-negative number is at least zero, `a / b^c = a · b^-c`, and loops terminate. Floats have NaN, subnormals and a finite range, and programs can loop forever. The simplifier is being brought back to IEEE semantics one rule at a time: four rewrites were put behind fast-math between July and October.[^fastmath-gates] Each rule needed its own bug report first. A test that runs every rewrite on NaN, ±0, ±inf, subnormals and the largest finite value would catch most of these in one pass. The fuzzer above found a new one with 1,500 random expressions.
 
 **Contracts that live in prose, or nowhere.** An index dtype must be able to hold the axis length (case 1). Some passes may never be disabled (case 6). A comparator must be a strict weak ordering (case 10). Nothing in the stack writes these down where a tool can see them. Some can't be checked cheaply. All of them can be documented, and the checkable ones belong in the verifier or the frontend.
 
 Other open issues in the tracker fit the same three seams, and anyone hunting should know them:
-- **Aborts:** comparing a float6 value with a constant aborts the process (#51829). So does CSE on a duplicate constant with a control successor (#50549).
-- **Wrong in-place results:** an in-place `dynamic_update_slice` fusion reads its own output (#49176).
+- **Aborts:** comparing a float6 value with a constant aborts the process ([#51829](https://github.com/openxla/xla/issues/51829)). So does CSE on a duplicate constant with a control successor ([#50549](https://github.com/openxla/xla/issues/50549)).
+- **Wrong in-place results:** an in-place `dynamic_update_slice` fusion reads its own output ([#49176](https://github.com/openxla/xla/issues/49176)).
 - **Folder vs runtime:**
-  - Integer `power` with an overflowing exponent gives different results on the CPU backend and in the folder, and that report was closed as working as intended (#50550).
-  - Folding a 2048×2048 int32 matmul of constants took 28.4 seconds of compile time against 38.5 ms at run time, because the folding limit counts elements, not work (#1652).[^parser-and-more]
+  - For an odd base and an exponent of 64 or more, integer `power` gives different results on the CPU backend and in the folder. That report was closed as working as intended, because integer overflow is implementation-defined ([#50550](https://github.com/openxla/xla/issues/50550)).
+  - Folding a 2048×2048 int32 matmul of constants took 28.4 seconds of compile time against 38.5 ms at run time, because the folding limit counts elements, not work ([#1652](https://github.com/openxla/xla/issues/1652)).[^parser-and-more]
 
 ## When XLA breaks on you
 
@@ -535,7 +550,7 @@ Other open issues in the tracker fit the same three seams, and anyone hunting sh
 
 [^i52418]: **openxla/xla#52418.** "AlgebraicSimplifier rewrites A/pow(B,C) to A*pow(B,-C) without fast math; x/pow(x,1) returns 0 on CPU." Filed 2026-11-05. ([Link](https://github.com/openxla/xla/issues/52418))
 
-[^i47354]: **openxla/xla#47354.** "Lifting bug: hang/timeout on CPU after HLO-to-StableHLO conversion." Open. The HLO module above is the issue's reproducer. ([Link](https://github.com/openxla/xla/issues/47354))
+[^i47354]: **openxla/xla#47354.** "Lifting bug: hang/timeout on CPU after HLO-to-StableHLO conversion." Open since 2026-08-16. The HLO module above is the issue's reproducer. The root-cause comment was added on 2026-11-05. ([Issue](https://github.com/openxla/xla/issues/47354), [comment](https://github.com/openxla/xla/issues/47354#issuecomment-6662218722))
 
 [^while-simp]: **`xla/service/while_loop_simplifier.cc`, `TryRemoveConstantParams`.** ([Link](https://github.com/openxla/xla/blob/907e39b762e0f97937e72b62f37486e82ee01cac/xla/service/while_loop_simplifier.cc#L1061-L1074))
 
@@ -569,7 +584,7 @@ Other open issues in the tracker fit the same three seams, and anyone hunting sh
 
 [^i52412]: **openxla/xla#52412.** "Sort: document that the comparator must be a strict weak ordering; invalid comparators hang or crash the CPU runtime." Filed 2026-11-05. ([Link](https://github.com/openxla/xla/issues/52412))
 
-[^parser-and-more]: **Open issues mentioned in passing.** #51829 (float6 compare aborts), #50549 (HloCSE CHECK with a control successor), #49176 (in-place dynamic-update-slice reads its own output), #50550 (integer power, closed as working as intended), #1652 (slow constant folding of large integer arrays, open since 2023). ([#51829](https://github.com/openxla/xla/issues/51829), [#50549](https://github.com/openxla/xla/issues/50549), [#49176](https://github.com/openxla/xla/issues/49176), [#50550](https://github.com/openxla/xla/issues/50550), [#1652](https://github.com/openxla/xla/issues/1652))
+[^parser-and-more]: **Other issues mentioned in passing.** #51829 (float6 compare aborts), #50549 (HloCSE CHECK with a control successor), #49176 (in-place dynamic-update-slice reads its own output), #50550 (integer power with odd bases, closed as working as intended), #1652 (slow constant folding of large integer arrays, open since 2023). ([#51829](https://github.com/openxla/xla/issues/51829), [#50549](https://github.com/openxla/xla/issues/50549), [#49176](https://github.com/openxla/xla/issues/49176), [#50550](https://github.com/openxla/xla/issues/50550), [#1652](https://github.com/openxla/xla/issues/1652))
 
 ---
 

@@ -143,7 +143,7 @@ ROOT %ynn_fusion = f32[256,256]{1,0} fusion(%a.1, %b.1), kind=kCustom, ...
 #   wrapping %dot_general.0 = f32[256,256]{1,0} dot(%param_0, %param_1), ...
 ```
 
-With `algsimp`, the dot is first stripped of its size-1 contracting dimension and then rewritten into an elementwise multiply of two broadcasts once no contraction is left.[^algsimp-dot] The loop emitter fuses that. Without `algsimp`, the dot survives and the CPU backend hands it to the YNNPACK library as a custom fusion. That's a different kernel from a different library, chosen because one pass didn't run. At `907e39b` the flag also accepts `algsimp:2` (the third invocation), `simplification/algsimp` (the one inside a named pipeline) and `@42` (a raw pass id).[^disable-flag] It doesn't warn about names it doesn't recognize, which is now openxla/xla#52413.[^i52413]
+With `algsimp`, the dot is first stripped of its size-1 contracting dimension and then rewritten into an elementwise multiply of two broadcasts once no contraction is left.[^algsimp-dot] The loop emitter fuses that. Without `algsimp`, the dot survives and the CPU backend hands it to the YNNPACK library as a custom fusion. That's a different kernel from a different library, chosen because one pass didn't run. At `907e39b` the flag also accepts `algsimp:2` (the third invocation), `simplification/algsimp` (the one inside a named pipeline) and `@42` (a raw pass id).[^disable-flag] It doesn't warn about names it doesn't recognize, which is now [openxla/xla#52413](https://github.com/openxla/xla/issues/52413).[^i52413]
 
 ## Writing the pass the way the tutorials do
 
@@ -240,7 +240,7 @@ absl::StatusOr<bool> HloPassInterface::Run(
 
 The first step is the payoff. `--xla_run_hlo_passes_starting_from` skips every pass before a named one. That works for every pass in the tree, including yours, because no subclass can bypass the base class anymore. It is the standard argument for the non-virtual interface pattern: the base class owns the protocol, and subclasses own only their step.
 
-The documentation hasn't fully caught up. At `907e39b`, `xla/hlo/pass/README.md` says the interface "provides core methods like `Run`, and`RunOnChangedComputations` that passes must implement." A few paragraphs later the same file says to "implement the required virtual methods (e.g., `RunImpl`)."[^readme] That's reported as openxla/xla#52414.[^i52414] The header also has a comment that reads like a migration note: "Eventually all passes should override this method instead of Run()." That comment is on `RunOnChangedComputations`, the incremental hook that `HloPassFix` uses, and it describes a different migration that hasn't finished.
+The documentation hasn't fully caught up. At `907e39b`, `xla/hlo/pass/README.md` says the interface "provides core methods like `Run`, and`RunOnChangedComputations` that passes must implement." A few paragraphs later the same file says to "implement the required virtual methods (e.g., `RunImpl`)."[^readme] That's reported as [openxla/xla#52414](https://github.com/openxla/xla/issues/52414).[^i52414] The header also has a comment that reads like a migration note: "Eventually all passes should override this method instead of Run()." That comment is on `RunOnChangedComputations`, the incremental hook that `HloPassFix` uses, and it describes a different migration that hasn't finished.
 
 The fix is one name and one access specifier. Override `RunImpl`, and put it under `protected:`. After that, an incremental rebuild of `hlo-opt` recompiles one file and relinks:
 
