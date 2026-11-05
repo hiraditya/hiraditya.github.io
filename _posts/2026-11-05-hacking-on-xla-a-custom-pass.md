@@ -1,6 +1,6 @@
 ---
 title: "Hacking on XLA: Building It, and Teaching It a New Pass"
-date: 2026-11-04 22:00:00 -0800
+date: 2026-11-05 07:45:00 -0800
 categories: [Compilers, ML-Systems]
 tags: [jax, xla, hlo, compilers, bazel, llvm]
 ---
@@ -570,7 +570,7 @@ It's also a codebase in motion, and the documentation trails the code. `Run` sto
 
 The most important part of a pass is the `bool` it returns. `HloPassFix` trusts it completely. A pass that reports progress it didn't make, or two passes that undo each other, costs 25 iterations per pipeline and produces no output at the default log level. If I were adding a pass to a fixed-point group, I would run the test suite with `--xla_hlo_pass_fix_detect_cycles=true` and `--xla_unsupported_crash_on_hlo_pass_fix_max_iterations=true`. The first flag warns and the second fails loudly, and both cost nothing in production.
 
-The review's structural claims hold up from the inside. Sharding is an annotation that a pass turns into collectives. Dynamic shapes are padded to static ones. `custom_call` is a wall. None of that is a flaw a 40-line pass can fix, because it is the shape of the design. What a from-source build buys you is the ability to stop taking any of it on faith. The [companion post]({% post_url 2026-11-04-ten-ways-to-break-xla %}) uses the same build to find where that shape breaks.
+The review's structural claims hold up from the inside. Sharding is an annotation that a pass turns into collectives. Dynamic shapes are padded to static ones. `custom_call` is a wall. None of that is a flaw a 40-line pass can fix, because it is the shape of the design. What a from-source build buys you is the ability to stop taking any of it on faith. The [companion post]({% post_url 2026-11-05-ten-ways-to-break-xla %}) uses the same build to find where that shape breaks.
 
 ## References
 
