@@ -27,7 +27,7 @@ On an Apple-silicon Mac it prints `0`. Pass the 7 and the 0 in as arguments inst
 
 That's one integer division with three answers: a crash, zero and minus one. It's also a fair summary of how XLA breaks. It almost never breaks because one component is careless. It breaks at the seams, where two components that each look reasonable disagree about who checks what. Each of the ten cases below has an input you can paste and the output it produced.
 
-The JAX outputs come from jax 0.11.0, which pins XLA `131bf41` (2026-07-16), on an Apple-silicon Mac and on an x86-64 Ubuntu 26.04 machine. The HLO outputs come from `hlo-opt` and `run_hlo_module` built from source at XLA `907e39b` (2026-11-04).[^xla-src] Running both shows which cases have since been fixed, and what the fix looked like. The [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}) covers what each stage of the compiler is for. This post is about its edges.
+The JAX outputs come from jax 0.11.0, which pins XLA `131bf41` (2026-07-16), on an Apple-silicon Mac and on an x86-64 Ubuntu 26.04 machine. The HLO outputs come from `hlo-opt` and `run_hlo_module` built from source at XLA `907e39b` (2026-11-04), the build described in [Hacking on XLA]({% post_url 2026-11-04-hacking-on-xla-a-custom-pass %}).[^xla-src] Running both shows which cases have since been fixed, and what the fix looked like. The [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}) covers what each stage of the compiler is for. This post is about its edges.
 
 ```mermaid
 flowchart TB
