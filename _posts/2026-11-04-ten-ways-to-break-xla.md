@@ -86,6 +86,8 @@ $ run_hlo_module --platform=cpu --input_format=stablehlo --print_literals div0.s
 s32[] -1
 ```
 
+jax 0.12.0.1 pins an XLA that includes the guard, and the line at the top of this post prints `-1` there too.
+
 The lesson isn't about division. A constant folder is a second implementation of every operation it folds. It runs on the build machine's hardware, inside the compiler's process, with the compiler's undefined behavior.
 
 ## 2. Compare a float6 value with zero
@@ -208,7 +210,7 @@ sort_true.hlo      run_hlo_module --platform=cpu   timed out after 60 s
 sort_le_zeros.hlo  run_hlo_module --platform=cpu   completes
 ```
 
-Undefined behavior means the outcome is whatever the standard library happens to do. Nothing in the stack checks the comparator. Checking it would be hard, because strict weak ordering is a property of a function, not of its type. XLA's position is defensible. But the documentation doesn't say that a bad comparator is undefined behavior, and that is exactly what it is.
+Undefined behavior means the outcome is whatever the standard library happens to do. Nothing in the stack checks the comparator. Checking it would be hard, because strict weak ordering is a property of a function, not of its type. XLA's position is defensible. But the documentation doesn't say that a bad comparator is undefined behavior, and that is exactly what it is. jaxlib 0.12.0.1 behaves like the `907e39b` build: the `<=` sort finishes, and the always-true comparator still hangs from 17 elements. The documentation gap is now reported upstream.[^i52412]
 
 ## 5. Crop a convolution with negative padding
 
@@ -255,7 +257,7 @@ ENTRY e {
 }
 ```
 
-This is the most serious entry here. A segfault is at least loud. An out-of-bounds read that returns plausible floats isn't. Both came from a code path that gradient computations reach without anyone writing negative padding by hand. A backend with two convolution implementations needs every convolution fix applied twice.
+This is the most serious entry here. A segfault is at least loud. An out-of-bounds read that returns plausible floats isn't. Both came from a code path that gradient computations reach without anyone writing negative padding by hand. A backend with two convolution implementations needs every convolution fix applied twice. jax 0.12.0.1 still segfaults on the 17-channel case, and it is now reported as its own issue.[^i52411]
 
 ## 6. Turn off copy insertion
 
@@ -298,7 +300,7 @@ while.2.header.i:
 }
 ```
 
-Copy insertion isn't an optimization. It's how XLA turns a functional program into one that can update buffers in place, and every later stage assumes it ran. A misspelled name is the opposite trap. `--xla_disable_hlo_passes=copy-insertoin` disables nothing and warns about nothing, so the loop finishes in 19 ms.
+Copy insertion isn't an optimization. It's how XLA turns a functional program into one that can update buffers in place, and every later stage assumes it ran. A misspelled name is the opposite trap. `--xla_disable_hlo_passes=copy-insertoin` disables nothing and warns about nothing, so the loop finishes in 19 ms.[^i52413]
 
 ## 7. Write an infinite loop that does nothing
 
@@ -521,6 +523,12 @@ Put the ten side by side and three seams keep coming up.
 [^i49121]: **openxla/xla#49121.** "AlgebraicSimplifier folds nested dynamic-slice / dynamic-update-slice without clamping the outer start." Still open. The dynamic-slice fold was fixed by `d1e07464` on 2026-09-23 and the dynamic-update-slice fold by `c70b1b19` on 2026-10-01. ([Issue](https://github.com/openxla/xla/issues/49121), [fix](https://github.com/openxla/xla/commit/d1e0746498882d17bc0fd19a0c16c1a4a5d84652))
 
 [^fastmath-gates]: **Fast-math gates in `AlgebraicSimplifier`.** `6a6c5cb3` (inverse functions), `ac12f341` (exponential rewrites), `84b7c7f5` (add and multiply reassociation), `9cb4e200` (`log(pow(a, b))`). ([6a6c5cb3](https://github.com/openxla/xla/commit/6a6c5cb3b99c46c89bda2df75bc88b5009404650), [ac12f341](https://github.com/openxla/xla/commit/ac12f341f5b692466ffe8e76b842723c38407ba7), [84b7c7f5](https://github.com/openxla/xla/commit/84b7c7f54a39aabeaa441ed7d579f032065c0178), [9cb4e200](https://github.com/openxla/xla/commit/9cb4e2005f963acc873dc95facd3b7d134dbf108))
+
+[^i52411]: **openxla/xla#52411.** "[XLA:CPU] YNN convolution segfaults when negative padding crops the whole dimension and leaves one padded row (follow-up to #48713)." Filed 2026-11-05 with the reproducer above. ([Link](https://github.com/openxla/xla/issues/52411))
+
+[^i52412]: **openxla/xla#52412.** "Sort: document that the comparator must be a strict weak ordering; invalid comparators hang or crash the CPU runtime." Filed 2026-11-05. ([Link](https://github.com/openxla/xla/issues/52412))
+
+[^i52413]: **openxla/xla#52413.** "`--xla_disable_hlo_passes` silently ignores entries that match no pass." Filed 2026-11-05. ([Link](https://github.com/openxla/xla/issues/52413))
 
 [^i49176]: **openxla/xla#49176.** "In-place dynamic-update-slice fusion reads its own output when the update is a shifted slice of the operand." Open. ([Link](https://github.com/openxla/xla/issues/49176))
 
