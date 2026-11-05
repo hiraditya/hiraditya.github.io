@@ -25,7 +25,7 @@ nan
 
 On its own the value comes back as NaN. As one of eight it comes back right. Nothing changed but the shape.
 
-That's one arctangent with two answers. It's also a fair summary of how XLA breaks. It almost never breaks because one component is careless. It breaks at the seams, where two components that each look reasonable disagree about who checks what. Here the scalar goes through glibc's `atan2f` in a floating-point mode glibc doesn't handle, and the vector doesn't (case 9). Each of the ten cases below has an input you can paste and the output it produced. Case 2 is fixed in the current release. The other nine are open issues on openxla/xla or jax-ml/jax, and eight of them were filed on 2026-11-05 with the reproducers shown here.
+That's one arctangent with two answers. It's also a fair summary of how XLA breaks. It almost never breaks because one component is careless. It breaks at the seams, where two components that each look reasonable disagree about who checks what. Here the scalar goes through glibc's `atan2f` in a floating-point mode glibc doesn't handle. The vector takes a different path (case 9). Each of the ten cases below has an input you can paste and the output it produced. Case 2 is fixed in the current release. The other nine are open issues on openxla/xla or jax-ml/jax. Eight of them were filed on 2026-11-05 with the reproducers shown here.
 
 All JAX outputs come from that release on an x86-64 Ubuntu 26.04 machine. It pins XLA `d867969` (2026-10-15). Where a case changed since jax 0.11.0, both versions are shown. The HLO outputs come from `hlo-opt` and `run_hlo_module` built from source at XLA `907e39b` (2026-11-04), the build described in [Hacking on XLA]({% post_url 2026-11-05-hacking-on-xla-a-custom-pass %}).[^xla-src] Throughout, XLA's own interpreter serves as the reference. `run_hlo_module --reference_platform=interpreter` runs a module on the CPU backend and on the interpreter and reports where they disagree. The [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}) covers what each stage of the compiler is for. This post is about its edges.
 
@@ -80,7 +80,7 @@ Narrow index types aren't exotic. They come out of quantized lookup tables and c
 
 ## 2. Divide a constant by zero
 
-jax 0.12.0.1 fixed this one. On jax 0.11.0, this program has three outcomes, depending on the machine it runs on:
+jax 0.12.0.1 fixed this one. On jax 0.11.0, this program has three outcomes depending on the machine it runs on:
 
 ```python
 import jax, jax.numpy as jnp
@@ -112,7 +112,7 @@ Thread 1 "python" received signal SIGFPE, Arithmetic exception.
 #23 xla::PjRtCpuClient::CompileAndLoad(...)
 ```
 
-None of XLA's HLO passes ever ran. The crash is in StableHLO's constant folder, which runs while the StableHLO module is converted to HLO. The folder found `divide(7, 0)` with two constant operands and computed it with `APInt::sdiv`. LLVM's `APInt` doesn't define division by zero, and for a single-word value it performs a native integer divide. x86's `idiv` traps on a zero divisor, and AArch64's `sdiv` returns zero. So the host CPU's arithmetic decides whether the compiler crashes or quietly produces 0.
+None of XLA's HLO passes ever ran. The crash is in StableHLO's constant folder, which runs while the StableHLO module is converted to HLO. The folder found `divide(7, 0)` with two constant operands and computed it with `APInt::sdiv`. LLVM's `APInt` doesn't define division by zero. For a single-word value, it performs a native integer divide. x86's `idiv` traps on a zero divisor, and AArch64's `sdiv` returns zero. So the host CPU's arithmetic decides whether the compiler crashes or quietly produces 0.
 
 XLA's own semantics say integer division by zero "produces an implementation defined value."[^opsem-div] The CPU backend picked -1, and its emitter says so in a comment:
 
@@ -382,7 +382,7 @@ A segfault is at least loud. An out-of-bounds read that returns plausible floats
 
 ## 9. Take the arctangent of a tiny number
 
-XLA:CPU runs its kernels with subnormal floats flushed to zero. `1e-40 * 2` under `jit` is 0. Most functions are consistent with that and treat a subnormal input as zero. The arctangent from the top of this post isn't, and it has company:
+XLA:CPU runs its kernels with subnormal floats flushed to zero. `1e-40 * 2` under `jit` is 0. Most functions are consistent with that and treat a subnormal input as zero. The arctangent from the top of this post doesn't, and it has company:
 
 ```python
 import numpy as np, jax, jax.numpy as jnp
@@ -406,7 +406,7 @@ arctan2(x, 0)  scalar:          nan   8-vector:          nan
 pow(x, 0.5)    scalar: 2.646978e-23   8-vector:          0.0
 ```
 
-Either answer would be defensible: the true value, or the value with the input flushed to zero. NaN isn't either, and neither is `2.6e-23` for the square root of 1e-40. The functions that misbehave also feed others: `jnp.angle` and `jnp.log` of a purely imaginary subnormal such as `1e-45j` come back with NaN imaginary parts.
+Either answer would be defensible: the true value, or the value with the input flushed to zero. NaN isn't one of those, and neither is `2.6e-23` for the square root of 1e-40. The functions that misbehave also feed others. `jnp.angle` and `jnp.log` of a purely imaginary subnormal such as `1e-45j` come back with NaN imaginary parts.
 
 On the scalar path, the CPU backend emits a call to the C library. `EmitAtan2` declares `atan2f`, and XLA's JIT binds both `atan2f` and `powf` to libm.[^atan2-emit] glibc's implementations misbehave in the floating-point mode the kernel runs in. A short C program on the same machine shows it, with no XLA involved:
 
