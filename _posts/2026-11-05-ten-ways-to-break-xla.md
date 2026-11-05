@@ -23,7 +23,7 @@ nan
 1e-40
 ```
 
-On its own the value comes back as NaN. As one of eight it comes back right. Nothing changed but the shape.
+The value gets printed as NaN. But in the array of eight it comes back right. Only the shape changed.
 
 That's one arctangent with two answers. It's also a fair summary of how XLA breaks. It almost never breaks because one component is careless. It breaks at the seams, where two components that each look reasonable disagree about who checks what. Here the scalar goes through glibc's `atan2f` in a floating-point mode glibc doesn't handle. The vector takes a different path (case 9). Each of the ten cases below has an input you can paste and the output it produced. Case 2 is fixed in the current release. The other nine are open issues on openxla/xla or jax-ml/jax. Eight of them were filed on 2026-11-05 with the reproducers shown here.
 
