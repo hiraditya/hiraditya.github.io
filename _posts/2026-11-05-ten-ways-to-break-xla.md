@@ -27,7 +27,7 @@ On an Apple-silicon Mac it prints `0`. Pass the 7 and the 0 in as arguments inst
 
 That's one integer division with three answers: a crash, zero and minus one. It's also a fair summary of how XLA breaks. It almost never breaks because one component is careless. It breaks at the seams, where two components that each look reasonable disagree about who checks what. Each of the ten cases below has an input you can paste and the output it produced. Case 1 is fixed in the current release. The other nine are open issues on openxla/xla or jax-ml/jax, and eight of them were filed on 2026-11-05 with the reproducers shown here.
 
-The JAX outputs come from jax 0.12.0.1, the current release, which pins XLA `d867969` (2026-10-15), on an x86-64 Ubuntu 26.04 machine. Where a case changed since jax 0.11.0, both versions are shown. The HLO outputs come from `hlo-opt` and `run_hlo_module` built from source at XLA `907e39b` (2026-11-04), the build described in [Hacking on XLA]({% post_url 2026-11-05-hacking-on-xla-a-custom-pass %}).[^xla-src] Throughout, XLA's own interpreter serves as the reference. `run_hlo_module --reference_platform=interpreter` runs a module on the CPU backend and on the interpreter and reports where they disagree. The [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}) covers what each stage of the compiler is for. This post is about its edges.
+The JAX outputs come from jax 0.12.0.1, the current release, on an x86-64 Ubuntu 26.04 machine. It pins XLA `d867969` (2026-10-15). Where a case changed since jax 0.11.0, both versions are shown. The HLO outputs come from `hlo-opt` and `run_hlo_module` built from source at XLA `907e39b` (2026-11-04), the build described in [Hacking on XLA]({% post_url 2026-11-05-hacking-on-xla-a-custom-pass %}).[^xla-src] Throughout, XLA's own interpreter serves as the reference. `run_hlo_module --reference_platform=interpreter` runs a module on the CPU backend and on the interpreter and reports where they disagree. The [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}) covers what each stage of the compiler is for. This post is about its edges.
 
 ```mermaid
 flowchart TB
@@ -105,7 +105,7 @@ x.at[i].set(-5)
 OverflowError: Python integer 300 out of bounds for int8
 ```
 
-Reading `x[-1]` returns element 43, with no error and no warning, the same under `jit` and in eager mode, on jax 0.11.0 and 0.12.0.1. Writing through `.at` raises. An int16 or int32 index gives 299 everywhere.
+Reading `x[-1]` returns element 43 with no error and no warning. It does the same under `jit` and in eager mode, on jax 0.11.0 and 0.12.0.1. Writing through `.at` raises. An int16 or int32 index gives 299 everywhere.
 
 To turn -1 into 299, JAX adds the axis size to the index, and it computes that sum in the index's own dtype:[^jax-slicing]
 
@@ -116,7 +116,7 @@ if allow_negative_index:
   result.append(lax.select(i < 0, i + d_arr, i))    # 2. -1 + 44 = 43
 ```
 
-`jnp` indexing has its own copy of the same logic in `_normalize_index`, with `lax._const(index, axis_size)`, and the `.at` path builds the same constant through `normalize_indices`. There, NumPy refuses to put 300 in an int8 and raises, which is why reading and writing fail differently.[^jax-indexing] JAX already knows how to guard this. `jnp.ravel_multi_index` checks that its index dtype can hold the flattened size and says so: "dtype=dtype('int8') not large enough to hold flattened index". The normalization paths don't. Reported as jax-ml/jax#42354.[^jax42354]
+`jnp` indexing has its own copy of the same logic in `_normalize_index` using `lax._const(index, axis_size)`. The `.at` path builds the same constant through `normalize_indices`. There, NumPy refuses to put 300 in an int8 and raises, which is why reading and writing fail differently.[^jax-indexing] JAX already knows how to guard this. `jnp.ravel_multi_index` checks that its index dtype can hold the flattened size and says so: "dtype=dtype('int8') not large enough to hold flattened index". The normalization paths don't. Reported as jax-ml/jax#42354.[^jax42354]
 
 Narrow index types aren't exotic. They come out of quantized lookup tables and compressed token streams, and unsigned ones are fine because they skip normalization. A silently wrong element is the worst way this could fail.
 
@@ -149,7 +149,7 @@ Under IEEE comparison every ordered comparison with NaN is false. Eager mode and
 
 `IsNonNegative` returns true for `exp`, for `abs` of a float, and for `x * x` of a float.[^isnonneg] Each of those is "not negative", and NaN is not negative. The same predicate guards the `sqrt`, `pow` and `rsqrt` rewrites, where "not negative" is the right question. Folding a comparison to `true` asks a different one: "is this greater than or equal to zero?" NaN fails it. At `907e39b`, with `x = {nan, 1, -1, -inf}`, the CPU backend returns `{1, 1, 1, 1}` for `exp(x) >= 0` and the interpreter returns `{0, 1, 1, 1}`.
 
-This bites code that uses a comparison as a validity check, for example `jnp.all(jnp.exp(logits) >= 0)` or a mask built from `v * v >= 0`, because under `jit` the NaNs pass. Two open pull requests, #51911 and #51912, extend `IsNonNegative` and add more comparison folds on top of it. Reported as openxla/xla#52417.[^i52417]
+This bites code that uses a comparison as a validity check, like `jnp.all(jnp.exp(logits) >= 0)` or a mask built from `v * v >= 0`. Under `jit`, the NaNs pass. Two open pull requests, #51911 and #51912, extend `IsNonNegative` and add more comparison folds on top of it. Reported as openxla/xla#52417.[^i52417]
 
 ## 4. Divide by a power
 
@@ -177,7 +177,7 @@ x=2: jit=1.0  eager=1.0
 ROOT %multiply = f32[3]{0} multiply(%a, %power)
 ```
 
-The simplifier rewrote `A / pow(B, C)` as `A * pow(B, -C)`. For `B = 3e38` that turns a quotient of two normal numbers into a product with `pow(3e38, -1)`, about 3.3e-39, which is below the smallest normal float32. XLA:CPU flushes subnormal results to zero, which comes back in case 9, so the product is 0. The rewrite is guarded only against integer types:[^divpow]
+The simplifier rewrote `A / pow(B, C)` as `A * pow(B, -C)`. For `B = 3e38` that turns a quotient of two normal numbers into a product with `pow(3e38, -1)`. That value is about 3.3e-39, below the smallest normal float32. XLA:CPU flushes subnormal results to zero (which comes back in case 9), so the product is 0. The rewrite is guarded only against integer types:[^divpow]
 
 ```cpp
 // xla/hlo/transforms/simplifiers/algebraic_simplifier.cc, HandleDivide
@@ -361,7 +361,7 @@ ENTRY e {
 }
 ```
 
-A segfault is at least loud. An out-of-bounds read that returns plausible floats isn't, and both came from a code path that gradient computations reach without anyone writing negative padding by hand. A backend with two convolution implementations needs every convolution fix applied twice. Reported as openxla/xla#52411.[^i52411]
+A segfault is at least loud. An out-of-bounds read that returns plausible floats isn't. Both came from a code path that gradient computations reach without anyone writing negative padding by hand. A backend with two convolution implementations needs every convolution fix applied twice. Reported as openxla/xla#52411.[^i52411]
 
 ## 9. Take the arctangent of a tiny number
 
@@ -391,7 +391,7 @@ pow(x, 0.5)    scalar: 2.646978e-23   8-vector:          0.0
 
 Either answer would be defensible: the true value, or the value with the input flushed to zero. NaN isn't either, and neither is `2.6e-23` for the square root of 1e-40. The result also depends on whether the value sits in a scalar or a vector. The functions that misbehave also feed others: `jnp.angle` and `jnp.log` of a purely imaginary subnormal such as `1e-45j` come back with NaN imaginary parts.
 
-On the scalar path, the CPU backend emits a call to the C library. `EmitAtan2` declares `atan2f`, and XLA's JIT binds that name, and `powf`, to libm.[^atan2-emit] glibc's implementations misbehave in the floating-point mode the kernel runs in. A short C program on the same machine shows it, with no XLA involved:
+On the scalar path, the CPU backend emits a call to the C library. `EmitAtan2` declares `atan2f`, and XLA's JIT binds both `atan2f` and `powf` to libm.[^atan2-emit] glibc's implementations misbehave in the floating-point mode the kernel runs in. A short C program on the same machine shows it, with no XLA involved:
 
 ```c
 volatile float x = 1e-40f;
@@ -401,7 +401,7 @@ _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
 // FTZ+DAZ on:  atan2f(x,1)=-nan        atan2f(x,0)=-nan   powf(x,0.5)=2.64698e-23
 ```
 
-`2.64698e-23` is exactly what XLA returned. `atanf` and `asinf` return 0 under the same mode, but JAX never calls them: it lowers `arctan(x)` to the HLO `atan2(x, 1)` and `arcsin(x)` to `atan2(x, sqrt(...))`, so both inherit the NaN. At `907e39b`, the HLO `atan2(1e-40, 1)` returns `-nan` on the CPU backend and `9.99995e-41` on the interpreter. The flush-to-zero mode itself is deliberate, and a 2025 request for an option to disable it was closed.[^ftz-request] The bug is in calling code that wasn't built for that mode. Reported as openxla/xla#52420.[^i52420]
+`2.64698e-23` is exactly what XLA returned. `atanf` and `asinf` return 0 under the same mode, but JAX never calls them. It lowers `arctan(x)` to the HLO `atan2(x, 1)` and `arcsin(x)` to `atan2(x, sqrt(...))`, so both inherit the NaN. At `907e39b`, the HLO `atan2(1e-40, 1)` returns `-nan` on the CPU backend and `9.99995e-41` on the interpreter. The flush-to-zero mode itself is deliberate, and a 2025 request for an option to disable it was closed.[^ftz-request] The bug is in calling code that wasn't built for that mode. Reported as openxla/xla#52420.[^i52420]
 
 ## 10. Write `<=` in a sort comparator
 
@@ -452,7 +452,7 @@ while (__comp(__pivot, __last))
 
 The pivot is meant to stop the first loop, because `comp(pivot, pivot)` is false for any valid comparator. With `<=` on equal elements it's true, so `__first` walks off the end of the buffer. The always-true comparator never reads its operands, so the same loop increments an index forever without touching memory. That's why it hangs instead of segfaulting.
 
-jaxlib 0.12.0.1 and the `907e39b` build behave differently. The `<=` sort completes, and the always-true comparator still hangs, from 17 elements in jaxlib 0.12.0.1. Undefined behavior means the outcome is whatever the standard library and its build happen to do. Nothing in the stack checks the comparator. Checking it in general would be hard, because strict weak ordering is a property of a function, not of its type, though a debug-build `!comp(x, x)` check would catch these two. The documentation doesn't say that a bad comparator is undefined behavior, and that is what it is. Reported as openxla/xla#52412.[^i52412]
+jaxlib 0.12.0.1 and the `907e39b` build behave differently. The `<=` sort completes in both, and the always-true comparator still hangs in both. In jaxlib 0.12.0.1 the hang starts at 17 elements. Undefined behavior means the outcome is whatever the standard library and its build happen to do. Nothing in the stack checks the comparator. Checking it in general would be hard, because strict weak ordering is a property of a function, not of its type. But a debug-build `!comp(x, x)` check would catch these two. The documentation doesn't say that a bad comparator is undefined behavior, and that is what it is. Reported as openxla/xla#52412.[^i52412]
 
 ## How these were found
 
