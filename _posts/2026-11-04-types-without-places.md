@@ -40,7 +40,7 @@ But **the PL community did solve this, more than once.**
 
 - **Chapel** has `locale` as a type. The spec says "The identifier `locale` is a type that abstracts a locale," and "Both data and tasks can be associated with a value of locale type."[^chapel] It goes further for arrays: "Each domain type has a distribution associated with it," so `domain(2) dmapped new blockDist(...)` carries its distribution policy in its type.[^chapel-dm]
 - **X10** built its model on *places*. The OOPSLA 2005 paper creates remote work with `async (P) S`, "where P is a place expression."[^x10]
-- **Sequoia** "abstractly exposes hierarchical memory in the programming model," with tasks that localize computation to a level of the hierarchy, bound to a real machine separately.[^sequoia]
+- **Sequoia** "abstractly exposes hierarchical memory in the programming model," with tasks that localize computation to a level of the hierarchy. The binding to a real machine is written separately.[^sequoia]
 - **Halide** separates the algorithm from the schedule, so locality and ordering are written as their own artifact.[^halide]
 
 These are serious, well-published systems. None displaced C, C++, Python or Java for the workloads in question, and the mainstream languages that won absorbed none of their placement ideas.
@@ -55,7 +55,7 @@ Come at the machine from below and the polarity flips.
 
 A register is a bit container. `mov` doesn't care whether it is moving a probability, an array index or the low half of a pointer. PTX looks more typed than it is. `.u32`, `.f32` and `.b64` are widths and interpretations for one instruction. They say a value is 32 bits wide, never that it is a sequence length rather than a byte offset. Verilog gives you `wire [31:0]`, a bundle of bits whose meaning lives in a comment, if you are lucky.
 
-C is where the two meet, and it is where most of the damage comes from, because it is the language both communities agreed to use. One pointer type for every address in the machine. Implicit conversions through `void*`. When CUDA extended C for GPUs it inherited all of that: a host `float*` and a device `float*` are the same type. Pass either where the other is expected and the compiler accepts it. Whether it works depends on the system's memory model, and you find out at run time.
+C is where the two meet, and where most of the damage comes from. It is the language both communities agreed to use. One pointer type for every address in the machine. Implicit conversions through `void*`. When CUDA extended C for GPUs it inherited all of that: a host `float*` and a device `float*` are the same type. Pass either where the other is expected and the compiler accepts it. Whether it works depends on the system's memory model, and you find out at run time.
 
 The sharpest exception on this side is **OpenCL C, which put address spaces in the type system.** The spec "extends the C syntax to allow an address space name as a valid type qualifier," with "disjoint named address spaces" spelled `__global`, `__local`, `__constant` and `__private`.[^opencl] The conversion rules are stricter than most people remember:
 
@@ -112,7 +112,7 @@ So the precise gap is narrower than "SYCL doesn't type memory," which is false. 
 
 Kokkos is the harder objection. A `View` takes its memory space as a template parameter. The Kokkos documentation says the `MemorySpace` argument "Controls the storage location of the View."[^kokkos-view] `View<double*, CudaSpace>` and `View<double*, HostSpace>` are different types, in production C++.
 
-The assignment check is real and static. The converting constructor is enabled only when `MemorySpaceAccess<Dst, Src>::assignable` holds, which for two distinct spaces is `std::is_same_v<DstMemorySpace, SrcMemorySpace>`, so false.[^kokkos-assign] Write `h = d;` across spaces and the program doesn't compile. The rejection is an overload-resolution failure rather than a Kokkos message, but it happens at compile time.
+The assignment check is real and static. The converting constructor is enabled only when `MemorySpaceAccess<Dst, Src>::assignable` holds. The primary template defines that trait as `std::is_same_v<DstMemorySpace, SrcMemorySpace>`, which is false for two distinct spaces.[^kokkos-assign] Write `h = d;` across spaces and the program doesn't compile. The rejection is an overload-resolution failure rather than a Kokkos message, but it happens at compile time.
 
 Element access is where it gets interesting. Every `View::operator()` call routes through this, abbreviated from `Kokkos_ViewAccessPreconditionsCheck.hpp`:[^kokkos-check]
 
@@ -148,7 +148,7 @@ This isn't Kokkos being careless. It is the only thing a C++ library can do. CUD
 
 ## JAX moved place into the type, inside the trace
 
-The most interesting recent movement isn't in C++ at all. In JAX 0.11.0, `ShapedArray`, the abstract value every traced array carries and the thing JAX treats as a type, has these slots:[^jax-shapedarray]
+The most interesting recent movement isn't in C++ at all. Every traced array in JAX 0.11.0 carries a `ShapedArray`, the abstract value that JAX treats as a type. It has these slots:[^jax-shapedarray]
 
 ```python
 __slots__ = ['shape', 'dtype', 'weak_type', 'sharding', 'manual_axis_type',
@@ -163,7 +163,7 @@ typeof b:         float32[16@x,4]
 typeof host x:    float32<host>[4,4]
 ```
 
-The checks read like type errors because they are. Multiplying `a @ b`, whose contracting dimensions are sharded over different mesh axes, fails at trace time, before anything is compiled:
+The checks read like type errors because they are. In `a @ b`, the contracting dimensions are sharded over different mesh axes. The product fails at trace time, before anything is compiled:
 
 ```text
 ShardingTypeError: dot_general requires contracting dimensions to have
@@ -196,15 +196,15 @@ func.func public @main(%arg0: tensor<4x4xf32>
 
 ## Below the language, each layer reinvents place
 
-So the compiler engineer's situation is this. You get a program from a language whose types have little or no place information, and only inside the trace even in the best case. You must emit code for a machine where place is the dominant performance fact. Every layer in between invents its own vocabulary for the missing concept.
+So the compiler engineer's situation is this. You get a program from a language whose types have little or no place information. Even in the best case, that information exists only inside the trace. You must emit code for a machine where place is the dominant performance fact. Every layer in between invents its own vocabulary for the missing concept.
 
 **LLVM IR** puts place in the pointer type: `ptr addrspace(N)`. The verifier enforces it. `bitcast` can only convert between pointers "with the same address space," so crossing spaces takes an explicit `addrspacecast`.[^llvm-bitcast] But `N` is an integer, and the LangRef says "The semantics of non-zero address spaces are target-specific."[^llvm-addrspace] `addrspace(7)` is a 160-bit buffer fat pointer on AMDGPU and cluster shared memory on NVPTX.[^amdgpu-as] [^nvptx-as] The type system can't tell you which, because it doesn't know.
 
-**MLIR** goes further. A `memref`'s memory space "is specified by a target-specific attribute. It might be an integer value, string, dictionary or custom dialect attribute; no restriction is placed on the kind of attribute used."[^mlir-memref] Not only the meaning is open. So is the kind of thing a memory space is.
+**MLIR** goes further. A `memref`'s memory space "is specified by a target-specific attribute. It might be an integer value, string, dictionary or custom dialect attribute; no restriction is placed on the kind of attribute used."[^mlir-memref] The meaning is open, and so is the kind of thing a memory space is.
 
 **XLA's HLO** splits place in two. A `Shape` carries an optional `Layout` (`std::optional<Layout> layout`, with `has_layout()` and `clear_layout()`), and the layout carries a memory space.[^xla-shape] It prints as `S(n)`: `kGenericFastMemorySpace` is 1, `kHostMemorySpace` is 5, and the proto comment says the integer "is interpreted in a backend-specific manner."[^xla-layout] So memory space is in the shape. Mesh placement isn't. Sharding is a nullable `std::shared_ptr<const HloSharding>` on the *instruction*, tested with `has_sharding()` and serialized as an `OpSharding` proto.[^xla-sharding] The [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}) covers what the partitioner does with it.
 
-**Mosaic**, the TPU dialect, finally gets semantic: a `MemorySpace` enum with eight named cases (`vmem`, `smem`, `hbm`, `cmem`, `semaphore_mem`, `vmem_shared`, `host`, and the wildcard `any`), used as the memory-space parameter of the memref type, `memref<..., #tpu.memory_space<vmem>>`.[^mosaic-enum] Pallas carries it in the reference's abstract value too: `AbstractRef` has a `memory_space` slot.[^pallas-ref] Here is what that buys when a kernel asks the TPU's scalar memory for a vector:
+**Mosaic**, the TPU dialect, finally gets semantic. It defines a `MemorySpace` enum with eight named cases (`vmem`, `smem`, `hbm`, `cmem`, `semaphore_mem`, `vmem_shared`, `host`, and the wildcard `any`), used as the memory-space parameter of the memref type, `memref<..., #tpu.memory_space<vmem>>`.[^mosaic-enum] Pallas carries it in the reference's abstract value too: `AbstractRef` has a `memory_space` slot.[^pallas-ref] Here is what that buys when a kernel asks the TPU's scalar memory for a vector:
 
 ```python
 # 1. The input block is placed in SMEM, the TPU's scalar memory.
@@ -221,7 +221,7 @@ def kernel(x_ref, o_ref):
 ValueError: Can only load scalars from SMEM
 ```
 
-JAX deserves credit here: its stack trace points at the kernel's `x_ref[...]` line. But look at where the error comes from. It is raised by `_load_lowering_rule` while lowering to Mosaic, which happens at export, with no TPU attached. And the neighbouring branch decides whether a ref is in vector memory with `str(ref_type.memory_space) != "#tpu.memory_space<vmem>"`.[^pallas-lowering] The memory space is in the type, and the check is a string comparison in a lowering rule.
+JAX deserves credit here: its stack trace points at the kernel's `x_ref[...]` line. But look at where the error comes from. It is raised by `_load_lowering_rule` while lowering to Mosaic, which happens at export with no TPU attached. And the neighbouring branch decides whether a ref is in vector memory with `str(ref_type.memory_space) != "#tpu.memory_space<vmem>"`.[^pallas-lowering] The memory space is in the type, and the check is a string comparison in a lowering rule.
 
 The further down you go, the more precise the description of place becomes: an anonymous integer, an open attribute, a backend-interpreted integer inside a layout, a named enum. None of these vocabularies agree:
 
@@ -254,7 +254,7 @@ It would be easy to leave this as an aesthetic complaint. It isn't one.
 
 **Errors arrive at different times, in different vocabularies.** Put the errors above side by side. JAX's `ShardingTypeError` comes at trace time and talks about mesh axes, which is what you wrote. Pallas's SMEM error comes from a lowering rule and talks about loads, while what you wrote was a `BlockSpec`. Kokkos aborts at run time with a label. SYCL's cross-device read is undefined behavior with no diagnostic at all. Same kind of mistake, four different moments of discovery.
 
-**Because place isn't declared, it must be inferred, and inference is heuristic.** Layout assignment, memory-space assignment, LLVM's `infer-address-spaces` pass, fusion decisions that depend on where operands live: all of these are the compiler *recovering* something the programmer knew and had no way to state. Recovery is approximate, so it is a heuristic, so it is unpredictable. Performance becomes something you discover by dumping IR rather than something you reason about from source. Every "why is this kernel slow" investigation that ends at a layout copy is this cost being paid.
+**Because place isn't declared, it must be inferred, and inference is heuristic.** Layout assignment, memory-space assignment, LLVM's `infer-address-spaces` pass, fusion decisions that depend on where operands live: all of these are the compiler *recovering* something the programmer knew and had no way to state. Recovery is approximate, which makes it unpredictable. Performance becomes something you discover by dumping IR rather than something you reason about from source. Every "why is this kernel slow" investigation that ends at a layout copy is this cost being paid.
 
 **The same fact gets re-derived at every level.** In the JAX case above, the programmer said `<host>`. The aval recorded it. StableHLO demoted it to a string. HLO rebuilt it as `S(5)` in a layout. Each backend then maps `S(5)` to its own notion of host memory. One fact, known at the top, re-encoded four times by four pieces of code that have to agree.
 
@@ -361,4 +361,4 @@ And whoever builds that inherits the cost N3916 was written to escape. If place 
 
 ---
 
-*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5, Claude Opus 5.5). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*
+*Disclaimer: Researched and drafted with AI assistance (Claude Opus 5, Claude Opus 5.5, Gemini 4 Argon). Direction, technical judgment, and final edits are mine; every claim is traceable to the sources cited above.*
