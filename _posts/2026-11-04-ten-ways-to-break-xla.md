@@ -27,7 +27,7 @@ On an Apple-silicon Mac it prints `0`. Pass the 7 and the 0 in as arguments inst
 
 That's one integer division with three answers: a crash, zero and minus one. It's also a fair summary of how XLA breaks. It almost never breaks because one component is careless. It breaks at the seams, where two components that each look reasonable disagree about who checks what. Each of the ten cases below has an input you can paste and the output it produced.
 
-The JAX outputs come from jax 0.11.0, which pins XLA `131bf41` (2026-07-16), on an Apple-silicon Mac and on an x86-64 Ubuntu 26.04 machine. The HLO outputs come from `hlo-opt` and `run_hlo_module` built from source at XLA `907e39b` (2026-11-04), the build described in [Hacking on XLA]({% post_url 2026-11-04-hacking-on-xla-a-custom-pass %}).[^xla-src] Running both shows which cases have since been fixed, and what the fix looked like. The [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}) covers what each stage of the compiler is for. This post is about its edges.
+The JAX outputs come from jax 0.11.0, which pins XLA `131bf41` (2026-07-16), on an Apple-silicon Mac and on an x86-64 Ubuntu 26.04 machine. The HLO outputs come from `hlo-opt` and `run_hlo_module` built from source at XLA `907e39b` (2026-11-04), the build described in [Hacking on XLA]({% post_url 2026-11-04-hacking-on-xla-a-custom-pass %}).[^xla-src] Running both shows which cases have since been fixed and what the fix looked like. The [XLA review]({% post_url 2026-07-23-xla-review-and-critique %}) covers what each stage of the compiler is for. This post is about its edges.
 
 ```mermaid
 flowchart TB
@@ -110,11 +110,11 @@ F1104 23:06:04.111857 31090120 array.h:316] Check failed: std::distance(std::beg
     xla::PjRtCpuClient::CompileAndLoad()
 ```
 
-The `0` becomes a float6 constant broadcast to the input's shape. Converting that constant from an MLIR attribute to an XLA literal produces zero elements where three were expected. JAX lets you create the array, and MLIR represents it without complaint. The literal converter is the first layer that doesn't understand it, and it responds with `CHECK`, not an error. The issue is still open. The report, filed against a newer build, shows a different abort, `Unhandled primitive type F6E2M3FN`, one layer further along the same path.[^i51829] New narrow types get added one layer at a time, and the process dies in whichever layer hasn't caught up.
+The `0` becomes a float6 constant broadcast to the input's shape. Converting that constant from an MLIR attribute to an XLA literal produces zero elements where three were expected. JAX lets you create the array, and MLIR represents it without complaint. The literal converter is the first layer that doesn't understand it, and it responds with `CHECK`, not an error. The issue is still open. The report was filed against a newer build and shows a different abort (`Unhandled primitive type F6E2M3FN`) one layer further along the same path.[^i51829] New narrow types get added one layer at a time, and the process dies in whichever layer hasn't caught up.
 
 ## 3. Give a pass a module the verifier accepts
 
-This module is valid. The verifier accepts it, and it says only that `c` has to run after `b`:
+This module is valid. The verifier accepts it, and the module says only that `c` has to run after `b`:
 
 ```text
 HloModule m
@@ -152,7 +152,7 @@ But `b` still has a control successor, and `RemoveInstruction` refuses to delete
 
 ## 4. Write `<=` in a sort comparator
 
-XLA's `sort` takes a comparator computation. The operation semantics say only that, for ascending order, "the comparator should perform a less-than comparison."[^opsem-sort] The StableHLO spec doesn't add a requirement either.[^shlo-sort] So here is a comparator that uses `<=`:
+XLA's `sort` takes a comparator computation. For ascending order, the operation semantics say only that "the comparator should perform a less-than comparison."[^opsem-sort] The StableHLO spec doesn't add a requirement either.[^shlo-sort] So here is a comparator that uses `<=`:
 
 ```text
 HloModule sort_le
@@ -175,7 +175,7 @@ ENTRY e {
 }
 ```
 
-Compiled through jaxlib 0.11.0 on x86, this sort segfaults on an all-zero array once it has 17 or more elements. A comparator that always returns `true` makes sorts of 17 or more elements hang. Below 17 elements both finish. On the Mac the always-true comparator works up to 23 elements and hangs from 24. The `<=` comparator aborts at 64 elements, inside absl's `StatusOr` with "Attempting to fetch value instead of handling error", and hangs at 1024.
+Compiled through jaxlib 0.11.0 on x86, this sort segfaults on an all-zero array once it has 17 or more elements. A comparator that always returns `true` makes sorts of 17 or more elements hang. Below 17 elements both finish. On the Mac the always-true comparator works up to 23 elements and hangs from 24. The `<=` comparator aborts at 64 elements inside absl's `StatusOr` with "Attempting to fetch value instead of handling error", and it hangs at 1024.
 
 The CPU runtime hands the comparator straight to the standard library:[^sort-lib]
 
@@ -199,7 +199,7 @@ while (__comp(__pivot, __last))
   --__last;
 ```
 
-The pivot is meant to stop the first loop, because `comp(pivot, pivot)` is false for any valid comparator. With `<=` on equal elements it's true, so `__first` walks off the end of the buffer. The always-true comparator never reads its operands, so the same loop increments an index forever without touching memory. That's why it hangs instead of segfaulting. A backtrace of the hung process shows `std::__introsort_loop` called from `xla::cpu::internal::SortInplace`, called from `xla::cpu::SortThunk::Execute`.
+The pivot is meant to stop the first loop, because `comp(pivot, pivot)` is false for any valid comparator. With `<=` on equal elements it's true, so `__first` walks off the end of the buffer. The always-true comparator never reads its operands, so the same loop increments an index forever without touching memory. That's why it hangs instead of segfaulting. A backtrace of the hung process shows `std::__introsort_loop` called from `xla::cpu::internal::SortInplace`, which is called from `xla::cpu::SortThunk::Execute`.
 
 The from-source build at `907e39b` links LLVM's libc++, not libstdc++, and gives a third outcome:
 
@@ -208,7 +208,7 @@ sort_true.hlo      run_hlo_module --platform=cpu   timed out after 60 s
 sort_le_zeros.hlo  run_hlo_module --platform=cpu   completes
 ```
 
-Undefined behavior means the outcome is whatever the standard library happens to do. Nothing in the stack checks the comparator, and it would be hard to, because strict weak ordering is a property of a function, not of its type. XLA's position is defensible. But the documentation doesn't say that a bad comparator is undefined behavior, and that is exactly what it is.
+Undefined behavior means the outcome is whatever the standard library happens to do. Nothing in the stack checks the comparator. Checking it would be hard, because strict weak ordering is a property of a function, not of its type. XLA's position is defensible. But the documentation doesn't say that a bad comparator is undefined behavior, and that is exactly what it is.
 
 ## 5. Crop a convolution with negative padding
 
@@ -244,7 +244,7 @@ Thread 1 "run_hlo_module-" received signal SIGSEGV, Segmentation fault.
 #11 xla::cpu::YnnFusionThunk::Execute(xla::cpu::Thunk::ExecuteParams const&)
 ```
 
-The two channel counts take different paths. With 16 channels the optimized module keeps a plain `convolution`, which runs on Eigen. With 17 the CPU backend wraps the convolution in a `__ynn_fusion` and hands it to the YNNPACK library. jax 0.11.0 makes the same split. The fix changed only `eigen_spatial_convolutions-inl.h`, so it repaired the wrong values at 16 channels and left the crash at 17 in a different library. The YNNPACK path handles most negative padding. Cropping 1, 8 or 14 rows matches the interpreter, and so does a one-row output taken from a real input row, or two rows of pure padding. Of the paddings tried, the only ones that crash leave a single output row made entirely of padding, as in this six-line module:
+The two channel counts take different paths. With 16 channels the optimized module keeps a plain `convolution`, which runs on Eigen. With 17 the CPU backend wraps the convolution in a `__ynn_fusion` and hands it to the YNNPACK library. jax 0.11.0 makes the same split. The fix changed only `eigen_spatial_convolutions-inl.h`, so it repaired the wrong values at 16 channels and left the crash at 17 in a different library. The YNNPACK path handles most negative padding. Cropping 1, 8 or 14 rows matches the interpreter. So does a one-row output taken from a real input row, or two rows of pure padding. Of the paddings tried, the only ones that crash leave a single output row made entirely of padding, as in this six-line module:
 
 ```text
 HloModule ynn_pad
@@ -255,7 +255,7 @@ ENTRY e {
 }
 ```
 
-This is the most serious entry here. A segfault is at least loud. An out-of-bounds read that returns plausible floats isn't, and both came from a code path that gradient computations reach without anyone writing negative padding by hand. A backend with two convolution implementations needs every convolution fix applied twice.
+This is the most serious entry here. A segfault is at least loud. An out-of-bounds read that returns plausible floats isn't. Both came from a code path that gradient computations reach without anyone writing negative padding by hand. A backend with two convolution implementations needs every convolution fix applied twice.
 
 ## 6. Turn off copy insertion
 
@@ -298,7 +298,7 @@ while.2.header.i:
 }
 ```
 
-Copy insertion isn't an optimization. It's how XLA turns a functional program into one that can update buffers in place, and every later stage assumes it ran. A misspelled name is the opposite trap. `--xla_disable_hlo_passes=copy-insertoin` disables nothing, warns about nothing, and the loop finishes in 19 ms.
+Copy insertion isn't an optimization. It's how XLA turns a functional program into one that can update buffers in place, and every later stage assumes it ran. A misspelled name is the opposite trap. `--xla_disable_hlo_passes=copy-insertoin` disables nothing and warns about nothing, so the loop finishes in 19 ms.
 
 ## 7. Write an infinite loop that does nothing
 
@@ -372,7 +372,7 @@ f = jax.jit(lambda: jnp.asarray(A) @ jnp.asarray(A))
 f.lower().compile()
 ```
 
-On the Mac, compiling takes 28.4 seconds. The same matmul with `A` passed as an argument runs in 38.5 ms, so the fold costs about 740 times the work it saves, paid again on every cold compile. The f32 version folds quickly, because the evaluator sends rank-2 dots that compute in F32 to Eigen. The int32 version takes the evaluator's generic element-by-element path. XLA prints a warning while it works:
+On the Mac, compiling takes 28.4 seconds. The same matmul with `A` passed as an argument runs in 38.5 ms. So the fold costs about 740 times the work it saves, paid again on every cold compile. The f32 version folds quickly, because the evaluator sends rank-2 dots that compute in F32 to Eigen. The int32 version takes the evaluator's generic element-by-element path. XLA prints a warning while it works:
 
 ```text
 E1104 22:53:10.583574 slow_operation_alarm.cc:73] Constant folding an instruction is taking > 1s:
@@ -385,7 +385,7 @@ E1104 22:53:37.960311 slow_operation_alarm.cc:140] The operation took 28.381784s
 
 ## 9. Ask two evaluators the same question
 
-Case 1 had three implementations of integer division. Floating-point math has the same split between the folder and the runtime, and here it shows up without a crash. The table below covers 200,001 evenly spaced float32 values in [-20, 20], each computed once as a jit argument and once as a literal that gets folded. Errors are measured against the correctly rounded float64 result, on the Mac:
+Case 1 had three implementations of integer division. Floating-point math has the same split between the folder and the runtime, and here it shows up without a crash. The table below covers 200,001 evenly spaced float32 values in [-20, 20], each computed once as a jit argument and once as a literal that gets folded. Errors are measured on the Mac against the correctly rounded float64 result:
 
 | Function | Values that differ | Max error, runtime (ulp) | Max error, folded (ulp) |
 |---|---|---|---|
@@ -393,7 +393,7 @@ Case 1 had three implementations of integer division. Floating-point math has th
 | `erf` | 24,280 | 5 | 1 |
 | `exp` | 19,064 | 1 | 0 |
 
-x86 gives the same numbers, except for `erf`, where 24,248 values differ and the folded side is exact. The folded side is the accurate one, because the evaluator calls `std::tanh`.[^evaluator-tanh] The CPU runtime uses XLA's own vectorized approximation, which clamps its input and returns exactly ±1 outside the clamp:[^tanh]
+x86 gives the same numbers except for `erf`, where 24,248 values differ and the folded side is exact. The folded side is the accurate one, because the evaluator calls `std::tanh`.[^evaluator-tanh] The CPU runtime uses XLA's own vectorized approximation, which clamps its input and returns exactly ±1 outside the clamp:[^tanh]
 
 ```cpp
 // xla/codegen/intrinsic/tanh.cc, EmitFastTanh
@@ -403,7 +403,7 @@ const float plus_clamp =
 // tanh approximation on that input is exactly 1.0.
 ```
 
-So `tanh(-8.0378)` is `-0.99999976` when folded, which is the correctly rounded answer, and `-1.0` when computed at run time. Four ulp is a reasonable price for a fast vectorized kernel. But turning an argument into a literal can change a model's output in the last bits, and a bitwise regression test will notice.
+So `tanh(-8.0378)` is `-0.99999976` when folded (the correctly rounded answer) and `-1.0` when computed at run time. Four ulp is a reasonable price for a fast vectorized kernel. But turning an argument into a literal can change a model's output in the last bits, and a bitwise regression test will notice.
 
 Integer power is a larger version of the same split. `run_hlo_module` checks the CPU backend against the interpreter, which shares its evaluator with the constant folder:
 
@@ -422,7 +422,7 @@ INVALID_ARGUMENT: first mismatch at array index {0}:
   actual value:   1
 ```
 
-The CPU emitter caps exponentiation by squaring at six iterations, so it ignores exponent bits above bit 5, and `3^64` comes out as `3^0`. The interpreter computes the full wrapped product. The issue was closed as working as intended, on the spec's own terms: "integer overflows result in implementation-defined behavior."[^i50550] That reasoning is correct. It also guarantees that the folder and the runtime will disagree whenever a power overflows, because each implementation defines the result differently.
+The CPU emitter caps exponentiation by squaring at six iterations. It ignores exponent bits above bit 5, so `3^64` comes out as `3^0`. The interpreter computes the full wrapped product. The issue was closed as working as intended, on the spec's own terms: "integer overflows result in implementation-defined behavior."[^i50550] That reasoning is correct. It also guarantees that the folder and the runtime will disagree whenever a power overflows, because each implementation defines the result differently.
 
 ## 10. Trust the algebra
 
@@ -434,7 +434,7 @@ log(exp(x)) at x = 89.0           jit: 89.0           eager: inf
 dynamic_slice(roll(x, 4), [12])   jit: [50 60 70 80]  eager: [10 20 30 40]
 ```
 
-`exp(89)` overflows float32, so `log(exp(89))` is `inf`, but the simplifier rewrote `log(exp(x))` to `x` first.[^i42732] `(a + C1) + C2` was reassociated to `a + (C1 + C2)`, and `3e38 + 3e38` overflows even though both of the original additions are finite.[^i50214] The `dynamic_slice` case merged a nested slice into one without clamping the outer start index. XLA clamps every out-of-range start, so the merged slice reads a different window.[^i49121]
+`exp(89)` overflows float32, so `log(exp(89))` is `inf`. But the simplifier rewrote `log(exp(x))` to `x` first.[^i42732] `(a + C1) + C2` was reassociated to `a + (C1 + C2)`, and `3e38 + 3e38` overflows even though both of the original additions are finite.[^i50214] The `dynamic_slice` case merged a nested slice into one without clamping the outer start index. XLA clamps every out-of-range start, so the merged slice reads a different window.[^i49121]
 
 All three are fixed at `907e39b`. Replayed through `run_hlo_module` with the same inputs, the CPU backend returns `inf`, `3e+38` and `{10, 20, 30, 40}`, matching the interpreter. The fixes have a shape. Four commits since late July gate a float rewrite behind fast-math: inverse functions on 2026-07-27, exponentials on 2026-09-02, add and multiply reassociation on 2026-10-13, and `log(pow(a, b))` on 2026-10-17.[^fastmath-gates] The simplifier is being brought back to IEEE semantics one rule at a time. Each rule needed its own bug report first.
 
@@ -450,7 +450,7 @@ x = np.arange(4, dtype=np.int32).reshape(4, 1, 1)
 # jit: [1 1 1 1]   eager: [1 1 2 3]
 ```
 
-At `907e39b` the CPU result still differs from the interpreter at index 2, expected 2 and actual 1. An in-place update is only correct if every element is read before it's overwritten, and a shifted copy into the same buffer breaks that ordering.
+At `907e39b` the CPU result still differs from the interpreter at index 2 (expected 2, actual 1). An in-place update is only correct if every element is read before it's overwritten, and a shifted copy into the same buffer breaks that ordering.
 
 ## The pattern
 
@@ -458,7 +458,7 @@ Put the ten side by side and three seams keep coming up.
 
 **More than one evaluator per operation.** XLA effectively has three implementations of integer division: the StableHLO folder, the HLO evaluator and the CPU emitter. Each was written against the same specification. The specification says "implementation-defined" at the edges, and each implementation defines the edges differently. Cases 1, 8 and 9 come from this. I don't think the fix is a stricter specification. Approximate math and wrapping arithmetic are where the speed comes from. The fix is for folders to refuse what they can't reproduce. The StableHLO guard in case 1 is exactly that kind of fix, and it does more good than any tightened sentence in a spec.
 
-**`CHECK` as the error path.** Cases 2 and 3 die on assertions. So did three HLO parser bugs fixed this autumn, which now return parse errors instead.[^parser-fixes] Maintainers draw a clear line here. Of a report about an experimental feature, one wrote: "This is not a safety issue as it fails cleanly with a CHECK failure."[^i47385] That's fair for a compiler that trusts its input. For the Python process that embeds it, a clean `CHECK` failure is still a dead interpreter.
+**`CHECK` as the error path.** Cases 2 and 3 die on assertions. So did three HLO parser bugs fixed this autumn, which now return parse errors instead.[^parser-fixes] Maintainers draw a clear line here. On a report about an experimental feature, one wrote: "This is not a safety issue as it fails cleanly with a CHECK failure."[^i47385] That's fair for a compiler that trusts its input. For the Python process that embeds it, a clean `CHECK` failure is still a dead interpreter.
 
 **Contracts that live in prose, or nowhere.** The comparator in case 4, the passes that `--xla_disable_hlo_passes` must never touch in case 6, and the termination assumption in case 7 are all requirements that nothing in the stack writes down where a tool can see them. Some of them can't be checked cheaply. All of them can be documented, and the checkable ones belong in the verifier. Case 5 adds a fourth seam, smaller and more specific: a backend with two kernel libraries for one operation needs each fix in both.
 
@@ -466,7 +466,7 @@ Put the ten side by side and three seams keep coming up.
 
 - **Diff against the interpreter.** `run_hlo_module --platform=cpu --reference_platform=interpreter` runs the module on both and reports mismatches. The interpreter shares the HLO evaluator with the constant folder, so it catches the backend-versus-folder splits in cases 9 and 10 without extra work.
 - **Disable the simplifier first.** `XLA_FLAGS=--xla_disable_hlo_passes=algsimp` is the cheapest bisect step for a wrong answer. Check the spelling, because an unrecognized name is silently ignored.
-- **Stop the folding.** If compile time explodes, or a constant gives a different answer than an argument, pass the value as an argument or wrap it in `lax.optimization_barrier`.
+- **Stop the folding.** If compile time explodes or a constant gives a different answer than an argument, pass the value as an argument or wrap it in `lax.optimization_barrier`.
 - **Dump around the suspect pass.** `--xla_dump_to=DIR` with `--xla_dump_hlo_pass_re=<pass>` writes the module before and after each matching pass.
 - **Check the pin before filing.** jax 0.11.0 is almost four months of fixes behind XLA's main branch. A fix is in your jaxlib only if its commit is an ancestor of the XLA commit your jaxlib pins. Compare the two on GitHub before assuming a bug is still live.
 
