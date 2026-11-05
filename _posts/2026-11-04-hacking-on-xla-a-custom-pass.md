@@ -39,7 +39,7 @@ python3 configure.py --backend=CPU --host_compiler=CLANG
 bazelisk build //xla/tools:hlo-opt //xla/tools:run_hlo_module
 ```
 
-`.bazelrc` sets `USE_HERMETIC_CC_TOOLCHAIN=1`, so Bazel downloads a pinned clang and sysroot and doesn't use the system compiler.[^bazelrc] That matters more than it looks. The build doesn't depend on your distribution's compiler, so a failure because your clang is too new or too old can't happen. The price is that the first build compiles LLVM and MLIR as part of the graph. On a 16-vCPU x86 machine that was also running other builds, with Bazel limited to 10 jobs at low priority, it reported:
+`.bazelrc` sets `USE_HERMETIC_CC_TOOLCHAIN=1`, so Bazel downloads a pinned clang and sysroot and doesn't use the system compiler.[^bazelrc] That matters more than it looks. The build doesn't depend on your distribution's compiler, so it won't fail because your clang is too new or too old. The price is that the first build compiles LLVM and MLIR as part of the graph. On a 16-vCPU x86 machine that was also running other builds, with Bazel limited to 10 jobs at low priority, it reported:
 
 ```text
 INFO: Elapsed time: 3050.074s, Critical Path: 74.76s
@@ -100,7 +100,7 @@ ENTRY %e (x: f32[128,128]) -> f32[128,128] {
 }
 ```
 
-Being able to run one pass and see exactly what it did is the most useful property of the tool. It answers "which pass introduced this?" without bisecting the pipeline by hand. For the full pipeline, `XLA_FLAGS="--xla_dump_to=DIR --xla_dump_hlo_pass_re=.*"` writes a snapshot only when a pass changed the module. On a small module that is 20 files, named by pipeline and pass, for example `0005.simplification.after_pipeline-start.before_algsimp.txt`.
+Being able to run one pass and see exactly what it did is the most useful property of the tool. It answers "which pass introduced this?" without bisecting the pipeline by hand. For the full pipeline, `XLA_FLAGS="--xla_dump_to=DIR --xla_dump_hlo_pass_re=.*"` writes a snapshot only when a pass changed the module. On a small module that is 20 files, named by pipeline and pass like `0005.simplification.after_pipeline-start.before_algsimp.txt`.
 
 ### From JAX, the identity never reaches XLA
 
@@ -143,7 +143,7 @@ ROOT %ynn_fusion = f32[256,256]{1,0} fusion(%a.1, %b.1), kind=kCustom, ...
 #   wrapping %dot_general.0 = f32[256,256]{1,0} dot(%param_0, %param_1), ...
 ```
 
-With `algsimp`, the dot is first stripped of its size-1 contracting dimension and then, having no contraction left, rewritten into an elementwise multiply of two broadcasts.[^algsimp-dot] The loop emitter fuses that. Without `algsimp`, the dot survives and the CPU backend hands it to the YNNPACK library as a custom fusion. That's a different kernel from a different library, chosen because one pass didn't run. At `907e39b` the flag also accepts `algsimp:2` (the third invocation), `simplification/algsimp` (the one inside a named pipeline) and `@42` (a raw pass id).[^disable-flag] It doesn't warn about names it doesn't recognize.
+With `algsimp`, the dot is first stripped of its size-1 contracting dimension and then rewritten into an elementwise multiply of two broadcasts once no contraction is left.[^algsimp-dot] The loop emitter fuses that. Without `algsimp`, the dot survives and the CPU backend hands it to the YNNPACK library as a custom fusion. That's a different kernel from a different library, chosen because one pass didn't run. At `907e39b` the flag also accepts `algsimp:2` (the third invocation), `simplification/algsimp` (the one inside a named pipeline) and `@42` (a raw pass id).[^disable-flag] It doesn't warn about names it doesn't recognize.
 
 ## Writing the pass the way the tutorials do
 
@@ -240,7 +240,7 @@ absl::StatusOr<bool> HloPassInterface::Run(
 
 The first step is the payoff. `--xla_run_hlo_passes_starting_from` skips every pass before a named one. That works for every pass in the tree, including yours, because no subclass can bypass the base class anymore. It is the standard argument for the non-virtual interface pattern: the base class owns the protocol, and subclasses own only their step.
 
-The documentation hasn't fully caught up. At `907e39b`, `xla/hlo/pass/README.md` says the interface "provides core methods like `Run`, and`RunOnChangedComputations` that passes must implement." A few paragraphs later the same file says to "implement the required virtual methods (e.g., `RunImpl`)."[^readme] The header also has a comment that reads like a migration note, "Eventually all passes should override this method instead of Run()." That comment is on `RunOnChangedComputations`, the incremental hook that `HloPassFix` uses, and it describes a different migration that hasn't finished.
+The documentation hasn't fully caught up. At `907e39b`, `xla/hlo/pass/README.md` says the interface "provides core methods like `Run`, and`RunOnChangedComputations` that passes must implement." A few paragraphs later the same file says to "implement the required virtual methods (e.g., `RunImpl`)."[^readme] The header also has a comment that reads like a migration note: "Eventually all passes should override this method instead of Run()." That comment is on `RunOnChangedComputations`, the incremental hook that `HloPassFix` uses, and it describes a different migration that hasn't finished.
 
 The fix is one name and one access specifier. Override `RunImpl`, and put it under `protected:`. After that, an incremental rebuild of `hlo-opt` recompiles one file and relinks:
 
@@ -370,7 +370,7 @@ Two registries now exist side by side, and a pass in one is invisible to the oth
 
 ## Putting it in the real pipeline
 
-`hlo-opt --passes` runs each pass once. The real CPU compiler doesn't. Its simplification pipeline is an `HloPassFix<HloPassPipeline>`, a pipeline rerun until a whole iteration changes nothing, capped at 25 iterations, or 4 with the fast-compile preset:[^cpu-pipeline]
+`hlo-opt --passes` runs each pass once. The real CPU compiler doesn't. Its simplification pipeline is an `HloPassFix<HloPassPipeline>` that reruns until a whole iteration changes nothing. The cap is 25 iterations, or 4 with the fast-compile preset:[^cpu-pipeline]
 
 ```cpp
 // xla/service/cpu/cpu_compiler.cc, CreateSimplificationPipeline
@@ -431,7 +431,7 @@ absl::Status HandleMultiply(HloInstruction* mul) override {
 }
 ```
 
-Put both passes in the simplification pipeline, and every iteration ends with exactly the module it started with:
+Put both passes in the simplification pipeline, and every iteration ends with exactly the module it started with.
 
 By default the compile succeeds and prints nothing. The output is correct, and its one visible scar is a name. The final `add` is called `%add.50`, because it was rebuilt 50 times:
 
@@ -484,7 +484,7 @@ if (run_state->iteration == iteration_limit_) {
 }
 ```
 
-The third step is the interesting one. After 25 iterations that each changed the module, the loop reports that it changed nothing. That's a deliberate choice. If this loop sits inside another fixed-point loop, reporting "changed" would make the outer loop rerun it 25 more times, and so on up the nest. It does mean that a pass returning `true` forever is indistinguishable, by default, from a pipeline that converged. Two debug options make it visible:
+The third step is the interesting one. After 25 iterations that each changed the module, the loop reports that it changed nothing. That's a deliberate choice. If this loop sits inside another fixed-point loop, reporting "changed" would make the outer loop rerun it 25 more times, and so on up the nest. It does mean that by default, a pass returning `true` forever is indistinguishable from a pipeline that converged. Two debug options make it visible:
 
 ```text
 $ XLA_FLAGS=--xla_hlo_pass_fix_detect_cycles=true hlo-opt --platform=cpu --stage=hlo fight.hlo
@@ -496,11 +496,11 @@ $ XLA_FLAGS=--xla_unsupported_crash_on_hlo_pass_fix_max_iterations=true hlo-opt 
 F hlo_pass_fix.h:107] Unexpectedly high number of iterations 25 in HLO pass 'simplification' for module 'fight'
 ```
 
-Cycle detection hashes the module at the start of each iteration. The hash ignores instruction names, so the module after a round trip hashes the same as before it. The warning fired 48 times, 24 for each pipeline, from the second iteration on. The cost is real but small on toy inputs. On a chain of 200 doublings, the median of five `--stage=hlo` runs was 18 ms for the stock compiler, 20 ms with `AddToMul2` alone, and 70 ms with both passes. The machine was shared, so treat the ratio as indicative. It's a 3.5x compile-time penalty, with no warning at the default log level and a correct answer at the end, so nothing prompts anyone to look for it.
+Cycle detection hashes the module at the start of each iteration. The hash ignores instruction names, so the module after a round trip hashes the same as before it. The warning fired 48 times, 24 for each pipeline, from the second iteration on. The cost is real but small on toy inputs. On a chain of 200 doublings, the median of five `--stage=hlo` runs was 18 ms for the stock compiler, 20 ms with `AddToMul2` alone, and 70 ms with both passes. The machine was shared, so treat the ratio as indicative. It's a 3.5x compile-time penalty with no warning at the default log level and a correct answer at the end. Nothing prompts anyone to look for it.
 
 ## Pipelines as data
 
-The newest part of the framework moves pipelines out of C++. `HloPipelineProto`, added on 2026-10-26, describes a pipeline as a tree of nodes. Each node is either a pass, named by its key in the registry, or a sequence of nodes, and every node can carry its own fixed-point limit:[^pipeline-proto]
+The newest part of the framework moves pipelines out of C++. `HloPipelineProto`, added on 2026-10-26, describes a pipeline as a tree of nodes. Each node is either a pass named by its key in the registry or a sequence of nodes, and every node can carry its own fixed-point limit:[^pipeline-proto]
 
 ```protobuf
 message HloPipelineNodeProto {
@@ -519,7 +519,7 @@ message HloPipelineNodeProto {
 
 `HloPassFix<HloPassPipeline>` with a limit of 25 becomes a sequence node with `max_fixed_point_iterations: 25`. The registry supplies the passes by name, and `BuildHloPassPipeline` turns the proto into a runnable pipeline. At `907e39b` the GPU compiler is the only user. On 2026-10-30 it got a default proto pipeline, built with an `HloPipelineEditor`, that covers host-compute annotation and the passes before SPMD partitioning.[^gpu-pipeline] The CPU compiler and `hlo-opt` still build their pipelines in C++.
 
-I think this is the right direction, and the experiment above is the reason. A fixed-point group whose members undo each other is a property of the pipeline, not of any one pass. When the pipeline is C++, you find that with a debugger. When the pipeline is data, a tool can check it, for example by running each fixed-point group on a corpus with cycle detection on and flagging the groups that never settle. Data pipelines would also give `add-to-mul2` a way into a backend without editing `cpu_compiler.cc`. None of that exists yet. 29 passes are registered, and `hlo-opt` lists 125 for the CPU platform alone.
+I think this is the right direction, and the experiment above is the reason. A fixed-point group whose members undo each other is a property of the pipeline, not of any one pass. When the pipeline is C++, you find that with a debugger. When the pipeline is data, a tool can check it. For example, it can run each fixed-point group on a corpus with cycle detection on and flag the groups that never settle. Data pipelines would also give `add-to-mul2` a way into a backend without editing `cpu_compiler.cc`. None of that exists yet. 29 passes are registered, and `hlo-opt` lists 125 for the CPU platform alone.
 
 ## The review's claims, from the inside
 
