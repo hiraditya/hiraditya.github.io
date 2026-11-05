@@ -526,7 +526,7 @@ Put the ten side by side and three seams keep coming up.
 
 [^parser-fixes]: **HLO parser fixes.** `11aea702` (reshape element-count mismatch, 2026-08-12), `7a1a71db` (sugared async-start, 2026-10-30) and `e088f08d` (shape-less get-tuple-element, 2026-11-02) each replace a crash with a parse error. ([11aea702](https://github.com/openxla/xla/commit/11aea70249fd01207251a495c0c2b8d542251be8), [7a1a71db](https://github.com/openxla/xla/commit/7a1a71db9725a864a667b2f79e5451cc3df0f9a8), [e088f08d](https://github.com/openxla/xla/commit/e088f08d25a2e7f16ca7350615df9292a27a8715))
 
-[^i47385]: **openxla/xla#47385.** "Crash on CPU: hlo_computation.cc:808 ignore_safety_check || IsSafelyRemovable(…) cannot remove instruction…", a crash in experimental CPU multi-output fusion. ([Link](https://github.com/openxla/xla/issues/47385))
+[^i47385]: **openxla/xla#47385.** A `cannot remove instruction` crash at `hlo_computation.cc:808` in experimental CPU multi-output fusion, closed 2026-09-03 with the quoted comment. ([Link](https://github.com/openxla/xla/issues/47385))
 
 ---
 
