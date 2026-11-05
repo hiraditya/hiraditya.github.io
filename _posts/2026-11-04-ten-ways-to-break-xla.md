@@ -35,7 +35,7 @@ flowchart TB
     S -->|"StableHLO folder: 1"| I["StableHLO to HLO conversion"]
     I -->|"literal conversion: 2"| P["HLO pass pipeline"]
     P -->|"CSE: 3, copy insertion: 6, while simplifier: 7"| P
-    P -->|"constant folding: 8, 9; algebraic simplifier: 10"| C["CPU codegen"]
+    P -->|"constant folding: 8, 9 / algebraic simplifier: 10"| C["CPU codegen"]
     C -->|"tanh, erf, power: 9"| R["CPU runtime"]
     R -->|"sort: 4, convolution: 5"| O["result"]
 ```
