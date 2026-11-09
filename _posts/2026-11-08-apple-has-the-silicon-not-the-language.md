@@ -88,7 +88,7 @@ It is easy to read that meeting as a clash of temperaments, a careful software c
 
 I don't buy the personality explanation. Ternus ran Hardware Engineering before he became CEO in September. Since then, all of Apple's hardware reports to him through Johny Srouji, the chief hardware officer whose team designs Apple silicon.[^leadership] That hardware side has already shipped the computer an on-device AI agent wants. Every M4 Mac and A18 Pro iPhone is a unified, internally heterogeneous system-on-chip. It has performance CPU cores, efficiency CPU cores, and a matrix unit beside the CPU. That unit is Apple's undocumented AMX, which M4 and A18 also expose through Arm's documented SME instructions.[^sme] It has a tile-based GPU with on-chip threadgroup memory and a 16-core Neural Engine. All of them share one pool of unified memory.
 
-Software Engineering is not slow because its engineers lack urgency. It is slow because to run one agent loop across that chip, an Apple engineer has to write four languages across three runtimes that do not share a type system, an IR, or even a common definition of a pointer.
+Software Engineering is not slow because its engineers lack urgency. It is slow because to run one agent loop across that chip, an Apple engineer has to write four languages across three runtimes. Those runtimes do not share a type system, an IR, or even a common definition of a pointer.
 
 ## What an agent asks of a client chip
 
@@ -123,9 +123,9 @@ flowchart TB
     style VX fill:#143b27,color:#fff
 ```
 
-Host orchestration lives in Swift or Objective-C++. Custom GPU kernels live in Metal Shading Language (MSL), which has been based on C++17 since Metal 4.[^msl-spec] MSL is compiled offline or from runtime strings, and it binds to host buffers by integer slot numbers (`[[buffer(0)]]`). If you want the Neural Engine, there is no public kernel language at all. You drop into Python and trace a model with `coremltools` into MIL (`mlprogram`). Then you compile it to a `.mlmodelc` bundle, with `xcrun coremlc` or on the device with `MLModel.compileModel(at:)`, and pass data in and out through `MLMultiArray` objects. For the CPU's matrix unit, you call C routines in `Accelerate`, or on M4 and A18 you write Arm SME code with clang's SME intrinsics.
+Host orchestration lives in Swift or Objective-C++. Custom GPU kernels live in Metal Shading Language (MSL), which has been based on C++17 since Metal 4.[^msl-spec] MSL is compiled offline or from runtime strings, and it binds to host buffers by integer slot numbers (`[[buffer(0)]]`). If you want the Neural Engine, there is no public kernel language at all. You drop into Python and trace a model with `coremltools` into MIL (`mlprogram`). Then you compile it to a `.mlmodelc` bundle with `xcrun coremlc`, or on the device with `MLModel.compileModel(at:)`. You pass data in and out through `MLMultiArray` objects. For the CPU's matrix unit, you call C routines in `Accelerate`, or on M4 and A18 you write Arm SME code with clang's SME intrinsics.
 
-Apple is narrowing some of these seams. Metal 4 added tensor types to MSL, Shader ML for running small networks inside a shader, and Metal Performance Primitives for matrix multiplication.[^metal4] The M5 GPU puts a Neural Accelerator in every core.[^m5] Core AI, new in iOS and macOS 27, specializes a model for a set of allowed compute units, and `.neuralEngine` is one of them.[^coreai] The Foundation Models framework gives apps an on-device language model with tool calling.[^fm] Each of these closes one seam. None of them puts the host code, the GPU kernel, and the ANE graph in one type system, so a placement mistake is still something you find at run time.
+Apple is narrowing some of these seams. Metal 4 added tensor types to MSL, Shader ML for running small networks inside a shader, and Metal Performance Primitives for matrix multiplication.[^metal4] The M5 GPU puts a Neural Accelerator in every core.[^m5] Core AI, new in iOS and macOS 27, specializes a model for a set of allowed compute units, and `.neuralEngine` is one of them.[^coreai] The Foundation Models framework gives apps an on-device language model with tool calling.[^fm] Each of these closes one seam. But none of them puts the host code, the GPU kernel, and the ANE graph in one type system. A placement mistake is still something you find at run time.
 
 Apple's MLX framework[^mlx] is good research infrastructure, and its authors know the hardware. But MLX is a library, with Python, C++, C, and Swift APIs over Metal. It does not target the Neural Engine. An MLX array has no location at all. It sits in unified memory, and each operation picks the CPU or the GPU through a stream argument at run time. Cross a boundary between your host agent code, a custom Metal kernel, and a Core ML ANE subgraph, and no compiler sees the whole picture.
 
@@ -141,7 +141,7 @@ The dispatcher printed that banner whenever it took the Core ML code path. What 
 
 I hate silent fallbacks. In systems work, getting the right answer from the wrong processor is worse than a crash, because a benchmark or a battery trace built on top of it is measuring a fiction.
 
-Vx has one too. When the dispatcher cannot find its Core ML primitive, for example when `vxc` runs outside the checkout that holds `ane-primitives/`, it runs the matmul on the CPU. It still prints `1024`, and it says so only under `VX_DISPATCH_VERBOSE=1`.
+Vx has one too. When the dispatcher cannot find its Core ML primitive, for example when `vxc` runs outside the checkout that holds `ane-primitives/`, it runs the matmul on the CPU. It still prints `1024`, and it logs the fallback only under `VX_DISPATCH_VERBOSE=1`.
 
 So we wrote an audit harness (`scripts/tools/ane_device_check.py`) that builds 14 Core ML graphs with `coremltools` and compiles each with `xcrun coremlc`. It asks `MLComputePlan` for the planned device of every operation on an M4 and checks the numerical output against NumPy. Every positive test fails if even one operation is planned for the CPU or GPU. Every negative control fails if it *is* planned for the ANE.
 
@@ -191,7 +191,7 @@ for (size_t i = 0; i < elems; i++) {
 }
 ```
 
-That copy is Vx's own debt, not a Core ML rule. The generator declares `f32` inputs, and `coremltools` can declare `f16` ones for a model that targets iOS 16 or later.[^coremltools-io]
+That copy is Vx's own debt, not a Core ML rule. The generator declares `f32` inputs, though `coremltools` can declare `f16` ones for a model that targets iOS 16 or later.[^coremltools-io]
 
 If an engineer building an agent at Apple splits a transformer block across Metal and Core ML in the wrong place, or passes a shape below the partitioner's undocumented threshold, nothing fails to compile. Nothing throws an exception. The plan quietly moves the graph off the ANE and onto the CPU.
 
@@ -201,11 +201,11 @@ The second trap on Apple silicon is the belief that Unified Memory Architecture 
 
 The hardware half of that claim is real. On our development M4 (`MacBook Air, T8132`, 32 GB of unified memory), we measured Metal kernels reading buffers that the CPU had just written in place via `newBufferWithBytesNoCopy:` against buffers already resident on the GPU. The GPU read the freshly written CPU memory at **106.0 GB/s** versus **106.3 GB/s** for GPU-warm memory. That is a ratio of `0.997`. When you actually use the zero-copy path on M4, the seam costs nothing.
 
-An explicit `memcpy` of the same buffer in unified memory runs at **48.9 GB/s**. That is basic arithmetic. A copy inside one physical memory has to both read and write the same bus, moving two bytes of DRAM traffic for every byte copied, so it can never exceed half the 120 GB/s hardware peak.[^m4-air]
+An explicit `memcpy` of the same buffer in unified memory runs at **48.9 GB/s**. That is basic arithmetic. A copy inside one physical memory has to both read and write the same bus. It moves two bytes of DRAM traffic for every byte copied, so it can never exceed half the 120 GB/s hardware peak.[^m4-air]
 
 Here is how easily Metal code falls off the 106.0 GB/s path onto the 48.9 GB/s one. Apple documents that `[MTLDevice newBufferWithBytesNoCopy:length:options:deallocator:]` takes a page-aligned pointer and a length that ends the region on a page boundary, where a page is `vm_page_size` (16 KiB on Apple silicon).[^mtl-nocopy] A tensor in the middle of an `mmap`'d weight file or a stack frame does not meet that contract.
 
-Code that hits it either breaks the contract and hopes, or falls back to `newBufferWithBytes:length:options:`. That call allocates a fresh buffer and copies every byte across unified memory at 48.9 GB/s.
+Code that hits an unaligned tensor either breaks the contract and hopes, or falls back to `newBufferWithBytes:length:options:`. That call allocates a fresh buffer and copies every byte across unified memory at 48.9 GB/s.
 
 Because Vx controls both the compiler lowering and the Metal runtime (`runtime/metal_dispatch.mm`), it does the page arithmetic around the tensor and maps the enclosing pages instead of copying. It copies only when Metal refuses the memory:
 
@@ -306,7 +306,7 @@ In `inspect`, `transfer(out, Memory::CPU_DRAM)` stays in the source code so the 
 
 ## Turning runtime mysteries into compile-time refusals
 
-In [Types Without Places, Places Without Types]({% post_url 2026-11-04-types-without-places %}), I argued that mainstream languages fail on heterogeneous hardware because they leave location out of the type system. And in [A Type System Is a Search Oracle]({% post_url 2026-09-01-a-type-system-is-a-search-oracle %}), I showed why that matters even more when engineers and coding agents iterate rapidly: a compiler error fed back in milliseconds guides search, whereas a runtime bug discovered in Instruments three hours later stalls the team.
+In [Types Without Places, Places Without Types]({% post_url 2026-11-04-types-without-places %}), I argued that mainstream languages fail on heterogeneous hardware because they leave location out of the type system. And in [A Type System Is a Search Oracle]({% post_url 2026-09-01-a-type-system-is-a-search-oracle %}), I showed why that matters even more when engineers and coding agents iterate rapidly. A compiler error fed back in milliseconds guides search, whereas a runtime bug discovered in Instruments three hours later stalls the team.
 
 On Apple silicon, three classes of bugs routinely escape Swift, C++, and Python until runtime. `vxc` catches all three before emitting a single instruction.
 
@@ -405,7 +405,7 @@ The `Tensor<f32, [64], Memory::SMEM>` declaration inside the Vx loop became `thr
 
 And what happens when an on-device agent hits a reasoning step too large for local silicon and needs to hand off to Apple's Private Cloud Compute (PCC),[^pcc] which runs on Apple silicon server nodes in the data center?
 
-In Vx, a remote cloud worker is not a separate REST service with a hand-rolled serializer. It is a topology declared with `offload: true`. A worker on another node does not share the phone's memory, so `offload: true` removes the exemption that shared memory gets: a host tensor needs an explicit `transfer(...)` (`E6003`), as on a discrete GPU.[^offload] That transfer goes over Vx's length-framed wire protocol (`runtime/vx_wire.h` and `runtime/vx_remote_routing.h`). The programmer writes the same `spawn on` and `transfer` constructs across the CPU, the M4 GPU, the local ANE, and the cloud node.
+In Vx, a remote cloud worker is not a separate REST service with a hand-rolled serializer. It is a topology declared with `offload: true`. A worker on another node does not share the phone's memory, so `offload: true` removes the exemption that shared memory gets. A host tensor needs an explicit `transfer(...)` (`E6003`), as on a discrete GPU.[^offload] That transfer goes over Vx's length-framed wire protocol (`runtime/vx_wire.h` and `runtime/vx_remote_routing.h`). The programmer writes the same `spawn on` and `transfer` constructs across the CPU, the M4 GPU, the local ANE, and the cloud node.
 
 ## What Apple owns that I don't
 
