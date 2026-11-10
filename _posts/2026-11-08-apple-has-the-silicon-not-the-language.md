@@ -141,7 +141,13 @@ The dispatcher printed that banner whenever it took the Core ML code path. What 
 
 I hate silent fallbacks. In systems work, getting the right answer from the wrong processor is worse than a crash, because a benchmark or a battery trace built on top of it is measuring a fiction.
 
-Vx has one too. When the dispatcher cannot find its Core ML primitive, for example when `vxc` runs outside the checkout that holds `ane-primitives/`, it runs the matmul on the CPU. It still prints `1024`, and it logs the fallback only under `VX_DISPATCH_VERBOSE=1`.
+Vx has had one too. When the dispatcher could not find its Core ML primitive, it ran the matmul on the CPU. That happened, for example, when `vxc` ran outside the checkout that holds `ane-primitives/`. It still printed `1024`, and it logged the fallback only under `VX_DISPATCH_VERBOSE=1`. I filed that as [vx-lang/Vx#3051](https://github.com/vx-lang/Vx/issues/3051), and [#3080](https://github.com/vx-lang/Vx/pull/3080) fixed it.[^fallback] The same run now prints one line at any verbosity:
+
+```text
+[Vx Dispatcher] the program places vx_npu_kernel_1 on Topology::NPU[0], but it runs on the CPU: no matmul_512x512_fp16.mlmodelc in <the directories it searched>. Set VX_ANE_MODEL_DIR to the directory of the model.
+```
+
+With `VX_ENABLE_CPU_FALLBACK=0`, the program stops instead. That is how a test or a benchmark that claims to use the Neural Engine should run. But the line only covers a Core ML route that was tried and failed. An `f32` matmul placed on `Topology::NPU[0]` has no route at all, so it still runs on the CPU without a word unless that flag is set.
 
 So we wrote an audit harness (`scripts/tools/ane_device_check.py`) that builds 14 Core ML graphs with `coremltools` and compiles each with `xcrun coremlc`. It asks `MLComputePlan` for the planned device of every operation on an M4 and checks the numerical output against NumPy. Every positive test fails if even one operation is planned for the CPU or GPU. Every negative control fails if it *is* planned for the ANE.
 
@@ -462,6 +468,8 @@ Agentic AI uses the whole Apple silicon die (CPU, matrix unit, GPU, and ANE) ins
 [^mlcomputeunits]: **Apple Developer Documentation: `MLComputeUnits`.** The cases are `all`, `cpuOnly`, `cpuAndGPU`, and `cpuAndNeuralEngine`, the last since iOS 16 and macOS 13. ([Apple Developer Documentation](https://developer.apple.com/documentation/coreml/mlcomputeunits))
 
 [^mlcomputeplan]: **Apple Developer Documentation: `MLComputePlan`.** Introduced in macOS 14.4 and iOS 17.4. Reports the preferred and supported compute devices (`MLNeuralEngineComputeDevice`, `MLGPUComputeDevice`, `MLCPUComputeDevice`) for each operation of an `MLProgram` model, with a relative cost weight between 0 and 1. It is a plan, not an execution trace. ([Apple Developer Documentation](https://developer.apple.com/documentation/coreml/mlcomputeplan))
+
+[^fallback]: **vx-lang/Vx#3051: A kernel placed on the Neural Engine runs on the CPU without a word when its CoreML model is missing.** Filed and fixed on 2026-11-09. Pull request #3080 added the line and made `build.rs` stop defining the `VX_ENABLE_CPU_FALLBACK` macro, which no build could undefine. ([Issue](https://github.com/vx-lang/Vx/issues/3051), [Pull request](https://github.com/vx-lang/Vx/pull/3080))
 
 [^coremltools-io]: **Core ML Tools: Model Input and Output Types.** "Starting in coremltools version 6, you can use the np.float16 type with ML programs," for models that target iOS 16 or later. ([Core ML Tools](https://apple.github.io/coremltools/docs-guides/source/model-input-and-output-types.html))
 
